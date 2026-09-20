@@ -44,12 +44,7 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                     "promedio_tiempo_carga": "2.1 min",
                     "cantidad_cargas": "38 cargas"
                 },
-                "metricas_clave": [
-                    {"label": "Rendimiento", "val": "1.250 kg/h"},
-                    {"label": "Temp. Agua", "val": "74,5 °C"},
-                    {"label": "Presión Prensa", "val": "44 bar"},
-                    {"label": "Dosis Detergente", "val": "4.2 L/min"}
-                ],
+                "metricas_clave": [],
                 "progreso_carga": 85,
                 "programa_actual": "Prog 04 - Sábanas y Mantelería Hostelería"
             },

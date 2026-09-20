@@ -59,19 +59,19 @@ def create_mockup_inicio():
     print("Created screenshot_inicio.png")
 
 def create_mockup_produccion():
-    img = Image.new('RGB', (1200, 780), color='#0f172a')
+    img = Image.new('RGB', (1200, 700), color='#0f172a')
     draw = ImageDraw.Draw(img)
 
     # Header
     draw.rectangle([0, 0, 1200, 65], fill='#ffffff')
-    draw.text((30, 20), "ELIS NÁJERA 4.0 - MÓDULO DE PRODUCCIÓN (TÚNEL DE LAVADO ENRIQUECIDO)", fill='#0369a1')
+    draw.text((30, 20), "ELIS NÁJERA 4.0 - MÓDULO DE PRODUCCIÓN (TÚNEL DE LAVADO RECONSIGURADO)", fill='#0369a1')
 
     # Title
-    draw.text((30, 80), "🏭 Monitoreo en Tiempo Real: Túnel de Lavado con Indicadores de Turno", fill='#38bdf8')
+    draw.text((30, 80), "🏭 Monitoreo en Tiempo Real: Túnel de Lavado (Solo Indicadores de Turno)", fill='#38bdf8')
 
     # Tunel de Lavado Detailed Card
     x, y = 30, 120
-    draw.rectangle([x, y, x + 1140, y + 620], fill='#1e293b', outline='#38bdf8')
+    draw.rectangle([x, y, x + 1140, y + 530], fill='#1e293b', outline='#38bdf8')
     draw.rectangle([x, y, x + 1140, y + 6], fill='#0284c7')
 
     draw.text((x + 20, y + 20), "TÚNEL DE LAVADO", fill='#ffffff')
@@ -85,8 +85,8 @@ def create_mockup_produccion():
     draw.text((x + 900, y + 88), "⏰ HORARIO: 06:00 - 14:00", fill='#94a3b8')
 
     # Subtitle Resumen Turno Actual
-    draw.text((x + 20, y + 135), "RESUMEN TURNO ACTUAL", fill='#fbbf24')
-    draw.line([x + 230, y + 143, x + 1110, y + 143], fill='#334155')
+    draw.text((x + 20, y + 140), "RESUMEN TURNO ACTUAL", fill='#fbbf24')
+    draw.line([x + 230, y + 148, x + 1110, y + 148], fill='#334155')
 
     # 3 Shift Indicators
     shift_items = [
@@ -96,34 +96,19 @@ def create_mockup_produccion():
     ]
     for idx, (label, val, color) in enumerate(shift_items):
         ix = x + 20 + idx * 370
-        iy = y + 160
-        draw.rectangle([ix, iy, ix + 345, iy + 65], fill='#0f172a', outline='#334155')
-        draw.text((ix + 15, iy + 12), label, fill='#64748b')
-        draw.text((ix + 15, iy + 34), val, fill=color)
-
-    # Key Telemetry
-    draw.text((x + 20, y + 245), "PARÁMETROS OPERATIVOS Y TELEMETRÍA", fill='#ffffff')
-    telemetry = [
-        ("Rendimiento", "1.250 kg/h"),
-        ("Temp. Agua", "74,5 °C"),
-        ("Presión Prensa", "44 bar"),
-        ("Dosis Detergente", "4.2 L/min")
-    ]
-    for i_idx, (lbl, val) in enumerate(telemetry):
-        ix = x + 20 + (i_idx % 2) * 555
-        iy = y + 270 + (i_idx // 2) * 65
-        draw.rectangle([ix, iy, ix + 535, iy + 55], fill='#0f172a', outline='#334155')
-        draw.text((ix + 15, iy + 10), lbl.upper(), fill='#64748b')
-        draw.text((ix + 15, iy + 30), val, fill='#f8fafc')
+        iy = y + 170
+        draw.rectangle([ix, iy, ix + 345, iy + 90], fill='#0f172a', outline='#334155')
+        draw.text((ix + 20, iy + 18), label, fill='#64748b')
+        draw.text((ix + 20, iy + 45), val, fill=color)
 
     # OEE Bar
-    draw.text((x + 20, y + 420), "Rendimiento OEE / Disponibilidad: 91.2% OEE", fill='#38bdf8')
-    draw.rectangle([x + 20, y + 445, x + 1110, y + 462], fill='#0b1120', outline='#334155')
-    draw.rectangle([x + 20, y + 445, x + 20 + 990, y + 462], fill='#10b981')
+    draw.text((x + 20, y + 310), "Rendimiento OEE / Disponibilidad: 91.2% OEE", fill='#38bdf8')
+    draw.rectangle([x + 20, y + 335, x + 1110, y + 352], fill='#0b1120', outline='#334155')
+    draw.rectangle([x + 20, y + 335, x + 20 + 990, y + 352], fill='#10b981')
 
     # Program footer
-    draw.rectangle([x + 20, y + 490, x + 1110, y + 530], fill='#0c4a6e', outline='#0284c7')
-    draw.text((x + 30, y + 502), "▶ Programa Actual: Prog 04 - Sábanas y Mantelería Hostelería", fill='#f8fafc')
+    draw.rectangle([x + 20, y + 385, x + 1110, y + 425], fill='#0c4a6e', outline='#0284c7')
+    draw.text((x + 30, y + 397), "▶ Programa Actual: Prog 04 - Sábanas y Mantelería Hostelería", fill='#f8fafc')
 
     img.save('pdf_assets/screenshot_produccion.png')
     print("Created updated screenshot_produccion.png")

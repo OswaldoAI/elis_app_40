@@ -268,7 +268,7 @@ async function loadProduccionData() {
           </div>
       `;
 
-      // Tunel de Lavado Custom Shift Banner and Subtitle Resumen
+      // Custom Shift Banner and Shift Indicators
       if (m.turno_info) {
         html += `
           <div class="shift-banner">
@@ -298,7 +298,9 @@ async function loadProduccionData() {
         `;
       }
 
-      html += `
+      // Render Telemetry Grid only if metricas_clave has elements
+      if (m.metricas_clave && m.metricas_clave.length > 0) {
+        html += `
           <div class="telemetry-grid">
             ${m.metricas_clave.map(met => `
               <div class="telemetry-item">
@@ -307,7 +309,10 @@ async function loadProduccionData() {
               </div>
             `).join('')}
           </div>
+        `;
+      }
 
+      html += `
           <div class="performance-section">
             <div class="performance-header">
               <span>Rendimiento OEE / Disponibilidad</span>
