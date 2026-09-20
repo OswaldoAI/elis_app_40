@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from app.auth import get_current_user
 from app.database import get_db_connection
+from app.turnos_sync import get_cached_turnos, sync_turnos_from_server_1
 
 router = APIRouter(prefix="/api/produccion", tags=["Producción"])
 
@@ -20,6 +21,12 @@ def check_produccion_permission(current_user: dict = Depends(get_current_user)):
 
 @router.get("/summary")
 def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
+    turnos_cache = get_cached_turnos()
+    turno_act = turnos_cache.get("turno_actual", {})
+    
+    nombre_turno = turno_act.get("nombre") or "Turno Activo"
+    horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
+
     return {
         "status": "online",
         "planta": "ELIS NÁJERA 4.0",
@@ -34,9 +41,11 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "estado": "Operativa",
                 "icono": "fa-circle-notch",
                 "oee": 91.2,
+                "clickable": True,
+                "dashboard_url": "#tunel_lavado",
                 "turno_info": {
-                    "nombre": "Turno Mañana",
-                    "horario": "06:00 - 14:00"
+                    "nombre": nombre_turno,
+                    "horario": horario_turno
                 },
                 "subtitulo_resumen": "Resumen turno actual",
                 "indicadores_turno": {
@@ -55,6 +64,7 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "estado": "Operativa",
                 "icono": "fa-wind",
                 "oee": 88.7,
+                "clickable": False,
                 "metricas_clave": [
                     {"label": "Rendimiento", "val": "1.100 kg/h"},
                     {"label": "Temp. Secado", "val": "118 °C"},
@@ -71,6 +81,7 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "estado": "Operativa",
                 "icono": "fa-scroll",
                 "oee": 86.4,
+                "clickable": False,
                 "metricas_clave": [
                     {"label": "Velocidad", "val": "28 m/min"},
                     {"label": "Procesamiento", "val": "1.450 prendas/h"},
@@ -87,6 +98,7 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "estado": "Operativa",
                 "icono": "fa-eye",
                 "oee": 93.1,
+                "clickable": False,
                 "metricas_clave": [
                     {"label": "Velocidad", "val": "32 m/min"},
                     {"label": "Procesamiento", "val": "1.680 prendas/h"},
@@ -98,3 +110,64 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
             }
         ]
     }
+
+@router.get("/tunel-lavado/dashboard")
+def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)):
+    turnos_cache = get_cached_turnos()
+    turno_act = turnos_cache.get("turno_actual", {})
+    
+    nombre_turno = turno_act.get("nombre") or "Turno Mañana"
+    horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
+    progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
+
+    return {
+        "maquina": "TÚNEL DE LAVADO",
+        "planta": "ELIS NÁJERA 4.0",
+        "estado": "Operativa",
+        "oee": 91.2,
+        "sync_info": {
+            "origen": "Jetson Server 1 (192.168.0.137:5001)",
+            "cache_actualizado": turnos_cache.get("cache_updated_at", "Reciente"),
+            "frecuencia_sync": "Cada 30 minutos (Cache Local SQLite)"
+        },
+        "turno_activo": {
+            "nombre": nombre_turno,
+            "horario": horario_turno,
+            "progreso_porcentaje": progreso_turno,
+            "minutos_transcurridos": turno_act.get("minutos_transcurridos", 240)
+        },
+        "indicadores_destacados": {
+            "kg_totales_turno": {
+                "titulo": "Kg Totales Turno",
+                "valor": "14.280 kg",
+                "subtexto": "Objetivo Turno: 16.000 kg",
+                "color_gradiente": "linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)",
+                "icono": "fa-weight-hanging"
+            },
+            "cargas_totales_turno": {
+                "titulo": "Cargas Totales Turno",
+                "valor": "272 cargas",
+                "subtexto": "Promedio: 52.5 kg/carga",
+                "color_gradiente": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                "icono": "fa-boxes"
+            },
+            "kpi_productividad_iprod": {
+                "titulo": "KPI Productividad (iProd)",
+                "valor": "1,45 Tn/h",
+                "subtexto": "Índice iProd: 94.8% (Excelente)",
+                "color_gradiente": "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                "icono": "fa-chart-line"
+            }
+        },
+        "telemetria_adicional": [
+            {"parametro": "Tiempo Medio por Carga", "valor": "2,1 min", "estado": "Óptimo"},
+            {"parametro": "Temperatura de Lavado", "valor": "74,5 °C", "estado": "Estable"},
+            {"parametro": "Presión Deshidratado Prensa", "valor": "44,0 bar", "estado": "Normal"},
+            {"parametro": "Inyección Química Activa", "valor": "4,2 L/min", "estado": "Correcto"}
+        ]
+    }
+
+@router.post("/turnos/force-sync")
+def force_turnos_sync(admin: dict = Depends(check_produccion_permission)):
+    success = sync_turnos_from_server_1()
+    return {"status": "success" if success else "warning", "synced": success}

@@ -175,6 +175,9 @@ function switchView(viewName) {
   }
   if (targetBtn) {
     targetBtn.classList.add('active');
+  } else if (viewName === 'tunel_lavado') {
+    const prodBtn = document.querySelector(`.menu-btn[data-view="produccion"]`);
+    if (prodBtn) prodBtn.classList.add('active');
   }
 
   // Update browser location hash
@@ -182,6 +185,7 @@ function switchView(viewName) {
 
   // Load section specific data
   if (viewName === 'produccion') loadProduccionData();
+  if (viewName === 'tunel_lavado') loadTunelLavadoDashboard();
   if (viewName === 'consumos') loadConsumosData();
   if (viewName === 'usuarios') loadUsersList();
   if (viewName === 'permisos') loadPermissionsMatrix();
@@ -242,15 +246,20 @@ async function loadProduccionData() {
         🏭 Monitoreo en Tiempo Real de Máquinas y Procesos
       </h3>
       <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">
-        Telemetría y estado operativo de las máquinas principales de la planta ELIS Nájera 4.0:
+        Haz clic sobre la tarjeta de la máquina para acceder a su Dashboard Ampliado en tiempo real:
       </p>
 
       <div class="machines-grid">
     `;
 
     data.maquinas.forEach(m => {
+      const isClickable = m.clickable;
+      const clickAttr = isClickable ? `onclick="switchView('tunel_lavado')"` : '';
+      const cardClass = isClickable ? 'machine-card clickable-card' : 'machine-card';
+
       html += `
-        <div class="machine-card" id="card-${m.id}">
+        <div class="${cardClass}" id="card-${m.id}" ${clickAttr}>
+          ${isClickable ? '<span class="card-link-badge"><i class="fas fa-external-link-alt"></i> Dashboard Ampliado</span>' : ''}
           <div class="machine-header-row">
             <div class="machine-title-box">
               <div class="machine-avatar">
@@ -333,6 +342,92 @@ async function loadProduccionData() {
 
     html += `</div>`;
     container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
+  }
+}
+
+// Load Tunel de Lavado Ampliado Dashboard
+async function loadTunelLavadoDashboard() {
+  const container = document.getElementById('tunel-lavado-dashboard-content');
+  try {
+    const res = await fetch('/api/produccion/tunel-lavado/dashboard');
+    if (!res.ok) throw new Error('No autorizado');
+    const data = await res.json();
+
+    const kgInfo = data.indicadores_destacados.kg_totales_turno;
+    const cargasInfo = data.indicadores_destacados.cargas_totales_turno;
+    const kpiInfo = data.indicadores_destacados.kpi_productividad_iprod;
+
+    container.innerHTML = `
+      <!-- Banner Sincronización de Turno -->
+      <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; padding: 14px 20px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="fas fa-user-clock"></i>
+          </div>
+          <div>
+            <h4 style="color: var(--text-main); font-size: 1rem;">${data.turno_activo.nombre} (${data.turno_activo.horario})</h4>
+            <small style="color: var(--text-muted)">Sincronizado desde: ${data.sync_info.origen} | Frecuencia: ${data.sync_info.frecuencia_sync}</small>
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <span style="font-size: 0.8rem; color: #34d399; font-weight: 700;">🟢 CONEXIÓN ACTIVADA</span>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">Cache: ${data.sync_info.cache_actualizado}</div>
+        </div>
+      </div>
+
+      <!-- Cuadrícula de Tarjetas Visualmente Llamativas con Números Grandes -->
+      <h3 style="color: var(--text-main); font-size: 1.2rem; margin-bottom: 12px;">📊 Indicadores Principales del Turno Actual</h3>
+      
+      <div class="dashboard-kpi-grid">
+        <!-- Tarjeta 1: Kg Totales Turno -->
+        <div class="kpi-card-striking kpi-card-cyan">
+          <div class="kpi-card-header">
+            <h4>${kgInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${kgInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${kgInfo.valor}</div>
+          <div class="kpi-card-subtext">${kgInfo.subtexto}</div>
+        </div>
+
+        <!-- Tarjeta 2: Cargas Totales Turno -->
+        <div class="kpi-card-striking kpi-card-amber">
+          <div class="kpi-card-header">
+            <h4>${cargasInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${cargasInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${cargasInfo.valor}</div>
+          <div class="kpi-card-subtext">${cargasInfo.subtexto}</div>
+        </div>
+
+        <!-- Tarjeta 3: KPI Productividad (iProd) -->
+        <div class="kpi-card-striking kpi-card-emerald">
+          <div class="kpi-card-header">
+            <h4>${kpiInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${kpiInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${kpiInfo.valor}</div>
+          <div class="kpi-card-subtext">${kpiInfo.subtexto}</div>
+        </div>
+      </div>
+
+      <!-- Telemetría y Parámetros del Túnel -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; margin-top: 24px;">
+        <h3 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 16px;">⚙️ Telemetría y Parámetros Operativos</h3>
+        <div class="telemetry-grid">
+          ${data.telemetria_adicional.map(t => `
+            <div class="telemetry-item">
+              <span class="telemetry-label">${t.parametro}</span>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="telemetry-value">${t.valor}</span>
+                <span class="badge badge-produccion">${t.estado}</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
   } catch (err) {
     container.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
   }

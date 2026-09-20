@@ -50,5 +50,15 @@ def init_db():
     )
     """)
     
+    # Tabla de Cache de Turnos (Sincronizado cada 30 min desde Jetson Server 1: 192.168.0.137:5001)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS shift_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key_name TEXT UNIQUE NOT NULL,
+        data_json TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    
     conn.commit()
     conn.close()

@@ -130,6 +130,26 @@
         </div>
       </section>
 
+      <!-- Vista 2.1: Dashboard Detallado de Túnel de Lavado -->
+      <section id="view-tunel_lavado" class="view-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <div>
+            <button class="btn-header" onclick="switchView('produccion')" style="margin-bottom: 10px;">
+              <i class="fas fa-arrow-left"></i> Volver a Producción
+            </button>
+            <h2 style="font-size: 1.8rem; color: #38bdf8;">🌊 Dashboard Ampliado: Túnel de Lavado</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">Planta Nájera — Telemetría Avanzada e Indicadores por Turno</p>
+          </div>
+          <button class="btn-header" onclick="loadTunelLavadoDashboard()" title="Actualizar datos">
+            <i class="fas fa-sync-alt"></i> Actualizar
+          </button>
+        </div>
+
+        <div id="tunel-lavado-dashboard-content">
+          <p style="color: var(--text-muted)">Cargando Dashboard de Túnel de Lavado...</p>
+        </div>
+      </section>
+
       <!-- Vista 3: Consumos -->
       <section id="view-consumos" class="view-section">
         <h2 style="font-size: 1.6rem; color: #fbbf24; margin-bottom: 20px;">⚡ Módulo de Consumos</h2>

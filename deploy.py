@@ -47,6 +47,7 @@ def deploy():
         "app/models.py",
         "app/auth.py",
         "app/seed.py",
+        "app/turnos_sync.py",
         "app/main.py",
         "app/routers/__init__.py",
         "app/routers/auth_router.py",

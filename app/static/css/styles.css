@@ -362,7 +362,7 @@ body {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
   position: relative;
   overflow: hidden;
-  transition: transform 0.25s ease, border-color 0.25s ease;
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .machine-card::before {
@@ -375,9 +375,27 @@ body {
   background: linear-gradient(90deg, #0284c7, #10b981);
 }
 
-.machine-card:hover {
-  transform: translateY(-4px);
+.machine-card.clickable-card {
+  cursor: pointer;
+}
+
+.machine-card.clickable-card:hover {
+  transform: translateY(-6px);
   border-color: #38bdf8;
+  box-shadow: 0 12px 30px rgba(56, 189, 248, 0.3);
+}
+
+.card-link-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(2, 132, 199, 0.15);
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  float: right;
 }
 
 .machine-header-row {
@@ -506,6 +524,97 @@ body {
   font-size: 1.1rem;
   font-weight: 800;
   color: #34d399;
+}
+
+/* Estilos de Tarjetas Grandes de Colores Contrastantes para Dashboard Túnel de Lavado */
+.dashboard-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+  margin-bottom: 30px;
+}
+
+.kpi-card-striking {
+  border-radius: 18px;
+  padding: 26px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.kpi-card-striking:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+.kpi-card-cyan {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);
+  border-color: #38bdf8;
+}
+
+.kpi-card-amber {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 50%, #0f172a 100%);
+  border-color: #fbbf24;
+}
+
+.kpi-card-emerald {
+  background: linear-gradient(135deg, #059669 0%, #047857 50%, #0f172a 100%);
+  border-color: #34d399;
+}
+
+.kpi-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.kpi-card-header h4 {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #f8fafc;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.kpi-icon-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  color: white;
+  backdrop-filter: blur(4px);
+}
+
+.kpi-big-number {
+  font-size: 2.8rem;
+  font-weight: 900;
+  color: #ffffff;
+  letter-spacing: -1px;
+  line-height: 1.1;
+  margin: 10px 0;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.kpi-card-subtext {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.25);
+  padding: 6px 12px;
+  border-radius: 8px;
+  display: inline-block;
+  align-self: flex-start;
 }
 
 .machine-status-badge {

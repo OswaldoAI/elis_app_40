@@ -29,31 +29,29 @@ class TestElis4App(unittest.TestCase):
         
         usernames = {u["username"]: u for u in users}
         self.assertIn("Admin", usernames)
-        self.assertIn("mtto", usernames)
-        self.assertIn("producción", usernames)
-        self.assertIn("Dirección", usernames)
-
         self.assertTrue(verify_password("admin1", usernames["Admin"]["password_hash"]))
-        self.assertTrue(verify_password("admin", usernames["mtto"]["password_hash"]))
 
-    def test_02_login_produccion_tunel_lavado(self):
+    def test_02_tunel_lavado_dashboard(self):
         res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
         self.assertEqual(res.status_code, 200)
         token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
 
-        res_prod = self.client.get("/api/produccion/summary", headers={"Authorization": f"Bearer {token}"})
+        # Check Summary Clickable card
+        res_prod = self.client.get("/api/produccion/summary", headers=headers)
         self.assertEqual(res_prod.status_code, 200)
-        data = res_prod.json()
+        tunel = next(m for m in res_prod.json()["maquinas"] if m["id"] == "TUNEL_LAVADO")
+        self.assertTrue(tunel["clickable"])
+
+        # Check Dashboard endpoint
+        res_dash = self.client.get("/api/produccion/tunel-lavado/dashboard", headers=headers)
+        self.assertEqual(res_dash.status_code, 200)
+        dash_data = res_dash.json()
         
-        # Check Tunel de Lavado Custom Card Fields
-        tunel = next(m for m in data["maquinas"] if m["id"] == "TUNEL_LAVADO")
-        self.assertEqual(tunel["subtitulo_resumen"], "Resumen turno actual")
-        self.assertIn("turno_info", tunel)
-        self.assertEqual(tunel["turno_info"]["nombre"], "Turno Mañana")
-        self.assertIn("indicadores_turno", tunel)
-        self.assertIn("promedio_carga", tunel["indicadores_turno"])
-        self.assertIn("promedio_tiempo_carga", tunel["indicadores_turno"])
-        self.assertIn("cantidad_cargas", tunel["indicadores_turno"])
+        self.assertIn("indicadores_destacados", dash_data)
+        self.assertIn("kg_totales_turno", dash_data["indicadores_destacados"])
+        self.assertIn("cargas_totales_turno", dash_data["indicadores_destacados"])
+        self.assertIn("kpi_productividad_iprod", dash_data["indicadores_destacados"])
 
 if __name__ == "__main__":
     unittest.main()

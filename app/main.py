@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.database import init_db
 from app.seed import seed_database
+from app.turnos_sync import start_turnos_background_sync, sync_turnos_from_server_1
 from app.routers import (
     auth_router,
     users_router,
@@ -21,18 +22,21 @@ app = FastAPI(title="ELIS NAJERA 4.0 - Sistema de Supervisión", version="4.0.0"
 def startup_event():
     seed_database()
 
-# 2. Servir Archivos Estáticos
+# 2. Iniciar sincronización en segundo plano de turnos (cada 30 min desde Jetson Server 1)
+start_turnos_background_sync(app)
+
+# 3. Servir Archivos Estáticos
 BASE_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
-# 3. Registrar Routers de la API
+# 4. Registrar Routers de la API
 app.include_router(auth_router.router)
 app.include_router(users_router.router)
 app.include_router(modules_router.router)
 app.include_router(produccion_router.router)
 app.include_router(consumos_router.router)
 
-# 4. Rutas Principales de la Aplicación
+# 5. Rutas Principales de la Aplicación
 @app.get("/")
 def read_root():
     return RedirectResponse(url="/inicio")
