@@ -32,7 +32,7 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "nombre": "TÚNEL DE LAVADO",
                 "tipo": "Lavado Continuo Industrial",
                 "estado": "Operativa",
-                "icono": "fa-water",
+                "icono": "fa-circle-notch",
                 "oee": 91.2,
                 "turno_info": {
                     "nombre": "Turno Mañana",
