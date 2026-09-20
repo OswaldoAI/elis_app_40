@@ -158,13 +158,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
                 "color_gradiente": "linear-gradient(135deg, #10b981 0%, #059669 100%)",
                 "icono": "fa-chart-line"
             }
-        },
-        "telemetria_adicional": [
-            {"parametro": "Tiempo Medio por Carga", "valor": "2,1 min", "estado": "Óptimo"},
-            {"parametro": "Temperatura de Lavado", "valor": "74,5 °C", "estado": "Estable"},
-            {"parametro": "Presión Deshidratado Prensa", "valor": "44,0 bar", "estado": "Normal"},
-            {"parametro": "Inyección Química Activa", "valor": "4,2 L/min", "estado": "Correcto"}
-        ]
+        }
     }
 
 @router.post("/turnos/force-sync")

@@ -162,10 +162,20 @@ function setupEventListeners() {
   });
 }
 
-// Switch View Sections
+// Switch View Sections (Manages Full Screen vs Sidebar Layout)
 function switchView(viewName) {
   document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
   document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
+
+  const sidebarEl = document.querySelector('.sidebar');
+
+  if (viewName === 'tunel_lavado') {
+    // Quitar menú de la izquierda para vista panorámica completa del dashboard
+    if (sidebarEl) sidebarEl.style.display = 'none';
+  } else {
+    // Mostrar menú de la izquierda en las demás vistas
+    if (sidebarEl) sidebarEl.style.display = 'flex';
+  }
 
   const targetSec = document.getElementById(`view-${viewName}`);
   const targetBtn = document.querySelector(`.menu-btn[data-view="${viewName}"]`);
@@ -347,7 +357,7 @@ async function loadProduccionData() {
   }
 }
 
-// Load Tunel de Lavado Ampliado Dashboard
+// Load Tunel de Lavado Ampliado Dashboard (Sin Menú Izquierdo y Sin Telemetría)
 async function loadTunelLavadoDashboard() {
   const container = document.getElementById('tunel-lavado-dashboard-content');
   try {
@@ -367,18 +377,18 @@ async function loadTunelLavadoDashboard() {
             <i class="fas fa-user-clock"></i>
           </div>
           <div>
-            <h4 style="color: var(--text-main); font-size: 1rem;">${data.turno_activo.nombre} (${data.turno_activo.horario})</h4>
+            <h4 style="color: var(--text-main); font-size: 1.05rem;">${data.turno_activo.nombre} (${data.turno_activo.horario})</h4>
             <small style="color: var(--text-muted)">Sincronizado desde: ${data.sync_info.origen} | Frecuencia: ${data.sync_info.frecuencia_sync}</small>
           </div>
         </div>
         <div style="text-align: right;">
-          <span style="font-size: 0.8rem; color: #34d399; font-weight: 700;">🟢 CONEXIÓN ACTIVADA</span>
+          <span style="font-size: 0.85rem; color: #34d399; font-weight: 700;">🟢 CONEXIÓN ACTIVADA</span>
           <div style="font-size: 0.75rem; color: var(--text-muted);">Cache: ${data.sync_info.cache_actualizado}</div>
         </div>
       </div>
 
       <!-- Cuadrícula de Tarjetas Visualmente Llamativas con Números Grandes -->
-      <h3 style="color: var(--text-main); font-size: 1.2rem; margin-bottom: 12px;">📊 Indicadores Principales del Turno Actual</h3>
+      <h3 style="color: var(--text-main); font-size: 1.25rem; margin-bottom: 16px;">📊 Indicadores Principales del Turno Actual</h3>
       
       <div class="dashboard-kpi-grid">
         <!-- Tarjeta 1: Kg Totales Turno -->
@@ -409,22 +419,6 @@ async function loadTunelLavadoDashboard() {
           </div>
           <div class="kpi-big-number">${kpiInfo.valor}</div>
           <div class="kpi-card-subtext">${kpiInfo.subtexto}</div>
-        </div>
-      </div>
-
-      <!-- Telemetría y Parámetros del Túnel -->
-      <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; margin-top: 24px;">
-        <h3 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 16px;">⚙️ Telemetría y Parámetros Operativos</h3>
-        <div class="telemetry-grid">
-          ${data.telemetria_adicional.map(t => `
-            <div class="telemetry-item">
-              <span class="telemetry-label">${t.parametro}</span>
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span class="telemetry-value">${t.valor}</span>
-                <span class="badge badge-produccion">${t.estado}</span>
-              </div>
-            </div>
-          `).join('')}
         </div>
       </div>
     `;
