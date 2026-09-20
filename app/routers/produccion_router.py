@@ -19,6 +19,63 @@ def check_produccion_permission(current_user: dict = Depends(get_current_user)):
         )
     return current_user
 
+def calculate_tunel_metrics():
+    """Calcula indicadores reales agregados desde la tabla tunel_cargas de SQLite."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute("""
+            SELECT 
+                COUNT(*) as total_cargas,
+                COALESCE(AVG(peso_kg), 0) as promedio_peso,
+                COALESCE(AVG(tiempo_entre_cargas_seg), 0) as promedio_tiempo_seg,
+                COALESCE(SUM(peso_kg), 0) as total_kg
+            FROM tunel_cargas
+        """).fetchone()
+        conn.close()
+
+        total_cargas = row["total_cargas"] if row else 0
+        
+        if total_cargas > 0:
+            promedio_peso = round(row["promedio_peso"], 1)
+            promedio_tiempo_seg = round(row["promedio_tiempo_seg"])
+            promedio_tiempo_min = round(promedio_tiempo_seg / 60.0, 1)
+            total_kg = round(row["total_kg"], 1)
+
+            # Cálculo de productividad Tn/h
+            horas_transcurridas = 4.0
+            iprod_tnh = round((total_kg / 1000.0) / horas_transcurridas, 2)
+
+            return {
+                "is_real": True,
+                "cantidad_cargas": f"{total_cargas} cargas",
+                "cargas_num": total_cargas,
+                "promedio_carga": f"{promedio_peso} kg",
+                "promedio_peso_num": promedio_peso,
+                "promedio_tiempo_carga": f"{promedio_tiempo_min} min ({promedio_tiempo_seg}s)",
+                "promedio_tiempo_seg": promedio_tiempo_seg,
+                "kg_totales_turno": f"{int(total_kg):,} kg".replace(",", "."),
+                "total_kg_num": total_kg,
+                "iprod": f"{iprod_tnh} Tn/h",
+                "iprod_num": iprod_tnh
+            }
+    except Exception as e:
+        print(f"Error consultando tunel_cargas: {e}")
+
+    # Fallback si aún no se han recibido cargas por MQTT
+    return {
+        "is_real": False,
+        "cantidad_cargas": "38 cargas",
+        "cargas_num": 38,
+        "promedio_carga": "52.4 kg",
+        "promedio_peso_num": 52.4,
+        "promedio_tiempo_carga": "3.1 min (185s)",
+        "promedio_tiempo_seg": 185,
+        "kg_totales_turno": "14.280 kg",
+        "total_kg_num": 14280,
+        "iprod": "1,45 Tn/h",
+        "iprod_num": 1.45
+    }
+
 @router.get("/summary")
 def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
     turnos_cache = get_cached_turnos()
@@ -27,10 +84,12 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
     nombre_turno = turno_act.get("nombre") or "Turno Activo"
     horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
 
+    tunel_kpis = calculate_tunel_metrics()
+
     return {
         "status": "online",
         "planta": "ELIS NÁJERA 4.0",
-        "kilos_lavados_hoy": 14280,
+        "kilos_lavados_hoy": int(tunel_kpis["total_kg_num"]),
         "objetivo_diario": 18000,
         "eficiencia_global_oee": 89.85,
         "maquinas": [
@@ -49,9 +108,9 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 },
                 "subtitulo_resumen": "Resumen turno actual",
                 "indicadores_turno": {
-                    "promedio_carga": "52.4 kg",
-                    "promedio_tiempo_carga": "2.1 min",
-                    "cantidad_cargas": "38 cargas"
+                    "promedio_carga": tunel_kpis["promedio_carga"],
+                    "promedio_tiempo_carga": tunel_kpis["promedio_tiempo_carga"],
+                    "cantidad_cargas": tunel_kpis["cantidad_cargas"]
                 },
                 "metricas_clave": [],
                 "progreso_carga": 85,
@@ -120,15 +179,17 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
     horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
     progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
 
+    tunel_kpis = calculate_tunel_metrics()
+
     return {
         "maquina": "TÚNEL DE LAVADO",
         "planta": "ELIS NÁJERA 4.0",
         "estado": "Operativa",
         "oee": 91.2,
         "sync_info": {
-            "origen": "Jetson Server 1 (192.168.0.137:5001)",
+            "origen": "MQTT Mosquitto (192.168.0.116:1883) | Turnos Jetson Server 1",
             "cache_actualizado": turnos_cache.get("cache_updated_at", "Reciente"),
-            "frecuencia_sync": "Cada 30 minutos (Cache Local SQLite)"
+            "frecuencia_sync": "Tiempo Real MQTT + Polling 30m Turnos"
         },
         "turno_activo": {
             "nombre": nombre_turno,
@@ -139,22 +200,22 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
         "indicadores_destacados": {
             "kg_totales_turno": {
                 "titulo": "Kg Totales Turno",
-                "valor": "14.280 kg",
-                "subtexto": "Objetivo Turno: 16.000 kg",
+                "valor": tunel_kpis["kg_totales_turno"],
+                "subtexto": f"Objetivo Turno: 16.000 kg ({'Real MQTT' if tunel_kpis['is_real'] else 'Simulado'})",
                 "color_gradiente": "linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)",
                 "icono": "fa-weight-hanging"
             },
             "cargas_totales_turno": {
                 "titulo": "Cargas Totales Turno",
-                "valor": "272 cargas",
-                "subtexto": "Promedio: 52.5 kg/carga",
+                "valor": tunel_kpis["cantidad_cargas"],
+                "subtexto": f"Promedio: {tunel_kpis['promedio_carga']}/carga",
                 "color_gradiente": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
                 "icono": "fa-boxes"
             },
             "kpi_productividad_iprod": {
                 "titulo": "KPI Productividad (iProd)",
-                "valor": "1,45 Tn/h",
-                "subtexto": "Índice iProd: 94.8% (Excelente)",
+                "valor": tunel_kpis["iprod"],
+                "subtexto": f"Tiempo prom: {tunel_kpis['promedio_tiempo_carga']}",
                 "color_gradiente": "linear-gradient(135deg, #10b981 0%, #059669 100%)",
                 "icono": "fa-chart-line"
             }
@@ -165,3 +226,4 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
 def force_turnos_sync(admin: dict = Depends(check_produccion_permission)):
     success = sync_turnos_from_server_1()
     return {"status": "success" if success else "warning", "synced": success}
+

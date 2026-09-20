@@ -7,6 +7,7 @@ from pathlib import Path
 from app.database import init_db
 from app.seed import seed_database
 from app.turnos_sync import start_turnos_background_sync, sync_turnos_from_server_1
+from app.mqtt_subscriber import start_mqtt_background_subscriber
 from app.routers import (
     auth_router,
     users_router,
@@ -22,8 +23,10 @@ app = FastAPI(title="ELIS NAJERA 4.0 - Sistema de Supervisión", version="4.0.0"
 def startup_event():
     seed_database()
 
-# 2. Iniciar sincronización en segundo plano de turnos (cada 30 min desde Jetson Server 1)
+# 2. Iniciar sincronizaciones en segundo plano
 start_turnos_background_sync(app)
+start_mqtt_background_subscriber(app)
+
 
 # 3. Servir Archivos Estáticos
 BASE_DIR = Path(__file__).resolve().parent

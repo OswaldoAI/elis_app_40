@@ -48,6 +48,7 @@ def deploy():
         "app/auth.py",
         "app/seed.py",
         "app/turnos_sync.py",
+        "app/mqtt_subscriber.py",
         "app/main.py",
         "app/routers/__init__.py",
         "app/routers/auth_router.py",
@@ -61,6 +62,7 @@ def deploy():
         "app/static/images/elis_logo.png",
         "app/static/images/industria_40.png"
     ]
+
 
     print("Uploading project files to Jetson Server A...")
     for rel_path in files_to_upload:

@@ -53,5 +53,31 @@ class TestElis4App(unittest.TestCase):
         self.assertIn("cargas_totales_turno", dash_data["indicadores_destacados"])
         self.assertIn("kpi_productividad_iprod", dash_data["indicadores_destacados"])
 
+    def test_03_mqtt_save_and_real_metrics(self):
+        from app.mqtt_subscriber import save_carga_to_db
+        sample_payload = {
+            "site": "Elis Lavanderia Industrial",
+            "device": "Lenovo ThinkCentre PLC FX3U (HELMS Protocol)",
+            "load_id": 703,
+            "timestamp": "20/09/2026 22:00:50",
+            "cliente": 150,
+            "categoria": 4,
+            "peso_kg": 59,
+            "tiempo_entre_cargas_seg": 185,
+            "raw_hex": "1A40 10DC"
+        }
+        res_save = save_carga_to_db(sample_payload)
+        self.assertTrue(res_save)
+
+        res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        res_dash = self.client.get("/api/produccion/tunel-lavado/dashboard", headers=headers)
+        dash_data = res_dash.json()
+        self.assertEqual(dash_data["indicadores_destacados"]["kg_totales_turno"]["valor"], "59 kg")
+        self.assertEqual(dash_data["indicadores_destacados"]["cargas_totales_turno"]["valor"], "1 cargas")
+
 if __name__ == "__main__":
     unittest.main()
+

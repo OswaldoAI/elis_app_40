@@ -59,6 +59,24 @@ def init_db():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+
+    # Tabla de Telemetría de Cargas del Túnel de Lavado (MQTT Broker 192.168.0.116:1883)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tunel_cargas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        load_id INTEGER UNIQUE,
+        site TEXT,
+        device TEXT,
+        timestamp TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        cliente INTEGER,
+        categoria INTEGER,
+        peso_kg REAL,
+        tiempo_entre_cargas_seg INTEGER,
+        raw_hex TEXT
+    )
+    """)
     
     conn.commit()
     conn.close()
+
