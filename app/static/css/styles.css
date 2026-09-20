@@ -343,6 +343,188 @@ body {
   margin-top: 4px;
 }
 
+/* Tarjetas Gráficas de Máquinas (Módulo Producción) */
+.machines-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.machine-card {
+  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s ease, border-color 0.25s ease;
+}
+
+.machine-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: linear-gradient(90deg, #0284c7, #10b981);
+}
+
+.machine-card:hover {
+  transform: translateY(-4px);
+  border-color: #38bdf8;
+}
+
+.machine-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+}
+
+.machine-title-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.machine-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(2, 132, 199, 0.2);
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.machine-title-text h3 {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: 0.5px;
+}
+
+.machine-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.machine-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-operativa {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #34d399;
+  box-shadow: 0 0 8px #34d399;
+}
+
+/* Cuadrícula de Métricas Operativas */
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.telemetry-item {
+  background-color: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border-color);
+  padding: 12px 14px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.telemetry-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.telemetry-value {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+/* Barra de OEE y Rendimiento */
+.performance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.performance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.oee-value-tag {
+  color: #38bdf8;
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.progress-track {
+  width: 100%;
+  height: 10px;
+  background-color: #0b1120;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0284c7 0%, #10b981 100%);
+  border-radius: 5px;
+  transition: width 0.5s ease;
+}
+
+.program-footer {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  background: rgba(2, 132, 199, 0.08);
+  border: 1px dashed rgba(56, 189, 248, 0.25);
+  padding: 8px 12px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Modales y Formularios */
 .modal-overlay {
   position: fixed;
@@ -380,7 +562,6 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
-
 }
 
 .form-group {

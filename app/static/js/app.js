@@ -202,61 +202,100 @@ function closeLoginModal() {
   document.getElementById('login-modal').classList.remove('active');
 }
 
-// Load Produccion Data
+// Load Produccion Data: Rendering Graphic Cards for Machines
 async function loadProduccionData() {
   const container = document.getElementById('produccion-content');
   try {
     const res = await fetch('/api/produccion/summary');
-    if (!res.ok) throw new Error('Acceso no autorizado');
+    if (!res.ok) throw new Error('Acceso no autorizado al módulo de producción');
     const data = await res.json();
 
-    container.innerHTML = `
+    let html = `
       <div class="metrics-grid">
         <div class="metric-card">
-          <div class="metric-icon blue"><i class="fas fa-weight"></i></div>
+          <div class="metric-icon blue"><i class="fas fa-weight-hanging"></i></div>
           <div class="metric-info">
             <h4>Kilos Lavados Hoy</h4>
             <div class="metric-value">${data.kilos_lavados_hoy.toLocaleString()} kg</div>
+            <small style="color: var(--text-muted)">Objetivo: ${data.objetivo_diario.toLocaleString()} kg</small>
           </div>
         </div>
         <div class="metric-card">
-          <div class="metric-icon green"><i class="fas fa-chart-line"></i></div>
+          <div class="metric-icon green"><i class="fas fa-chart-pie"></i></div>
           <div class="metric-info">
-            <h4>Eficiencia OEE</h4>
-            <div class="metric-value">${data.eficiencia_global_oee}%</div>
+            <h4>Eficiencia Global OEE</h4>
+            <div class="metric-value" style="color: #34d399;">${data.eficiencia_global_oee}%</div>
+            <small style="color: var(--text-muted)">Líneas 100% Operativas</small>
           </div>
         </div>
         <div class="metric-card">
-          <div class="metric-icon purple"><i class="fas fa-tshirt"></i></div>
+          <div class="metric-icon purple"><i class="fas fa-cubes"></i></div>
           <div class="metric-info">
-            <h4>Prendas Procesadas</h4>
-            <div class="metric-value">${data.prendas_procesadas.toLocaleString()}</div>
+            <h4>Máquinas en Servicio</h4>
+            <div class="metric-value">4 / 4</div>
+            <small style="color: var(--text-muted)">Inspección Óptica Activa</small>
           </div>
         </div>
       </div>
 
-      <h3 style="margin-top: 30px; margin-bottom: 15px; color: var(--text-main);">Líneas de Producción Activas</h3>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>ID Linea</th>
-            <th>Equipo</th>
-            <th>Estado</th>
-            <th>Parámetros de Trabajo</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${data.lineas.map(l => `
-            <tr>
-              <td><strong>${l.id}</strong></td>
-              <td>${l.nombre}</td>
-              <td><span class="badge badge-produccion">${l.estado}</span></td>
-              <td>${l.velocidad || l.presion || l.temp_secado || 'Normal'}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+      <h3 style="margin-top: 32px; margin-bottom: 8px; font-size: 1.3rem; color: var(--text-main);">
+        🏭 Monitoreo en Tiempo Real de Máquinas y Procesos
+      </h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">
+        Telemetría y estado operativo de las máquinas principales de la planta ELIS Nájera 4.0:
+      </p>
+
+      <div class="machines-grid">
     `;
+
+    data.maquinas.forEach(m => {
+      html += `
+        <div class="machine-card" id="card-${m.id}">
+          <div class="machine-header-row">
+            <div class="machine-title-box">
+              <div class="machine-avatar">
+                <i class="fas ${m.icono}"></i>
+              </div>
+              <div class="machine-title-text">
+                <h3>${m.nombre}</h3>
+                <span class="machine-subtitle">${m.tipo}</span>
+              </div>
+            </div>
+            <div class="machine-status-badge status-operativa">
+              <span class="status-dot"></span>
+              ${m.estado}
+            </div>
+          </div>
+
+          <div class="telemetry-grid">
+            ${m.metricas_clave.map(met => `
+              <div class="telemetry-item">
+                <span class="telemetry-label">${met.label}</span>
+                <span class="telemetry-value">${met.val}</span>
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="performance-section">
+            <div class="performance-header">
+              <span>Rendimiento OEE / Disponibilidad</span>
+              <span class="oee-value-tag">${m.oee}% OEE</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" style="width: ${m.oee}%;"></div>
+            </div>
+          </div>
+
+          <div class="program-footer">
+            <i class="fas fa-play-circle" style="color: #38bdf8;"></i>
+            <span><strong>Programa Actual:</strong> ${m.programa_actual}</span>
+          </div>
+        </div>
+      `;
+    });
+
+    html += `</div>`;
+    container.innerHTML = html;
   } catch (err) {
     container.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
   }
