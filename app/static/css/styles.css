@@ -384,7 +384,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-
 }
 
 .machine-title-box {
@@ -417,6 +416,96 @@ body {
   font-size: 0.75rem;
   color: var(--text-muted);
   font-weight: 600;
+}
+
+/* Banner de Turno y Horario */
+.shift-banner {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 8px 14px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: #e2e8f0;
+}
+
+.shift-banner .shift-title {
+  font-weight: 700;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shift-banner .shift-time {
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+/* Subtítulo Resumen Turno Actual */
+.section-subtitle-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+
+.section-subtitle-bar h4 {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #fbbf24;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.section-subtitle-bar .subtitle-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.4), transparent);
+}
+
+/* Cuadrícula de Indicadores de Turno (3 columnas) */
+.shift-indicators-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.shift-indicator-box {
+  background-color: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--border-color);
+  padding: 10px 12px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+.shift-indicator-box:hover {
+  border-color: #38bdf8;
+}
+
+.shift-indicator-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  letter-spacing: 0.4px;
+}
+
+.shift-indicator-val {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #34d399;
 }
 
 .machine-status-badge {

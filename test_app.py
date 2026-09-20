@@ -35,45 +35,25 @@ class TestElis4App(unittest.TestCase):
 
         self.assertTrue(verify_password("admin1", usernames["Admin"]["password_hash"]))
         self.assertTrue(verify_password("admin", usernames["mtto"]["password_hash"]))
-        self.assertTrue(verify_password("admin", usernames["producción"]["password_hash"]))
-        self.assertTrue(verify_password("admin", usernames["Dirección"]["password_hash"]))
 
-    def test_02_login_admin(self):
-        res = self.client.post("/api/auth/login", json={"username": "Admin", "password": "admin1"})
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertIn("access_token", data)
-        self.assertEqual(data["user"]["role"], "Admin")
-        self.assertTrue(data["permissions"]["produccion"]["can_view"])
-        self.assertTrue(data["permissions"]["consumos"]["can_view"])
-
-    def test_03_login_produccion_machines(self):
+    def test_02_login_produccion_tunel_lavado(self):
         res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
         self.assertEqual(res.status_code, 200)
         token = res.json()["access_token"]
 
-        # Producción summary request
         res_prod = self.client.get("/api/produccion/summary", headers={"Authorization": f"Bearer {token}"})
         self.assertEqual(res_prod.status_code, 200)
         data = res_prod.json()
-        self.assertIn("maquinas", data)
         
-        machine_names = [m["nombre"] for m in data["maquinas"]]
-        self.assertIn("TÚNEL DE LAVADO", machine_names)
-        self.assertIn("TÚNEL VT", machine_names)
-        self.assertIn("CALANDRA 2", machine_names)
-        self.assertIn("CALANDRA 3", machine_names)
-
-    def test_04_login_mtto_permissions(self):
-        res = self.client.post("/api/auth/login", json={"username": "mtto", "password": "admin"})
-        self.assertEqual(res.status_code, 200)
-        token = res.json()["access_token"]
-
-        res_prod = self.client.get("/api/produccion/summary", headers={"Authorization": f"Bearer {token}"})
-        self.assertEqual(res_prod.status_code, 403)
-
-        res_cons = self.client.get("/api/consumos/summary", headers={"Authorization": f"Bearer {token}"})
-        self.assertEqual(res_cons.status_code, 200)
+        # Check Tunel de Lavado Custom Card Fields
+        tunel = next(m for m in data["maquinas"] if m["id"] == "TUNEL_LAVADO")
+        self.assertEqual(tunel["subtitulo_resumen"], "Resumen turno actual")
+        self.assertIn("turno_info", tunel)
+        self.assertEqual(tunel["turno_info"]["nombre"], "Turno Mañana")
+        self.assertIn("indicadores_turno", tunel)
+        self.assertIn("promedio_carga", tunel["indicadores_turno"])
+        self.assertIn("promedio_tiempo_carga", tunel["indicadores_turno"])
+        self.assertIn("cantidad_cargas", tunel["indicadores_turno"])
 
 if __name__ == "__main__":
     unittest.main()

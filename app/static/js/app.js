@@ -266,7 +266,39 @@ async function loadProduccionData() {
               ${m.estado}
             </div>
           </div>
+      `;
 
+      // Tunel de Lavado Custom Shift Banner and Subtitle Resumen
+      if (m.turno_info) {
+        html += `
+          <div class="shift-banner">
+            <span class="shift-title"><i class="fas fa-user-clock"></i> ${m.turno_info.nombre}</span>
+            <span class="shift-time"><i class="fas fa-clock"></i> ${m.turno_info.horario}</span>
+          </div>
+
+          <div class="section-subtitle-bar">
+            <h4>${m.subtitulo_resumen || 'Resumen turno actual'}</h4>
+            <div class="subtitle-line"></div>
+          </div>
+
+          <div class="shift-indicators-grid">
+            <div class="shift-indicator-box">
+              <span class="shift-indicator-label">Promedio Carga</span>
+              <span class="shift-indicator-val">${m.indicadores_turno.promedio_carga}</span>
+            </div>
+            <div class="shift-indicator-box">
+              <span class="shift-indicator-label">Promedio Tiempo</span>
+              <span class="shift-indicator-val">${m.indicadores_turno.promedio_tiempo_carga}</span>
+            </div>
+            <div class="shift-indicator-box">
+              <span class="shift-indicator-label">Cant. Cargas</span>
+              <span class="shift-indicator-val">${m.indicadores_turno.cantidad_cargas}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      html += `
           <div class="telemetry-grid">
             ${m.metricas_clave.map(met => `
               <div class="telemetry-item">

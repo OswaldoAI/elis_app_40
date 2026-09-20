@@ -59,55 +59,74 @@ def create_mockup_inicio():
     print("Created screenshot_inicio.png")
 
 def create_mockup_produccion():
-    img = Image.new('RGB', (1200, 750), color='#0f172a')
+    img = Image.new('RGB', (1200, 780), color='#0f172a')
     draw = ImageDraw.Draw(img)
 
     # Header
     draw.rectangle([0, 0, 1200, 65], fill='#ffffff')
-    draw.text((30, 20), "ELIS NÁJERA 4.0 - MÓDULO DE PRODUCCIÓN", fill='#0369a1')
+    draw.text((30, 20), "ELIS NÁJERA 4.0 - MÓDULO DE PRODUCCIÓN (TÚNEL DE LAVADO ENRIQUECIDO)", fill='#0369a1')
 
     # Title
-    draw.text((30, 80), "🏭 Monitoreo en Tiempo Real de Máquinas y Procesos", fill='#38bdf8')
+    draw.text((30, 80), "🏭 Monitoreo en Tiempo Real: Túnel de Lavado con Indicadores de Turno", fill='#38bdf8')
 
-    # Machine cards grid (2x2)
-    machines = [
-        ("TÚNEL DE LAVADO", "Lavado Continuo Industrial", "91.2% OEE", [("Rendimiento", "1.250 kg/h"), ("Temp. Agua", "74,5 °C"), ("Presión Prensa", "44 bar"), ("Detergente", "4.2 L/min")]),
-        ("TÚNEL VT", "Secado y Oreado Continuo VT", "88.7% OEE", [("Rendimiento", "1.100 kg/h"), ("Temp. Secado", "118 °C"), ("Humedad", "2,8 %"), ("Caudal Aire", "3.400 m³/h")]),
-        ("CALANDRA 2", "Planchado y Plegado Automático", "86.4% OEE", [("Velocidad", "28 m/min"), ("Prendas/h", "1.450 prendas/h"), ("Temp. Rodillo", "175 °C"), ("Vapor", "8,8 bar")]),
-        ("CALANDRA 3", "Planchado & Inspección Óptica IA", "93.1% OEE", [("Velocidad", "32 m/min"), ("Prendas/h", "1.680 prendas/h"), ("Temp. Rodillo", "180 °C"), ("IA Visión", "99.4% Conforme")])
+    # Tunel de Lavado Detailed Card
+    x, y = 30, 120
+    draw.rectangle([x, y, x + 1140, y + 620], fill='#1e293b', outline='#38bdf8')
+    draw.rectangle([x, y, x + 1140, y + 6], fill='#0284c7')
+
+    draw.text((x + 20, y + 20), "TÚNEL DE LAVADO", fill='#ffffff')
+    draw.text((x + 20, y + 42), "Lavado Continuo Industrial | Planta Nájera", fill='#94a3b8')
+    draw.rectangle([x + 980, y + 20, x + 1110, y + 50], fill='#064e3b', outline='#10b981')
+    draw.text((x + 995, y + 28), "🟢 OPERATIVA", fill='#34d399')
+
+    # Shift Banner
+    draw.rectangle([x + 20, y + 75, x + 1110, y + 115], fill='#0f172a', outline='#0284c7')
+    draw.text((x + 40, y + 88), "🕒 TURNO ACTIVO: Turno Mañana", fill='#38bdf8')
+    draw.text((x + 900, y + 88), "⏰ HORARIO: 06:00 - 14:00", fill='#94a3b8')
+
+    # Subtitle Resumen Turno Actual
+    draw.text((x + 20, y + 135), "RESUMEN TURNO ACTUAL", fill='#fbbf24')
+    draw.line([x + 230, y + 143, x + 1110, y + 143], fill='#334155')
+
+    # 3 Shift Indicators
+    shift_items = [
+        ("PROMEDIO CARGA", "52.4 kg", "#34d399"),
+        ("PROMEDIO TIEMPO DE CARGA", "2.1 min", "#38bdf8"),
+        ("CANTIDAD DE CARGAS", "38 cargas", "#c084fc")
     ]
+    for idx, (label, val, color) in enumerate(shift_items):
+        ix = x + 20 + idx * 370
+        iy = y + 160
+        draw.rectangle([ix, iy, ix + 345, iy + 65], fill='#0f172a', outline='#334155')
+        draw.text((ix + 15, iy + 12), label, fill='#64748b')
+        draw.text((ix + 15, iy + 34), val, fill=color)
 
-    coords = [(30, 120), (605, 120), (30, 435), (605, 435)]
+    # Key Telemetry
+    draw.text((x + 20, y + 245), "PARÁMETROS OPERATIVOS Y TELEMETRÍA", fill='#ffffff')
+    telemetry = [
+        ("Rendimiento", "1.250 kg/h"),
+        ("Temp. Agua", "74,5 °C"),
+        ("Presión Prensa", "44 bar"),
+        ("Dosis Detergente", "4.2 L/min")
+    ]
+    for i_idx, (lbl, val) in enumerate(telemetry):
+        ix = x + 20 + (i_idx % 2) * 555
+        iy = y + 270 + (i_idx // 2) * 65
+        draw.rectangle([ix, iy, ix + 535, iy + 55], fill='#0f172a', outline='#334155')
+        draw.text((ix + 15, iy + 10), lbl.upper(), fill='#64748b')
+        draw.text((ix + 15, iy + 30), val, fill='#f8fafc')
 
-    for idx, (name, subtitle, oee, items) in enumerate(machines):
-        x, y = coords[idx]
-        draw.rectangle([x, y, x + 565, y + 295], fill='#1e293b', outline='#334155')
-        # Top bar
-        draw.rectangle([x, y, x + 565, y + 4], fill='#0284c7')
-        # Title
-        draw.text((x + 20, y + 15), name, fill='#ffffff')
-        draw.text((x + 20, y + 38), subtitle, fill='#94a3b8')
-        draw.rectangle([x + 430, y + 15, x + 545, y + 45], fill='#064e3b', outline='#10b981')
-        draw.text((x + 445, y + 23), "🟢 OPERATIVA", fill='#34d399')
+    # OEE Bar
+    draw.text((x + 20, y + 420), "Rendimiento OEE / Disponibilidad: 91.2% OEE", fill='#38bdf8')
+    draw.rectangle([x + 20, y + 445, x + 1110, y + 462], fill='#0b1120', outline='#334155')
+    draw.rectangle([x + 20, y + 445, x + 20 + 990, y + 462], fill='#10b981')
 
-        # Items 2x2
-        for i_idx, (lbl, val) in enumerate(items):
-            ix = x + 20 + (i_idx % 2) * 265
-            iy = y + 70 + (i_idx // 2) * 60
-            draw.rectangle([ix, iy, ix + 250, iy + 52], fill='#0f172a', outline='#334155')
-            draw.text((ix + 12, iy + 8), lbl.upper(), fill='#64748b')
-            draw.text((ix + 12, iy + 26), val, fill='#f8fafc')
-
-        # OEE Bar
-        draw.text((x + 20, y + 200), f"Rendimiento OEE: {oee}", fill='#38bdf8')
-        draw.rectangle([x + 20, y + 222, x + 545, y + 234], fill='#0b1120', outline='#334155')
-        draw.rectangle([x + 20, y + 222, x + 20 + 470, y + 234], fill='#10b981')
-
-        draw.rectangle([x + 20, y + 248, x + 545, y + 278], fill='#0c4a6e', outline='#0284c7')
-        draw.text((x + 30, y + 256), f"▶ Programa Activo: Control de Proceso Automático", fill='#94a3b8')
+    # Program footer
+    draw.rectangle([x + 20, y + 490, x + 1110, y + 530], fill='#0c4a6e', outline='#0284c7')
+    draw.text((x + 30, y + 502), "▶ Programa Actual: Prog 04 - Sábanas y Mantelería Hostelería", fill='#f8fafc')
 
     img.save('pdf_assets/screenshot_produccion.png')
-    print("Created screenshot_produccion.png")
+    print("Created updated screenshot_produccion.png")
 
 def create_mockup_admin():
     img = Image.new('RGB', (1200, 600), color='#0f172a')
@@ -116,7 +135,6 @@ def create_mockup_admin():
     draw.rectangle([0, 0, 1200, 65], fill='#ffffff')
     draw.text((30, 20), "ELIS NÁJERA 4.0 - PANEL DE ADMINISTRACIÓN Y PERMISOS", fill='#0369a1')
 
-    # Left: User Management
     draw.rectangle([30, 95, 580, 560], fill='#1e293b', outline='#334155')
     draw.text((50, 115), "👥 Gestión de Usuarios y Credenciales", fill='#c084fc')
     
@@ -135,7 +153,6 @@ def create_mockup_admin():
         draw.rectangle([50, y, 560, y + 42], fill='#0f172a', outline='#334155')
         draw.text((60, y + 12), f"{u}  |  {n}  |  {r}  |  {s}", fill='#f8fafc')
 
-    # Right: Permissions Matrix
     draw.rectangle([610, 95, 1170, 560], fill='#1e293b', outline='#334155')
     draw.text((630, 115), "⚙️ Matriz de Visibilidad y Permisos", fill='#38bdf8')
 

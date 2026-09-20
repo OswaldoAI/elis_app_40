@@ -34,6 +34,16 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "estado": "Operativa",
                 "icono": "fa-water",
                 "oee": 91.2,
+                "turno_info": {
+                    "nombre": "Turno Mañana",
+                    "horario": "06:00 - 14:00"
+                },
+                "subtitulo_resumen": "Resumen turno actual",
+                "indicadores_turno": {
+                    "promedio_carga": "52.4 kg",
+                    "promedio_tiempo_carga": "2.1 min",
+                    "cantidad_cargas": "38 cargas"
+                },
                 "metricas_clave": [
                     {"label": "Rendimiento", "val": "1.250 kg/h"},
                     {"label": "Temp. Agua", "val": "74,5 °C"},
