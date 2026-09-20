@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  elis_industry4_app:
+    container_name: elis_industry4_app
+    build: .
+    restart: always
+    ports:
+      - "8084:8000"
+    volumes:
+      - elis_data:/app/data
+    environment:
+      - SECRET_KEY=elis_najera_40_secret_key_super_secure_2026
+      - DB_PATH=/app/data/elis_40.db
+
+volumes:
+  elis_data:

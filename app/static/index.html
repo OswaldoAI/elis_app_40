@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ELIS NÁJERA 4.0 - Sistema de Supervisión Industrial</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+  <!-- Encabezado Blanco Radiante Superior -->
+  <header class="app-header">
+    <div class="header-left">
+      <img src="/static/images/elis_logo.png" alt="ELIS Logo" class="header-logo">
+      <div class="header-title-container">
+        <span class="header-title">ELIS NÁJERA 4.0</span>
+        <span class="header-subtitle">Supervisión Planta Lavandería Industrial</span>
+      </div>
+    </div>
+    
+    <div class="header-right">
+      <div class="user-badge" id="user-profile-badge">
+        <div class="user-icon" id="user-initial">A</div>
+        <div class="user-details">
+          <span class="user-name" id="current-username">Administrador</span>
+          <span class="user-role" id="current-role">Admin</span>
+        </div>
+      </div>
+      <button class="btn-header" onclick="showLoginModal()" title="Cambiar de usuario">
+        <i class="fas fa-sync-alt"></i> Cambiar Usuario
+      </button>
+      <button class="btn-header btn-logout" id="btn-logout" title="Cerrar sesión">
+        <i class="fas fa-power-off"></i> Salir
+      </button>
+    </div>
+  </header>
+
+  <!-- Contenedor Principal: Sidebar Izquierdo + Área de Contenido -->
+  <div class="main-wrapper">
+    <!-- Menú de Botones a la Izquierda -->
+    <aside class="sidebar">
+      <span class="sidebar-label">Navegación</span>
+      <button class="menu-btn active" data-view="inicio" id="btn-module-inicio">
+        <div class="menu-btn-content">
+          <i class="fas fa-home"></i>
+          <span>Inicio (/inicio)</span>
+        </div>
+      </button>
+      
+      <span class="sidebar-label">Módulos de Planta</span>
+      <button class="menu-btn" data-view="produccion" id="btn-module-produccion">
+        <div class="menu-btn-content">
+          <i class="fas fa-industry"></i>
+          <span>Producción</span>
+        </div>
+        <span class="lock-badge" style="display:none;"><i class="fas fa-lock"></i></span>
+      </button>
+      
+      <button class="menu-btn" data-view="consumos" id="btn-module-consumos">
+        <div class="menu-btn-content">
+          <i class="fas fa-bolt"></i>
+          <span>Consumos</span>
+        </div>
+        <span class="lock-badge" style="display:none;"><i class="fas fa-lock"></i></span>
+      </button>
+
+      <div class="admin-only" style="display:none;">
+        <span class="sidebar-label">Administración</span>
+        <button class="menu-btn" data-view="usuarios" id="btn-module-usuarios">
+          <div class="menu-btn-content">
+            <i class="fas fa-users-cog"></i>
+            <span>Gestión Usuarios</span>
+          </div>
+        </button>
+        <button class="menu-btn" data-view="permisos" id="btn-module-permisos">
+          <div class="menu-btn-content">
+            <i class="fas fa-shield-alt"></i>
+            <span>Permisos Módulos</span>
+          </div>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Área de Contenido Principal -->
+    <main class="content-area">
+      <!-- Vista 1: Inicio (/inicio) -->
+      <section id="view-inicio" class="view-section active">
+        <div class="inicio-container">
+          <div class="hero-card">
+            <h2 style="font-size: 1.8rem; color: #38bdf8; margin-bottom: 8px;">Sistema de Supervisión Industria 4.0</h2>
+            <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 750px;">
+              Bienvenido al centro de control integral de la planta de lavandería industrial <strong>ELIS NÁJERA 4.0</strong>. Monitoreo en tiempo real de producción, eficiencia operativa y consumos energéticos.
+            </p>
+            <img src="/static/images/industria_40.png" alt="ELIS Industria 4.0" class="hero-image">
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-icon blue"><i class="fas fa-cogs"></i></div>
+              <div class="metric-info">
+                <h4>Estado de Planta</h4>
+                <div class="metric-value" style="color: #34d399;">100% OPERATIVA</div>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon green"><i class="fas fa-tachometer-alt"></i></div>
+              <div class="metric-info">
+                <h4>Disponibilidad</h4>
+                <div class="metric-value">98.4%</div>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon amber"><i class="fas fa-chart-line"></i></div>
+              <div class="metric-info">
+                <h4>Rendimiento</h4>
+                <div class="metric-value">14.2 Tn/Día</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Vista 2: Producción -->
+      <section id="view-produccion" class="view-section">
+        <h2 style="font-size: 1.6rem; color: #38bdf8; margin-bottom: 20px;">🏭 Módulo de Producción</h2>
+        <div id="produccion-content">
+          <p style="color: var(--text-muted)">Cargando métricas de producción...</p>
+        </div>
+      </section>
+
+      <!-- Vista 3: Consumos -->
+      <section id="view-consumos" class="view-section">
+        <h2 style="font-size: 1.6rem; color: #fbbf24; margin-bottom: 20px;">⚡ Módulo de Consumos</h2>
+        <div id="consumos-content">
+          <p style="color: var(--text-muted)">Cargando métricas de consumos...</p>
+        </div>
+      </section>
+
+      <!-- Vista 4: Gestión de Usuarios (Exclusivo Admin) -->
+      <section id="view-usuarios" class="view-section">
+        <h2 style="font-size: 1.6rem; color: #c084fc; margin-bottom: 20px;">👥 Panel de Gestión de Usuarios</h2>
+        
+        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 24px;">
+          <!-- Formulario Crear Usuario -->
+          <div style="background-color: var(--bg-card); padding: 24px; border-radius: 12px; border: 1px solid var(--border-color);">
+            <h3 style="margin-bottom: 16px; font-size: 1.1rem; color: var(--text-main);">Crear Nuevo Usuario</h3>
+            <form id="form-create-user">
+              <div class="form-group">
+                <label>Usuario (Username):</label>
+                <input type="text" id="new-username" class="form-control" required placeholder="ej: operador1">
+              </div>
+              <div class="form-group">
+                <label>Nombre Completo:</label>
+                <input type="text" id="new-fullname" class="form-control" required placeholder="ej: Juan Pérez">
+              </div>
+              <div class="form-group">
+                <label>Rol de Usuario:</label>
+                <select id="new-role" class="form-control">
+                  <option value="Admin">Admin</option>
+                  <option value="Dirección">Dirección</option>
+                  <option value="producción">producción</option>
+                  <option value="mtto">mtto</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Contraseña (Por defecto 'admin'):</label>
+                <input type="text" id="new-password" class="form-control" value="admin">
+              </div>
+              <button type="submit" class="btn-primary">➕ Registrar Usuario</button>
+            </form>
+          </div>
+
+          <!-- Tabla de Usuarios Registrados -->
+          <div>
+            <h3 style="margin-bottom: 16px; font-size: 1.1rem; color: var(--text-main);">Usuarios Registrados</h3>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Usuario</th>
+                  <th>Nombre</th>
+                  <th>Rol</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="users-table-body">
+                <!-- Se llena dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Vista 5: Permisos de Módulos (Exclusivo Admin) -->
+      <section id="view-permisos" class="view-section">
+        <h2 style="font-size: 1.6rem; color: #38bdf8; margin-bottom: 20px;">⚙️ Administración de Permisos y Visibilidad de Módulos</h2>
+        <p style="color: var(--text-muted); margin-bottom: 20px;">Configura qué roles de usuario pueden visualizar y acceder a los botones de Producción y Consumos.</p>
+        <div id="permissions-matrix-content">
+          <!-- Matriz dinámicamente generada -->
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Modal de Autenticación / Selección de Usuario -->
+  <div class="modal-overlay" id="login-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="color: var(--text-main); font-size: 1.25rem;">Iniciar Sesión ELIS 4.0</h3>
+      </div>
+      
+      <div class="form-group">
+        <label>Selección Rápida de Perfil de Prueba:</label>
+        <select id="preset-user-select" class="form-control">
+          <option value="">-- Seleccionar usuario de prueba --</option>
+          <option value="Admin">Admin (Pass: admin1) - Acceso Total + Panel Admin</option>
+          <option value="Dirección">Dirección (Pass: admin) - Acceso Total Módulos</option>
+          <option value="producción">producción (Pass: admin) - Solo Módulo Producción</option>
+          <option value="mtto">mtto (Pass: admin) - Solo Módulo Consumos</option>
+        </select>
+      </div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label>Nombre de Usuario:</label>
+          <input type="text" id="login-username" class="form-control" required placeholder="Usuario">
+        </div>
+        <div class="form-group">
+          <label>Contraseña:</label>
+          <input type="password" id="login-password" class="form-control" required placeholder="Contraseña">
+        </div>
+        <div id="login-error" style="color: var(--accent-red); margin-bottom: 15px; font-size: 0.85rem; display:none;"></div>
+        <button type="submit" class="btn-primary">Acceder al Sistema</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
