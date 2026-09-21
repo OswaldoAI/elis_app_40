@@ -291,8 +291,8 @@ async function loadProduccionData() {
       if (m.turno_info) {
         html += `
           <div class="shift-banner">
-            <span class="shift-title"><i class="fas fa-user-clock"></i> ${m.turno_info.nombre}</span>
-            <span class="shift-time"><i class="fas fa-clock"></i> ${m.turno_info.horario}</span>
+            <span class="shift-title"><i class="fas fa-user-clock"></i> ${m.turno_info.nombre} (${m.turno_info.horario})</span>
+            <span class="shift-time"><i class="fas fa-calendar-alt"></i> ${m.turno_info.fecha || ''}</span>
           </div>
 
           <div class="section-subtitle-bar">
@@ -377,10 +377,11 @@ async function loadTunelLavadoDashboard() {
             <i class="fas fa-user-clock"></i>
           </div>
           <div>
-            <h4 style="color: var(--text-main); font-size: 1.05rem;">${data.turno_activo.nombre} (${data.turno_activo.horario})</h4>
+            <h4 style="color: var(--text-main); font-size: 1.05rem;">${data.turno_activo.nombre} (${data.turno_activo.horario}) — <span style="color: #38bdf8;">📅 ${data.turno_activo.fecha || ''}</span></h4>
             <small style="color: var(--text-muted)">Sincronizado desde: ${data.sync_info.origen} | Frecuencia: ${data.sync_info.frecuencia_sync}</small>
           </div>
         </div>
+
         <div style="text-align: right;">
           <span style="font-size: 0.85rem; color: #34d399; font-weight: 700;">🟢 CONEXIÓN ACTIVADA</span>
           <div style="font-size: 0.75rem; color: var(--text-muted);">Cache: ${data.sync_info.cache_actualizado}</div>

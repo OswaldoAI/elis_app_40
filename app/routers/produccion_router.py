@@ -72,6 +72,12 @@ def calculate_tunel_metrics(turno_act: dict = None):
             horas_trans = max(minutos_transcurridos / 60.0, 0.2)
             iprod_tnh = round((total_kg / 1000.0) / horas_trans, 2)
 
+            conn = get_db_connection()
+            last_carga = conn.execute("SELECT cliente, categoria, peso_kg, timestamp FROM tunel_cargas ORDER BY id DESC LIMIT 1").fetchone()
+            conn.close()
+
+            last_prog_str = f"Categoría #{last_carga['categoria']} — Cliente #{last_carga['cliente']} (Carga: {last_carga['peso_kg']} kg)" if last_carga else "Prog 04 - Sábanas y Mantelería Hostelería"
+
             return {
                 "is_real": True,
                 "cantidad_cargas": f"{total_cargas} cargas",
@@ -83,7 +89,8 @@ def calculate_tunel_metrics(turno_act: dict = None):
                 "kg_totales_turno": f"{int(total_kg):,} kg".replace(",", "."),
                 "total_kg_num": total_kg,
                 "iprod": f"{iprod_tnh} Tn/h",
-                "iprod_num": iprod_tnh
+                "iprod_num": iprod_tnh,
+                "programa_actual": last_prog_str
             }
     except Exception as e:
         print(f"Error consultando tunel_cargas por turno: {e}")
@@ -100,7 +107,8 @@ def calculate_tunel_metrics(turno_act: dict = None):
         "kg_totales_turno": "0 kg",
         "total_kg_num": 0,
         "iprod": "0,00 Tn/h",
-        "iprod_num": 0.0
+        "iprod_num": 0.0,
+        "programa_actual": "Sin cargas registradas aún"
     }
 
 
@@ -111,9 +119,14 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
     
     nombre_turno = turno_act.get("nombre") or "Turno Activo"
     horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
+    
+    fecha_raw = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        fecha_formateada = datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha_formateada = datetime.now().strftime("%d/%m/%Y")
 
     tunel_kpis = calculate_tunel_metrics(turno_act)
-
 
     return {
         "status": "online",
@@ -133,7 +146,8 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "dashboard_url": "#tunel_lavado",
                 "turno_info": {
                     "nombre": nombre_turno,
-                    "horario": horario_turno
+                    "horario": horario_turno,
+                    "fecha": fecha_formateada
                 },
                 "subtitulo_resumen": "Resumen turno actual",
                 "indicadores_turno": {
@@ -143,7 +157,7 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 },
                 "metricas_clave": [],
                 "progreso_carga": 85,
-                "programa_actual": "Prog 04 - Sábanas y Mantelería Hostelería"
+                "programa_actual": tunel_kpis.get("programa_actual", "Prog 04 - Sábanas y Mantelería Hostelería")
             },
             {
                 "id": "TUNEL_VT",
@@ -208,8 +222,13 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
     horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
     progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
 
-    tunel_kpis = calculate_tunel_metrics(turno_act)
+    fecha_raw = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        fecha_formateada = datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha_formateada = datetime.now().strftime("%d/%m/%Y")
 
+    tunel_kpis = calculate_tunel_metrics(turno_act)
 
     return {
         "maquina": "TÚNEL DE LAVADO",
@@ -224,6 +243,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
         "turno_activo": {
             "nombre": nombre_turno,
             "horario": horario_turno,
+            "fecha": fecha_formateada,
             "progreso_porcentaje": progreso_turno,
             "minutos_transcurridos": turno_act.get("minutos_transcurridos", 240)
         },
@@ -251,6 +271,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
             }
         }
     }
+
 
 @router.post("/turnos/force-sync")
 def force_turnos_sync(admin: dict = Depends(check_produccion_permission)):
