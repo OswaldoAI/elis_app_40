@@ -118,13 +118,15 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
     turno_act = turnos_cache.get("turno_actual", {})
     
     nombre_turno = turno_act.get("nombre") or "Turno Activo"
-    horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
     
     fecha_raw = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
     try:
         fecha_formateada = datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
     except Exception:
         fecha_formateada = datetime.now().strftime("%d/%m/%Y")
+
+    horario_base = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
+    horario_con_fecha = f"{horario_base} | {fecha_formateada}"
 
     tunel_kpis = calculate_tunel_metrics(turno_act)
 
@@ -146,7 +148,7 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "dashboard_url": "#tunel_lavado",
                 "turno_info": {
                     "nombre": nombre_turno,
-                    "horario": horario_turno,
+                    "horario": horario_con_fecha,
                     "fecha": fecha_formateada
                 },
                 "subtitulo_resumen": "Resumen turno actual",
@@ -219,7 +221,6 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
     turno_act = turnos_cache.get("turno_actual", {})
     
     nombre_turno = turno_act.get("nombre") or "Turno Mañana"
-    horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
     progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
 
     fecha_raw = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
@@ -227,6 +228,9 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
         fecha_formateada = datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
     except Exception:
         fecha_formateada = datetime.now().strftime("%d/%m/%Y")
+
+    horario_base = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
+    horario_con_fecha = f"{horario_base} | {fecha_formateada}"
 
     tunel_kpis = calculate_tunel_metrics(turno_act)
 
@@ -242,7 +246,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
         },
         "turno_activo": {
             "nombre": nombre_turno,
-            "horario": horario_turno,
+            "horario": horario_con_fecha,
             "fecha": fecha_formateada,
             "progreso_porcentaje": progreso_turno,
             "minutos_transcurridos": turno_act.get("minutos_transcurridos", 240)
@@ -271,6 +275,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
             }
         }
     }
+
 
 
 @router.post("/turnos/force-sync")
