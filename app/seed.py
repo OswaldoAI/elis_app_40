@@ -80,6 +80,41 @@ def seed_database():
                 VALUES ('AGUA_TUNEL_LAVADORAS', ?, ?, ?, ?, ?)
             """, (ts_str, ts_iso, pulsos, vol, caudal))
 
+    # 5. Sembrar datos iniciales para todas las 14 variables de telemetría de procesos
+    cursor.execute("SELECT COUNT(*) FROM procesos_telemetria")
+    if cursor.fetchone()[0] == 0:
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        
+        variables_config = [
+            ('AGUA_GENERAL', 'm³', 0.1, 18.5),
+            ('sensor_gas_general', 'm³', 1.0, 154.0),
+            ('I_gneral', 'kWh', 1.0, 345.2),
+            ('AGUA_TUNEL_LAVADORAS', 'm³', 0.1, 14.2),
+            ('Túnel de Secado VT', 'm³', 0.1, 32.5),
+            ('calandra1_IoT', 'm³', 0.1, 45.0),
+            ('Calandra 2', 'm³', 0.1, 42.8),
+            ('Calandra 3', 'm³', 0.1, 48.2),
+            ('caldera1', 'm³', 0.1, 52.4),
+            ('caldera2', 'm³', 0.1, 48.6),
+            ('I_motor_tunel', 'kWh', 1.0, 85.4),
+            ('I_bomba_calandra1', 'kWh', 1.0, 42.1),
+            ('Bomba_calandra2', 'kWh', 1.0, 39.8),
+            ('I_bomba_calandra3', 'kWh', 1.0, 46.5)
+        ]
+        
+        for var_code, unidad, mult, caudal in variables_config:
+            for i in range(6, -1, -1):
+                ts_dt = now - timedelta(hours=i)
+                ts_str = ts_dt.strftime("%d/%m/%Y %H:%M:%S")
+                ts_iso = ts_dt.strftime("%Y-%m-%d %H:%M:%S")
+                pulsos = 15 + (i * 3)
+                valor = round(pulsos * mult, 2)
+                cursor.execute("""
+                    INSERT INTO procesos_telemetria (variable, timestamp, timestamp_iso, pulsos, valor, unidad, caudal_m3h, dispositivo)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (var_code, ts_str, ts_iso, pulsos, valor, unidad, caudal, f"Monitor Telemetría 192.168.0.116:3000 ({var_code})"))
+
     conn.commit()
     conn.close()
     print("Database seeded successfully!")

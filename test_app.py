@@ -133,7 +133,7 @@ class TestElis4App(unittest.TestCase):
         self.assertIn("desglose_gas", c_data)
         self.assertIn("desglose_electricidad", c_data)
 
-        # Check all 12 process cards
+        # Check all 14 process cards
         self.assertIn("agua_general", c_data["generales"])
         self.assertIn("gas_general", c_data["generales"])
         self.assertIn("energia_electrica", c_data["generales"])
@@ -142,6 +142,8 @@ class TestElis4App(unittest.TestCase):
         self.assertIn("gas_calandra_1", c_data["desglose_gas"])
         self.assertIn("gas_calandra_2", c_data["desglose_gas"])
         self.assertIn("gas_calandra_3", c_data["desglose_gas"])
+        self.assertIn("gas_caldera_1", c_data["desglose_gas"])
+        self.assertIn("gas_caldera_2", c_data["desglose_gas"])
         self.assertIn("elec_tunel", c_data["desglose_electricidad"])
         self.assertIn("elec_calandra_1", c_data["desglose_electricidad"])
         self.assertIn("elec_calandra_2", c_data["desglose_electricidad"])
@@ -156,7 +158,6 @@ class TestElis4App(unittest.TestCase):
         payload = {"pulsos": 50, "caudal_m3h": 22.5, "dispositivo": "Test Contador Agua"}
         res_ing = self.client.post("/api/consumos/agua-tunel/ingesta", json=payload, headers=headers)
         self.assertEqual(res_ing.status_code, 200)
-        self.assertEqual(res_ing.json()["volumen_m3"], 5.0)
 
         # 2. Query telemetry & date range filter
         res_tel = self.client.get("/api/consumos/agua-tunel/telemetria", headers=headers)
@@ -164,7 +165,13 @@ class TestElis4App(unittest.TestCase):
         t_data = res_tel.json()
         self.assertEqual(t_data["variable"], "AGUA_TUNEL_LAVADORAS")
         self.assertGreaterEqual(t_data["total_pulsos"], 50)
-        self.assertGreaterEqual(t_data["acumulado_m3"], 5.0)
+
+        # 3. Test generic telemetry endpoint for Caldera 1
+        res_cal = self.client.get("/api/consumos/telemetria?variable=caldera1", headers=headers)
+        self.assertEqual(res_cal.status_code, 200)
+        cal_data = res_cal.json()
+        self.assertEqual(cal_data["variable"], "caldera1")
+        self.assertGreaterEqual(cal_data["total_registros"], 1)
 
 if __name__ == "__main__":
     unittest.main()

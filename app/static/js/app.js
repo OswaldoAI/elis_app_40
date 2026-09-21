@@ -642,6 +642,101 @@ function renderAvanceChart(graficaData) {
 }
 
 // Load Consumos Data
+// Render process card with expandable telemetry panel
+function renderProcesoCardAndPanel(id, varCode, titulo, unidad, iconClass, colorStyle, mainMetricValue, subtext) {
+  return `
+    <div class="metric-card clickable-card" onclick="toggleProcesoPanel('${id}', '${varCode}', '${titulo.replace(/'/g, "\\'")}', '${unidad}')" style="cursor: pointer;" title="Haz clic para expandir o colapsar la telemetría">
+      <div class="metric-icon ${colorStyle}"><i class="fas ${iconClass}"></i></div>
+      <div class="metric-info" style="width: 100%;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h4>${titulo}</h4>
+          <span id="badge-${id}" class="card-link-badge" style="font-size: 0.68rem; padding: 2px 6px;">🔍 Ver Telemetría</span>
+        </div>
+        <div class="metric-value">${mainMetricValue}</div>
+        <small style="color: var(--text-muted)">${subtext}</small>
+      </div>
+    </div>
+
+    <!-- Panel de Telemetría Incorporado (${titulo}) -->
+    <div id="panel-telemetria-${id}" style="display: none; grid-column: 1 / -1; background: rgba(15, 23, 42, 0.75); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; margin-top: 10px; margin-bottom: 24px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="fas ${iconClass}"></i>
+          </div>
+          <div>
+            <h4 style="color: var(--text-main); font-size: 1.1rem; margin: 0;">Telemetría de ${titulo}</h4>
+            <small style="color: var(--text-muted); font-size: 0.75rem;">Variable Monitor: <strong style="color: #38bdf8;">${varCode}</strong> | Unidad: <strong>${unidad}</strong></small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtros por Rango de Fechas y Horas -->
+      <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid var(--border-color); padding: 14px 16px; border-radius: 12px; margin-bottom: 20px;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+          <i class="fas fa-filter"></i> Filtro de Acumulado por Rango de Fecha y Hora
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: flex-end;">
+          <div>
+            <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Fecha Inicio:</label>
+            <input type="date" id="filter-fecha-inicio-${id}" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+          </div>
+          <div>
+            <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Hora Inicio:</label>
+            <input type="time" id="filter-hora-inicio-${id}" value="00:00" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+          </div>
+          <div>
+            <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Fecha Fin:</label>
+            <input type="date" id="filter-fecha-fin-${id}" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+          </div>
+          <div>
+            <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Hora Fin:</label>
+            <input type="time" id="filter-hora-fin-${id}" value="23:59" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+          </div>
+          <div>
+            <button type="button" onclick="applyProcesoFilter('${id}', '${varCode}', '${unidad}')" class="btn-primary" style="padding: 8px 14px; font-size: 0.85rem;">🔍 Aplicar Filtro</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tarjeta Acumulador Principal -->
+      <div style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 60%, #0f172a 100%); border: 1px solid #38bdf8; border-radius: 14px; padding: 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(2, 132, 199, 0.3);">
+        <div>
+          <div style="font-size: 0.8rem; font-weight: 800; color: #e0f2fe; text-transform: uppercase; letter-spacing: 0.8px;">⚡ Acumulador Principal de Telemetría (${unidad})</div>
+          <div id="acumulado-valor-${id}" style="font-size: 2.6rem; font-weight: 900; color: #ffffff; line-height: 1.1; margin: 6px 0;">0.00 ${unidad}</div>
+          <div id="acumulado-subtexto-${id}" style="font-size: 0.78rem; color: #bae6fd; font-weight: 600;">Lecturas: 0 | Variable: ${varCode}</div>
+        </div>
+        <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; color: white;">
+          <i class="fas fa-chart-line"></i>
+        </div>
+      </div>
+
+      <!-- Tabla de Registros Entrantes -->
+      <div style="font-size: 0.85rem; font-weight: 800; color: var(--text-main); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+        <span>📋 Historial de Pulsos y Lecturas Entrantes</span>
+        <span id="tabla-count-${id}" style="font-size: 0.75rem; color: var(--text-muted);">0 registros</span>
+      </div>
+      <div style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 10px; background: rgba(15, 23, 42, 0.6);">
+        <table class="data-table" style="margin-top: 0; font-size: 0.82rem;">
+          <thead>
+            <tr>
+              <th>Timestamp ISO</th>
+              <th>Pulsos / Conteos</th>
+              <th>Valor (${unidad})</th>
+              <th>Caudal / Potencia</th>
+              <th>Dispositivo / Fuente</th>
+            </tr>
+          </thead>
+          <tbody id="table-body-${id}">
+            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Haz clic en Aplicar Filtro para consultar...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// Load Consumos Data with Expandable Telemetry Panels for all 14 Cards
 async function loadConsumosData() {
   const container = document.getElementById('consumos-content');
   try {
@@ -667,35 +762,38 @@ async function loadConsumosData() {
         <div class="subtitle-line"></div>
       </div>
       <div class="metrics-grid" style="margin-bottom: 28px;">
-        <!-- 1. Agua General -->
-        <div class="metric-card">
-          <div class="metric-icon blue"><i class="fas fa-water"></i></div>
-          <div class="metric-info">
-            <h4>${g.agua_general?.titulo || 'Agua (General)'}</h4>
-            <div class="metric-value">${g.agua_general?.caudal_m3h || 18.5} m³/h</div>
-            <small style="color: var(--text-muted)">Hoy: ${g.agua_general?.consumo_hoy_m3 || 210.4} m³ | Reciclaje: ${g.agua_general?.reciclaje_pct || 42}%</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'agua_general',
+          'AGUA_GENERAL',
+          g.agua_general?.titulo || 'Agua (General)',
+          'm³',
+          'fa-water',
+          'blue',
+          `${g.agua_general?.caudal_m3h || 18.5} m³/h`,
+          `Hoy: ${g.agua_general?.consumo_hoy_m3 || 210.4} m³ | Reciclaje: ${g.agua_general?.reciclaje_pct || 42}%`
+        )}
 
-        <!-- 2. Gas General -->
-        <div class="metric-card">
-          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-fire"></i></div>
-          <div class="metric-info">
-            <h4>${g.gas_general?.titulo || 'Gas General'}</h4>
-            <div class="metric-value">${g.gas_general?.consumo_hoy_m3 || 1540} m³</div>
-            <small style="color: var(--text-muted)">Presión: ${g.gas_general?.presion_vapor_bar || 9.2} bar | Caldera: ${g.gas_general?.eficiencia_caldera_pct || 92.4}% ef</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'gas_general',
+          'sensor_gas_general',
+          g.gas_general?.titulo || 'Gas General',
+          'm³',
+          'fa-fire',
+          'amber',
+          `${g.gas_general?.consumo_hoy_m3 || 1540} m³`,
+          `Presión: ${g.gas_general?.presion_vapor_bar || 9.2} bar | Caldera: ${g.gas_general?.eficiencia_caldera_pct || 92.4}% ef`
+        )}
 
-        <!-- 3. Energía Eléctrica General -->
-        <div class="metric-card">
-          <div class="metric-icon amber"><i class="fas fa-bolt"></i></div>
-          <div class="metric-info">
-            <h4>${g.energia_electrica?.titulo || 'Energía Eléctrica'}</h4>
-            <div class="metric-value">${g.energia_electrica?.potencia_activa_kw || 345.2} kW</div>
-            <small style="color: var(--text-muted)">Hoy: ${g.energia_electrica?.consumo_hoy_kwh || 4120} kWh | FP: ${g.energia_electrica?.factor_potencia || 0.96}</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'energia_electrica',
+          'I_gneral',
+          g.energia_electrica?.titulo || 'Energía Eléctrica General',
+          'kWh',
+          'fa-bolt',
+          'amber',
+          `${g.energia_electrica?.potencia_activa_kw || 345.2} kW`,
+          `Hoy: ${g.energia_electrica?.consumo_hoy_kwh || 4120} kWh | FP: ${g.energia_electrica?.factor_potencia || 0.96}`
+        )}
       </div>
 
       <!-- Sección 2: Desglose de Agua por Proceso -->
@@ -703,96 +801,17 @@ async function loadConsumosData() {
         <h4>💧 Consumos de Agua por Proceso</h4>
         <div class="subtitle-line"></div>
       </div>
-      <div class="metrics-grid" style="margin-bottom: 20px;">
-        <!-- 4. Agua Túnel y Lavadoras (Clicable para expandir/colapsar telemetría) -->
-        <div class="metric-card clickable-card" onclick="toggleAguaTunelPanel()" style="cursor: pointer;" title="Haz clic para expandir o colapsar la telemetría">
-          <div class="metric-icon blue"><i class="fas fa-shower"></i></div>
-          <div class="metric-info" style="width: 100%;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <h4>${agua.agua_tunel_lavadoras?.titulo || 'Agua Túnel y Lavadoras'}</h4>
-              <span id="agua-tunel-badge" class="card-link-badge" style="font-size: 0.68rem; padding: 2px 6px;">🔍 Ver Telemetría</span>
-            </div>
-            <div class="metric-value">${agua.agua_tunel_lavadoras?.caudal_m3h || 14.2} m³/h</div>
-            <small style="color: var(--text-muted)">Esp: ${agua.agua_tunel_lavadoras?.consumo_especifico_l_kg || 4.8} L/kg | Hoy: ${agua.agua_tunel_lavadoras?.consumo_hoy_m3 || 168.5} m³</small>
-          </div>
-        </div>
-      </div>
-
-      <!-- Panel de Telemetría Incorporado: Agua Túnel y Lavadoras (Colapsado por defecto) -->
-      <div id="panel-agua-tunel-telemetria" style="display: none; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; margin-bottom: 28px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
-              <i class="fas fa-shower"></i>
-            </div>
-            <div>
-              <h4 style="color: var(--text-main); font-size: 1.1rem; margin: 0;">Telemetría Agua Túnel y Lavadoras</h4>
-              <small style="color: var(--text-muted); font-size: 0.75rem;">Variable: <strong>AGUA_TUNEL_LAVADORAS</strong> | Factor: <strong>1 pulso = 0,1 m³ (100 Litros)</strong></small>
-            </div>
-          </div>
-        </div>
-
-        <!-- Filtros por Rango de Fechas y Horas -->
-        <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid var(--border-color); padding: 14px 16px; border-radius: 12px; margin-bottom: 20px;">
-          <div style="font-size: 0.8rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
-            <i class="fas fa-filter"></i> Filtro de Acumulado por Rango de Fecha y Hora
-          </div>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: flex-end;">
-            <div>
-              <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Fecha Inicio:</label>
-              <input type="date" id="agua-filter-fecha-inicio" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
-            </div>
-            <div>
-              <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Hora Inicio:</label>
-              <input type="time" id="agua-filter-hora-inicio" value="00:00" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
-            </div>
-            <div>
-              <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Fecha Fin:</label>
-              <input type="date" id="agua-filter-fecha-fin" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
-            </div>
-            <div>
-              <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Hora Fin:</label>
-              <input type="time" id="agua-filter-hora-fin" value="23:59" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
-            </div>
-            <div>
-              <button type="button" onclick="applyAguaTunelFilter()" class="btn-primary" style="padding: 8px 14px; font-size: 0.85rem;">🔍 Aplicar Filtro</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tarjeta Acumulador Principal -->
-        <div style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 60%, #0f172a 100%); border: 1px solid #38bdf8; border-radius: 14px; padding: 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(2, 132, 199, 0.3);">
-          <div>
-            <div style="font-size: 0.8rem; font-weight: 800; color: #e0f2fe; text-transform: uppercase; letter-spacing: 0.8px;">💧 Acumulador Principal de Consumo</div>
-            <div id="agua-acumulado-valor" style="font-size: 2.6rem; font-weight: 900; color: #ffffff; line-height: 1.1; margin: 6px 0;">0.00 m³</div>
-            <div id="agua-acumulado-subtexto" style="font-size: 0.78rem; color: #bae6fd; font-weight: 600;">Total Pulsos: 0 | Rango: Hoy</div>
-          </div>
-          <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; color: white;">
-            <i class="fas fa-hand-holding-water"></i>
-          </div>
-        </div>
-
-        <!-- Tabla de Registros Entrantes -->
-        <div style="font-size: 0.85rem; font-weight: 800; color: var(--text-main); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
-          <span>📋 Historial de Pulsos y Lecturas Entrantes</span>
-          <span id="agua-tabla-total-count" style="font-size: 0.75rem; color: var(--text-muted);">0 registros</span>
-        </div>
-        <div style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 10px; background: rgba(15, 23, 42, 0.6);">
-          <table class="data-table" style="margin-top: 0; font-size: 0.82rem;">
-            <thead>
-              <tr>
-                <th>Timestamp ISO</th>
-                <th>Pulsos (Count)</th>
-                <th>Volumen (m³)</th>
-                <th>Caudal (m³/h)</th>
-                <th>Dispositivo / Fuente</th>
-              </tr>
-            </thead>
-            <tbody id="agua-telemetria-table-body">
-              <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Cargando telemetría...</td></tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="metrics-grid" style="margin-bottom: 28px;">
+        ${renderProcesoCardAndPanel(
+          'agua_tunel_lavadoras',
+          'AGUA_TUNEL_LAVADORAS',
+          agua.agua_tunel_lavadoras?.titulo || 'Agua Túnel y Lavadoras',
+          'm³',
+          'fa-shower',
+          'blue',
+          `${agua.agua_tunel_lavadoras?.caudal_m3h || 14.2} m³/h`,
+          `Esp: ${agua.agua_tunel_lavadoras?.consumo_especifico_l_kg || 4.8} L/kg | Hoy: ${agua.agua_tunel_lavadoras?.consumo_hoy_m3 || 168.5} m³`
+        )}
       </div>
 
       <!-- Sección 3: Desglose de Gas por Proceso / Máquina -->
@@ -801,45 +820,71 @@ async function loadConsumosData() {
         <div class="subtitle-line"></div>
       </div>
       <div class="metrics-grid" style="margin-bottom: 28px;">
-        <!-- 5. Gas Túnel VT -->
-        <div class="metric-card">
-          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-wind"></i></div>
-          <div class="metric-info">
-            <h4>${gas.gas_tunel_vt?.titulo || 'Gas Túnel VT'}</h4>
-            <div class="metric-value">${gas.gas_tunel_vt?.consumo_m3h || 32.5} m³/h</div>
-            <small style="color: var(--text-muted)">Hoy: ${gas.gas_tunel_vt?.consumo_hoy_m3 || 260} m³ | Temp Secado: ${gas.gas_tunel_vt?.temp_secado_c || 118}°C</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'gas_tunel_vt',
+          'Túnel de Secado VT',
+          gas.gas_tunel_vt?.titulo || 'Gas Túnel VT',
+          'm³',
+          'fa-wind',
+          'amber',
+          `${gas.gas_tunel_vt?.consumo_m3h || 32.5} m³/h`,
+          `Hoy: ${gas.gas_tunel_vt?.consumo_hoy_m3 || 260} m³ | Temp Secado: ${gas.gas_tunel_vt?.temp_secado_c || 118}°C`
+        )}
 
-        <!-- 6. Gas Calandra 1 -->
-        <div class="metric-card">
-          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-scroll"></i></div>
-          <div class="metric-info">
-            <h4>${gas.gas_calandra_1?.titulo || 'Gas Calandra 1'}</h4>
-            <div class="metric-value">${gas.gas_calandra_1?.consumo_m3h || 45.0} m³/h</div>
-            <small style="color: var(--text-muted)">Hoy: ${gas.gas_calandra_1?.consumo_hoy_m3 || 360} m³ | Temp Rodillo: ${gas.gas_calandra_1?.temp_trabajo_c || 175}°C</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'gas_calandra_1',
+          'calandra1_IoT',
+          gas.gas_calandra_1?.titulo || 'Gas Calandra 1',
+          'm³',
+          'fa-scroll',
+          'amber',
+          `${gas.gas_calandra_1?.consumo_m3h || 45.0} m³/h`,
+          `Hoy: ${gas.gas_calandra_1?.consumo_hoy_m3 || 360} m³ | Temp Rodillo: ${gas.gas_calandra_1?.temp_trabajo_c || 175}°C`
+        )}
 
-        <!-- 7. Gas Calandra 2 -->
-        <div class="metric-card">
-          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-scroll"></i></div>
-          <div class="metric-info">
-            <h4>${gas.gas_calandra_2?.titulo || 'Gas Calandra 2'}</h4>
-            <div class="metric-value">${gas.gas_calandra_2?.consumo_m3h || 42.8} m³/h</div>
-            <small style="color: var(--text-muted)">Hoy: ${gas.gas_calandra_2?.consumo_hoy_m3 || 342.4} m³ | Temp Rodillo: ${gas.gas_calandra_2?.temp_trabajo_c || 175}°C</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'gas_calandra_2',
+          'Calandra 2',
+          gas.gas_calandra_2?.titulo || 'Gas Calandra 2',
+          'm³',
+          'fa-scroll',
+          'amber',
+          `${gas.gas_calandra_2?.consumo_m3h || 42.8} m³/h`,
+          `Hoy: ${gas.gas_calandra_2?.consumo_hoy_m3 || 342.4} m³ | Temp Rodillo: ${gas.gas_calandra_2?.temp_trabajo_c || 175}°C`
+        )}
 
-        <!-- 8. Gas Calandra 3 -->
-        <div class="metric-card">
-          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-eye"></i></div>
-          <div class="metric-info">
-            <h4>${gas.gas_calandra_3?.titulo || 'Gas Calandra 3'}</h4>
-            <div class="metric-value">${gas.gas_calandra_3?.consumo_m3h || 48.2} m³/h</div>
-            <small style="color: var(--text-muted)">Hoy: ${gas.gas_calandra_3?.consumo_hoy_m3 || 385.6} m³ | Temp Rodillo: ${gas.gas_calandra_3?.temp_trabajo_c || 180}°C</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'gas_calandra_3',
+          'Calandra 3',
+          gas.gas_calandra_3?.titulo || 'Gas Calandra 3',
+          'm³',
+          'fa-eye',
+          'amber',
+          `${gas.gas_calandra_3?.consumo_m3h || 48.2} m³/h`,
+          `Hoy: ${gas.gas_calandra_3?.consumo_hoy_m3 || 385.6} m³ | Temp Rodillo: ${gas.gas_calandra_3?.temp_trabajo_c || 180}°C`
+        )}
+
+        ${renderProcesoCardAndPanel(
+          'gas_caldera_1',
+          'caldera1',
+          gas.gas_caldera_1?.titulo || 'Gas Caldera 1',
+          'm³',
+          'fa-fire-burner',
+          'amber',
+          `${gas.gas_caldera_1?.consumo_m3h || 52.4} m³/h`,
+          `Hoy: ${gas.gas_caldera_1?.consumo_hoy_m3 || 419.2} m³ | Temp Trabajo: ${gas.gas_caldera_1?.temp_trabajo_c || 185}°C`
+        )}
+
+        ${renderProcesoCardAndPanel(
+          'gas_caldera_2',
+          'caldera2',
+          gas.gas_caldera_2?.titulo || 'Gas Caldera 2',
+          'm³',
+          'fa-fire-burner',
+          'amber',
+          `${gas.gas_caldera_2?.consumo_m3h || 48.6} m³/h`,
+          `Hoy: ${gas.gas_caldera_2?.consumo_hoy_m3 || 388.8} m³ | Temp Trabajo: ${gas.gas_caldera_2?.temp_trabajo_c || 182}°C`
+        )}
       </div>
 
       <!-- Sección 4: Desglose de Electricidad por Proceso / Máquina -->
@@ -848,169 +893,60 @@ async function loadConsumosData() {
         <div class="subtitle-line"></div>
       </div>
       <div class="metrics-grid">
-        <!-- 9. Electricidad Túnel -->
-        <div class="metric-card">
-          <div class="metric-icon amber"><i class="fas fa-circle-notch"></i></div>
-          <div class="metric-info">
-            <h4>${elec.elec_tunel?.titulo || 'Electricidad Túnel'}</h4>
-            <div class="metric-value">${elec.elec_tunel?.potencia_kw || 85.4} kW</div>
-            <small style="color: var(--text-muted)">Hoy: ${elec.elec_tunel?.consumo_hoy_kwh || 1024.8} kWh</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'elec_tunel',
+          'I_motor_tunel',
+          elec.elec_tunel?.titulo || 'Electricidad Túnel',
+          'kWh',
+          'fa-circle-notch',
+          'amber',
+          `${elec.elec_tunel?.potencia_kw || 85.4} kW`,
+          `Hoy: ${elec.elec_tunel?.consumo_hoy_kwh || 1024.8} kWh`
+        )}
 
-        <!-- 10. Electricidad Calandra 1 -->
-        <div class="metric-card">
-          <div class="metric-icon amber"><i class="fas fa-scroll"></i></div>
-          <div class="metric-info">
-            <h4>${elec.elec_calandra_1?.titulo || 'Electricidad Calandra 1'}</h4>
-            <div class="metric-value">${elec.elec_calandra_1?.potencia_kw || 42.1} kW</div>
-            <small style="color: var(--text-muted)">Hoy: ${elec.elec_calandra_1?.consumo_hoy_kwh || 505.2} kWh</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'elec_calandra_1',
+          'I_bomba_calandra1',
+          elec.elec_calandra_1?.titulo || 'Electricidad Calandra 1',
+          'kWh',
+          'fa-scroll',
+          'amber',
+          `${elec.elec_calandra_1?.potencia_kw || 42.1} kW`,
+          `Hoy: ${elec.elec_calandra_1?.consumo_hoy_kwh || 505.2} kWh`
+        )}
 
-        <!-- 11. Electricidad Calandra 2 -->
-        <div class="metric-card">
-          <div class="metric-icon amber"><i class="fas fa-scroll"></i></div>
-          <div class="metric-info">
-            <h4>${elec.elec_calandra_2?.titulo || 'Electricidad Calandra 2'}</h4>
-            <div class="metric-value">${elec.elec_calandra_2?.potencia_kw || 39.8} kW</div>
-            <small style="color: var(--text-muted)">Hoy: ${elec.elec_calandra_2?.consumo_hoy_kwh || 477.6} kWh</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'elec_calandra_2',
+          'Bomba_calandra2',
+          elec.elec_calandra_2?.titulo || 'Electricidad Calandra 2',
+          'kWh',
+          'fa-scroll',
+          'amber',
+          `${elec.elec_calandra_2?.potencia_kw || 39.8} kW`,
+          `Hoy: ${elec.elec_calandra_2?.consumo_hoy_kwh || 477.6} kWh`
+        )}
 
-        <!-- 12. Electricidad Calandra 3 -->
-        <div class="metric-card">
-          <div class="metric-icon amber"><i class="fas fa-eye"></i></div>
-          <div class="metric-info">
-            <h4>${elec.elec_calandra_3?.titulo || 'Electricidad Calandra 3'}</h4>
-            <div class="metric-value">${elec.elec_calandra_3?.potencia_kw || 46.5} kW</div>
-            <small style="color: var(--text-muted)">Hoy: ${elec.elec_calandra_3?.consumo_hoy_kwh || 558.0} kWh</small>
-          </div>
-        </div>
+        ${renderProcesoCardAndPanel(
+          'elec_calandra_3',
+          'I_bomba_calandra3',
+          elec.elec_calandra_3?.titulo || 'Electricidad Calandra 3',
+          'kWh',
+          'fa-eye',
+          'amber',
+          `${elec.elec_calandra_3?.potencia_kw || 46.5} kW`,
+          `Hoy: ${elec.elec_calandra_3?.consumo_hoy_kwh || 558.0} kWh`
+        )}
       </div>
     `;
-
-    // Cargar fechas por defecto y autoejecutar telemetría
-    const todayStr = new Date().toISOString().split('T')[0];
-    const fechaInicioInput = document.getElementById('agua-filter-fecha-inicio');
-    const fechaFinInput = document.getElementById('agua-filter-fecha-fin');
-    if (fechaInicioInput && !fechaInicioInput.value) fechaInicioInput.value = todayStr;
-    if (fechaFinInput && !fechaFinInput.value) fechaFinInput.value = todayStr;
-
-    fetchAguaTunelData();
-
   } catch (err) {
     container.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
   }
 }
 
-// Load Users List for Admin
-async function loadUsersList() {
-  const tbody = document.getElementById('users-table-body');
-  if (!tbody) return;
-
-  try {
-    const res = await fetch('/api/users');
-    if (!res.ok) return;
-    const users = await res.json();
-
-    tbody.innerHTML = users.map(u => `
-      <tr>
-        <td><strong>${u.username}</strong></td>
-        <td>${u.full_name}</td>
-        <td><span class="badge badge-${u.role.toLowerCase()}">${u.role}</span></td>
-        <td>${u.is_active ? '🟢 Activo' : '🔴 Inactivo'}</td>
-        <td>
-          <button class="btn-header" onclick="resetUserPassword(${u.id}, '${u.username}')">🔑 Pass</button>
-          ${u.username !== 'Admin' ? `<button class="btn-header btn-logout" onclick="deleteUser(${u.id})">🗑️ Delete</button>` : ''}
-        </td>
-      </tr>
-    `).join('');
-  } catch (err) {
-    console.error('Error loading users:', err);
-  }
-}
-
-async function resetUserPassword(userId, username) {
-  const newPass = prompt(`Introduce nueva contraseña para ${username}:`, username === 'Admin' ? 'admin1' : 'admin');
-  if (!newPass) return;
-
-  const res = await fetch(`/api/users/${userId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: newPass })
-  });
-
-  if (res.ok) alert('Contraseña actualizada correctamente');
-}
-
-async function deleteUser(userId) {
-  if (!confirm('¿Eliminar este usuario?')) return;
-  const res = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
-  if (res.ok) loadUsersList();
-}
-
-// Load Permissions Matrix for Admin
-async function loadPermissionsMatrix() {
-  const container = document.getElementById('permissions-matrix-content');
-  if (!container) return;
-
-  try {
-    const res = await fetch('/api/modules/permissions');
-    if (!res.ok) return;
-    const perms = await res.json();
-
-    const roles = ['Admin', 'Dirección', 'producción', 'mtto'];
-    const modules = ['produccion', 'consumos'];
-
-    let html = `
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Rol</th>
-            <th>Módulo Producción (Ver)</th>
-            <th>Módulo Consumos (Ver)</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-
-    roles.forEach(role => {
-      html += `<tr><td><span class="badge badge-${role.toLowerCase()}">${role}</span></td>`;
-      modules.forEach(mod => {
-        const item = perms.find(p => p.role === role && p.module_code === mod);
-        const canView = item ? item.can_view : false;
-        html += `
-          <td>
-            <input type="checkbox" ${canView ? 'checked' : ''} onchange="togglePermission('${role}', '${mod}', this.checked)">
-            <label style="margin-left: 6px; font-size: 0.85rem;">${canView ? 'Permitido' : 'Bloqueado'}</label>
-          </td>
-        `;
-      });
-      html += `</tr>`;
-    });
-
-    html += `</tbody></table>`;
-    container.innerHTML = html;
-  } catch (err) {
-    console.error('Error loading permissions:', err);
-  }
-}
-
-async function togglePermission(role, module_code, can_view) {
-  await fetch('/api/modules/permissions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role, module_code, can_view })
-  });
-  // Refresh sidebar if active user role changed
-  await checkAuth();
-}
-
-// Telemetría & Panel Incorporado Agua Túnel y Lavadoras (AGUA_TUNEL_LAVADORAS - 0.1 m3/pulso)
-function toggleAguaTunelPanel() {
-  const panel = document.getElementById('panel-agua-tunel-telemetria');
-  const badge = document.getElementById('agua-tunel-badge');
+// Handler functions for expandable process panels
+function toggleProcesoPanel(id, varCode, titulo, unidad) {
+  const panel = document.getElementById(`panel-telemetria-${id}`);
+  const badge = document.getElementById(`badge-${id}`);
   if (!panel) return;
 
   const isHidden = panel.style.display === 'none' || panel.style.display === '';
@@ -1019,69 +955,62 @@ function toggleAguaTunelPanel() {
     if (badge) badge.innerHTML = '🔼 Ocultar Telemetría';
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const fechaInicioInput = document.getElementById('agua-filter-fecha-inicio');
-    const fechaFinInput = document.getElementById('agua-filter-fecha-fin');
+    const fechaInicioInput = document.getElementById(`filter-fecha-inicio-${id}`);
+    const fechaFinInput = document.getElementById(`filter-fecha-fin-${id}`);
     if (fechaInicioInput && !fechaInicioInput.value) fechaInicioInput.value = todayStr;
     if (fechaFinInput && !fechaFinInput.value) fechaFinInput.value = todayStr;
 
-    fetchAguaTunelData();
+    fetchProcesoTelemetria(id, varCode, unidad);
   } else {
     panel.style.display = 'none';
     if (badge) badge.innerHTML = '🔍 Ver Telemetría';
   }
 }
 
-function openAguaTunelModal() {
-  toggleAguaTunelPanel();
+function applyProcesoFilter(id, varCode, unidad) {
+  fetchProcesoTelemetria(id, varCode, unidad);
 }
 
-function closeAguaTunelModal() {
-  const panel = document.getElementById('panel-agua-tunel-telemetria');
-  if (panel) panel.style.display = 'none';
-}
+async function fetchProcesoTelemetria(id, varCode, unidad) {
+  const fechaInicio = document.getElementById(`filter-fecha-inicio-${id}`)?.value || '';
+  const horaInicio = document.getElementById(`filter-hora-inicio-${id}`)?.value || '00:00';
+  const fechaFin = document.getElementById(`filter-fecha-fin-${id}`)?.value || '';
+  const horaFin = document.getElementById(`filter-hora-fin-${id}`)?.value || '23:59';
 
-function applyAguaTunelFilter() {
-  fetchAguaTunelData();
-}
-
-async function fetchAguaTunelData() {
-  const fechaInicio = document.getElementById('agua-filter-fecha-inicio')?.value || '';
-  const horaInicio = document.getElementById('agua-filter-hora-inicio')?.value || '00:00';
-  const fechaFin = document.getElementById('agua-filter-fecha-fin')?.value || '';
-  const horaFin = document.getElementById('agua-filter-hora-fin')?.value || '23:59';
-
-  const tbody = document.getElementById('agua-telemetria-table-body');
-  const valorAccEl = document.getElementById('agua-acumulado-valor');
-  const subtextAccEl = document.getElementById('agua-acumulado-subtexto');
-  const countEl = document.getElementById('agua-tabla-total-count');
+  const tbody = document.getElementById(`table-body-${id}`);
+  const valorAccEl = document.getElementById(`acumulado-valor-${id}`);
+  const subtextAccEl = document.getElementById(`acumulado-subtexto-${id}`);
+  const countEl = document.getElementById(`tabla-count-${id}`);
 
   if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Cargando telemetría...</td></tr>`;
 
   try {
     const params = new URLSearchParams({
+      variable: varCode,
       fecha_inicio: fechaInicio,
       hora_inicio: horaInicio.length === 5 ? `${horaInicio}:00` : horaInicio,
       fecha_fin: fechaFin,
       hora_fin: horaFin.length === 5 ? `${horaFin}:59` : horaFin
     });
 
-    const res = await fetch(`/api/consumos/agua-tunel/telemetria?${params.toString()}`);
-    if (!res.ok) throw new Error('Error consultando telemetría de agua');
+    const res = await fetch(`/api/consumos/telemetria?${params.toString()}`);
+    if (!res.ok) throw new Error('Error consultando telemetría de proceso');
     const data = await res.json();
 
-    if (valorAccEl) valorAccEl.textContent = `${data.acumulado_m3} m³`;
-    if (subtextAccEl) subtextAccEl.textContent = `Total Pulsos: ${data.total_pulsos.toLocaleString()} (0,1 m³/pulso) | Rango: ${data.filtro.start_iso} ➔ ${data.filtro.end_iso}`;
+    const unitStr = data.unidad || unidad || 'm³';
+    if (valorAccEl) valorAccEl.textContent = `${data.acumulado} ${unitStr}`;
+    if (subtextAccEl) subtextAccEl.textContent = `Total Pulsos/Lecturas: ${data.total_pulsos.toLocaleString()} | Variable: ${varCode} | Rango: ${data.filtro.start_iso} ➔ ${data.filtro.end_iso}`;
     if (countEl) countEl.textContent = `${data.total_registros} registros`;
 
     if (tbody) {
       if (data.registros.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 15px;">No se encontraron lecturas en el rango seleccionado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 15px;">No se encontraron lecturas para ${varCode} en el rango seleccionado.</td></tr>`;
       } else {
         tbody.innerHTML = data.registros.map(r => `
           <tr>
             <td><strong style="color: #38bdf8;">${r.timestamp_iso}</strong></td>
             <td><span style="color: #fbbf24; font-weight: 700;">${r.pulsos} pulsos</span></td>
-            <td><span style="color: #34d399; font-weight: 800;">${r.volumen_m3} m³</span></td>
+            <td><span style="color: #34d399; font-weight: 800;">${r.valor} ${r.unidad}</span></td>
             <td>${r.caudal_m3h} m³/h</td>
             <td><small style="color: var(--text-muted);">${r.dispositivo}</small></td>
           </tr>
@@ -1092,3 +1021,26 @@ async function fetchAguaTunelData() {
     if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="color: var(--accent-red); text-align: center;">⚠️ ${err.message}</td></tr>`;
   }
 }
+
+// Backward compatibility wrappers for Agua Túnel
+function toggleAguaTunelPanel() {
+  toggleProcesoPanel('agua_tunel_lavadoras', 'AGUA_TUNEL_LAVADORAS', 'Agua Túnel y Lavadoras', 'm³');
+}
+
+function openAguaTunelModal() {
+  toggleAguaTunelPanel();
+}
+
+function closeAguaTunelModal() {
+  const panel = document.getElementById('panel-telemetria-agua_tunel_lavadoras');
+  if (panel) panel.style.display = 'none';
+}
+
+function applyAguaTunelFilter() {
+  applyProcesoFilter('agua_tunel_lavadoras', 'AGUA_TUNEL_LAVADORAS', 'm³');
+}
+
+function fetchAguaTunelData() {
+  fetchProcesoTelemetria('agua_tunel_lavadoras', 'AGUA_TUNEL_LAVADORAS', 'm³');
+}
+

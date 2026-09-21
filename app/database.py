@@ -128,6 +128,22 @@ def init_db():
     )
     """)
 
+    # Tabla de Telemetría General de Procesos (Agua, Gas, Electricidad)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS procesos_telemetria (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        variable TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        pulsos INTEGER DEFAULT 1,
+        valor REAL NOT NULL,
+        unidad TEXT DEFAULT 'm³',
+        caudal_m3h REAL DEFAULT 0.0,
+        dispositivo TEXT DEFAULT 'Monitor Telemetria 192.168.0.116:3000',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 
