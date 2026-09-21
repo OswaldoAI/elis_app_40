@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
   setupEventListeners();
   handleRoute();
+  setupWebSocket();
 });
 
 // Check authentication status
@@ -204,6 +205,54 @@ function switchView(viewName) {
 function handleRoute() {
   const hash = window.location.hash.replace('#', '') || 'inicio';
   switchView(hash);
+}
+
+// WebSocket Connection Controller for Real-Time Telemetry Updates
+let appSocket = null;
+
+function setupWebSocket() {
+  if (appSocket && (appSocket.readyState === WebSocket.OPEN || appSocket.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/ws/tunel`;
+
+  try {
+    appSocket = new WebSocket(wsUrl);
+
+    appSocket.onopen = () => {
+      console.log('⚡ Conexión WebSocket activada para datos en tiempo real');
+    };
+
+    appSocket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'new_carga' || msg.type === 'update_dashboard') {
+          console.log('📥 Notificación en tiempo real recibida vía WebSocket:', msg);
+          const currentHash = window.location.hash.replace('#', '') || 'inicio';
+          if (currentHash === 'tunel_lavado') {
+            loadTunelLavadoDashboard();
+          } else if (currentHash === 'produccion') {
+            loadProduccionData();
+          }
+        }
+      } catch (e) {
+        console.error('Error procesando mensaje WebSocket:', e);
+      }
+    };
+
+    appSocket.onclose = () => {
+      console.warn('⚠️ WebSocket desconectado. Reintentando reconexión en 5s...');
+      setTimeout(setupWebSocket, 5000);
+    };
+
+    appSocket.onerror = (err) => {
+      console.error('Error WebSocket:', err);
+    };
+  } catch (err) {
+    console.error('Error al inicializar WebSocket:', err);
+  }
 }
 
 // Modal Controllers

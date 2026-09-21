@@ -49,6 +49,7 @@ def deploy():
         "app/seed.py",
         "app/turnos_sync.py",
         "app/mqtt_subscriber.py",
+        "app/websocket_manager.py",
         "app/main.py",
         "app/routers/__init__.py",
         "app/routers/auth_router.py",

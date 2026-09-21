@@ -37,9 +37,22 @@ app.include_router(auth_router.router)
 app.include_router(users_router.router)
 app.include_router(modules_router.router)
 app.include_router(produccion_router.router)
-app.include_router(consumos_router.router)
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from app.websocket_manager import ws_manager
 
-# 5. Rutas Principales de la Aplicación
+# 5. Ruta WebSocket para Telemetría y Notificación en Tiempo Real
+@app.websocket("/ws/tunel")
+async def websocket_tunel_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
+
+# 6. Rutas Principales de la Aplicación
 @app.get("/")
 def read_root():
     return RedirectResponse(url="/inicio")

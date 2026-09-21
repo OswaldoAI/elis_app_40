@@ -54,6 +54,20 @@ def save_carga_to_db(payload: dict):
 
         if inserted:
             logger.info(f"✅ Nueva Carga #{load_id} registrada: {peso_kg} kg | {tiempo_entre_cargas_seg}s | Cliente #{cliente}")
+            # Emitir evento WebSocket en tiempo real
+            try:
+                from app.websocket_manager import ws_manager
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    asyncio.run_coroutine_threadsafe(
+                        ws_manager.broadcast({"type": "new_carga", "load_id": load_id}),
+                        loop
+                    )
+                except RuntimeError:
+                    pass
+            except Exception as e:
+                logger.warning(f"No se pudo emitir evento WS: {e}")
         else:
             logger.info(f"ℹ️ Carga #{load_id} ya existía en DB (Ignorada duplicada)")
         return True
