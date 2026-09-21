@@ -418,6 +418,8 @@ async function loadTunelLavadoDashboard() {
     const cargasInfo = data.indicadores_destacados.cargas_totales_turno;
     const hprodInfo = data.indicadores_destacados.hprod;
     const ikprodInfo = data.indicadores_destacados.ikprod;
+    const clientesInfo = data.indicadores_destacados.clientes_unicos || { titulo: 'Clientes Atendidos', valor: '0 clientes', subtexto: 'Códigos únicos de cliente en turno', icono: 'fa-users' };
+    const programasInfo = data.indicadores_destacados.programas_unicos || { titulo: 'Programas Ejecutados', valor: '0 programas', subtexto: 'Categorías/Programas únicos en turno', icono: 'fa-layer-group' };
 
     // Determinar color de semáforo para el texto numérico de porcentaje de ikProd
     let ikprodTextColor = ikprodInfo.text_color;
@@ -454,7 +456,7 @@ async function loadTunelLavadoDashboard() {
         </div>
       </div>
 
-      <!-- Cuadrícula de Tarjetas Visualmente Llamativas con Números Grandes -->
+      <!-- Cuadrícula de Tarjetas Principales del Turno -->
       <h3 style="color: var(--text-main); font-size: 1.25rem; margin-bottom: 16px;">📊 Indicadores Principales del Turno Actual</h3>
       
       <div class="dashboard-kpi-grid">
@@ -488,7 +490,7 @@ async function loadTunelLavadoDashboard() {
           <div class="kpi-card-subtext">${hprodInfo.subtexto}</div>
         </div>
 
-        <!-- Tarjeta 4: Índice de Eficiencia ikProd (%) con Texto Numérico en Color de Semáforo -->
+        <!-- Tarjeta 4: Índice de Eficiencia ikProd (%) -->
         <div class="kpi-card-striking" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid ${ikprodBorderColor}; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);">
           <div class="kpi-card-header">
             <h4 style="color: #f8fafc;">${ikprodInfo.titulo}</h4>
@@ -503,13 +505,128 @@ async function loadTunelLavadoDashboard() {
             <i class="fas fa-calculator"></i> ${ikprodInfo.subtexto}
           </div>
         </div>
+      </div>
 
+      <!-- Tarjetas Secundarias Compactas (Clientes Atendidos y Programas Ejecutados) -->
+      <div class="dashboard-secondary-kpi-grid">
+        <div class="kpi-card-compact">
+          <div class="kpi-compact-info">
+            <h5>${clientesInfo.titulo}</h5>
+            <div class="kpi-compact-value">${clientesInfo.valor}</div>
+            <div class="kpi-compact-sub">${clientesInfo.subtexto}</div>
+          </div>
+          <div class="kpi-compact-icon"><i class="fas ${clientesInfo.icono}"></i></div>
+        </div>
+
+        <div class="kpi-card-compact">
+          <div class="kpi-compact-info">
+            <h5>${programasInfo.titulo}</h5>
+            <div class="kpi-compact-value">${programasInfo.valor}</div>
+            <div class="kpi-compact-sub">${programasInfo.subtexto}</div>
+          </div>
+          <div class="kpi-compact-icon"><i class="fas ${programasInfo.icono}"></i></div>
+        </div>
+      </div>
+
+      <!-- Gráfica de Avance Productivo del Turno (Dual-Axis) -->
+      <div class="chart-section-card">
+        <div class="chart-header-row">
+          <div class="chart-header-title">
+            <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.3rem;"></i>
+            <h4>Avance Productivo del Turno (Kg/Hora vs Tiempo Acumulado entre Cargas)</h4>
+          </div>
+          <small style="color: var(--text-muted); font-weight: 600;">Eje Y Izquierdo: Kg producidos | Eje Y Derecho: Tiempo acumulado (min)</small>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="chart-avance-turno"></canvas>
+        </div>
       </div>
     `;
+
+    // Renderizar / Actualizar gráfica Chart.js
+    renderAvanceChart(data.grafica_avance);
 
   } catch (err) {
     container.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
   }
+}
+
+// Chart.js Manager for Shift Progress Chart
+let avanceChartInstance = null;
+
+function renderAvanceChart(graficaData) {
+  if (!graficaData || !graficaData.labels) return;
+  const canvasEl = document.getElementById('chart-avance-turno');
+  if (!canvasEl) return;
+
+  if (avanceChartInstance) {
+    avanceChartInstance.destroy();
+  }
+
+  const ctx = canvasEl.getContext('2d');
+  avanceChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: graficaData.labels,
+      datasets: [
+        {
+          type: 'line',
+          label: 'Kg Producidos / Hora (kg)',
+          data: graficaData.kg_por_hora,
+          borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56, 189, 248, 0.15)',
+          borderWidth: 3,
+          pointBackgroundColor: '#0284c7',
+          pointBorderColor: '#38bdf8',
+          pointRadius: 5,
+          tension: 0.3,
+          fill: true,
+          yAxisID: 'yKg'
+        },
+        {
+          type: 'bar',
+          label: 'Tiempo Acumulado entre Cargas (min)',
+          data: graficaData.tiempo_acum_por_hora,
+          backgroundColor: 'rgba(245, 158, 11, 0.75)',
+          borderColor: '#fbbf24',
+          borderWidth: 1,
+          borderRadius: 6,
+          barPercentage: 0.45,
+          yAxisID: 'yTiempo'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255, 255, 255, 0.06)' },
+          ticks: { color: '#94a3b8', font: { weight: 'bold' } }
+        },
+        yKg: {
+          type: 'linear',
+          position: 'left',
+          title: { display: true, text: 'Kg Producidos (kg)', color: '#38bdf8', font: { weight: 'bold' } },
+          grid: { color: 'rgba(255, 255, 255, 0.06)' },
+          ticks: { color: '#38bdf8', font: { weight: 'bold' } }
+        },
+        yTiempo: {
+          type: 'linear',
+          position: 'right',
+          title: { display: true, text: 'Tiempo Acumulado entre Cargas (min)', color: '#fbbf24', font: { weight: 'bold' } },
+          grid: { drawOnChartArea: false },
+          ticks: { color: '#fbbf24', font: { weight: 'bold' } }
+        }
+      },
+      plugins: {
+        legend: {
+          labels: { color: '#f8fafc', font: { weight: 'bold', size: 12 } }
+        }
+      }
+    }
+  });
 }
 
 // Load Consumos Data

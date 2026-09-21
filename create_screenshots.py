@@ -123,7 +123,7 @@ def create_mockup_produccion():
     print("Created screenshot_produccion.png")
 
 def create_mockup_expanded():
-    img = Image.new('RGB', (1200, 750), color='#0f172a')
+    img = Image.new('RGB', (1200, 850), color='#0f172a')
     draw = ImageDraw.Draw(img)
 
     # Clean Top Header (No sidebar)
@@ -138,67 +138,80 @@ def create_mockup_expanded():
     # Banner Turno Activo
     draw.rectangle([30, 80, 1170, 125], fill='#0c4a6e', outline='#0284c7')
     draw.text((50, 95), "🕒 TURNO ACTIVO: Turno 2 (14:00 - 21:00) — 21/09/2026", fill='#ffffff')
-    draw.text((880, 95), "🟢 MQTT BROKER CONECTADO", fill='#34d399')
+    draw.text((880, 95), "⚡ WEBSOCKET EN TIEMPO REAL CONECTADO", fill='#34d399')
 
     # Main KPI Cards (4 Cards)
-    # Card 1: ikProd High Impact with Dynamic Semáforo Text Color
-    draw.rectangle([30, 145, 305, 340], fill='#1e293b', outline='#10b981')
+    # Card 1: ikProd
+    draw.rectangle([30, 145, 305, 310], fill='#1e293b', outline='#10b981')
     draw.rectangle([30, 145, 305, 175], fill='#0f172a')
     draw.text((45, 153), "ikProd (EFICIENCIA TURNO)", fill='#38bdf8')
-    draw.text((50, 190), "68.5%", fill='#34d399') # Dynamic Semáforo Color (Green)
-    draw.text((50, 240), "Valor Neto: 20.5", fill='#f8fafc')
-    draw.rectangle([50, 265, 280, 290], fill='#0f172a', outline='#334155')
-    draw.text((60, 271), "Tprom: 2.5 min", fill='#38bdf8')
-    draw.text((50, 305), "Fórmula: (Kg_prom / Tprom) / 30", fill='#94a3b8')
+    draw.text((50, 185), "68.5%", fill='#34d399')
+    draw.text((50, 230), "Valor Neto: 20.5 | Tprom: 2.5 min", fill='#f8fafc')
+    draw.text((50, 275), "Fórmula: (Kg_prom / Tprom) / 30", fill='#94a3b8')
 
     # Card 2: hProd
-    draw.rectangle([320, 145, 595, 340], fill='#1e293b', outline='#38bdf8')
+    draw.rectangle([320, 145, 595, 310], fill='#1e293b', outline='#38bdf8')
     draw.rectangle([320, 145, 595, 175], fill='#075985')
     draw.text((335, 153), "hProd (PRODUCTIVIDAD HORARIA)", fill='#7dd3fc')
-    draw.text((340, 190), "1.790 kg/h", fill='#38bdf8')
-    draw.text((340, 240), "Kilos procesados por hora", fill='#f8fafc')
-    draw.text((340, 270), "Calculado dinámicamente", fill='#94a3b8')
-    draw.text((340, 295), "durante el turno activo", fill='#94a3b8')
+    draw.text((340, 185), "1.790 kg/h", fill='#38bdf8')
+    draw.text((340, 230), "Kilos procesados por hora", fill='#f8fafc')
+    draw.text((340, 275), "Calculado dinámicamente en turno", fill='#94a3b8')
 
     # Card 3: Kg Totales Turno
-    draw.rectangle([610, 145, 885, 340], fill='#1e293b', outline='#fbbf24')
+    draw.rectangle([610, 145, 885, 310], fill='#1e293b', outline='#fbbf24')
     draw.rectangle([610, 145, 885, 175], fill='#78350f')
     draw.text((625, 153), "KG TOTALES TURNO", fill='#fde047')
-    draw.text((630, 190), "8.950 kg", fill='#fbbf24')
-    draw.rectangle([630, 245, 865, 275], fill='#0f172a', outline='#d97706')
-    draw.text((640, 253), "Meta Objetivo: 14.400 kg", fill='#fbbf24')
-    draw.text((630, 295), "Progreso Turno: 62.1%", fill='#94a3b8')
+    draw.text((630, 185), "8.950 kg", fill='#fbbf24')
+    draw.text((630, 230), "Meta Objetivo: 14.400 kg", fill='#f8fafc')
+    draw.text((630, 275), "Progreso Turno: 62.1%", fill='#94a3b8')
 
     # Card 4: Cargas Totales Turno
-    draw.rectangle([900, 145, 1170, 340], fill='#1e293b', outline='#c084fc')
+    draw.rectangle([900, 145, 1170, 310], fill='#1e293b', outline='#c084fc')
     draw.rectangle([900, 145, 1170, 175], fill='#581c87')
     draw.text((915, 153), "CARGAS TOTALES TURNO", fill='#e9d5ff')
-    draw.text((920, 190), "172 cargas", fill='#c084fc')
-    draw.text((920, 240), "Peso Promedio: 52.0 kg", fill='#f8fafc')
-    draw.text((920, 270), "Tiempo Promedio: 2.5 min", fill='#94a3b8')
+    draw.text((920, 185), "172 cargas", fill='#c084fc')
+    draw.text((920, 230), "Peso Promedio: 52.0 kg", fill='#f8fafc')
+    draw.text((920, 275), "Tiempo Promedio: 2.5 min", fill='#94a3b8')
 
-    # Recent Loads Table (MQTT Feed)
-    draw.text((30, 360), "📋 HISTORIAL DE CARGAS RECIBIDAS EN EL TURNO ACTIVO (MQTT: elis/lavanderia/tunel/carga)", fill='#38bdf8')
+    # Secondary Compact Cards (Clientes & Programas)
+    draw.rectangle([30, 330, 580, 410], fill='#1e293b', outline='#0284c7')
+    draw.text((50, 345), "👥 CLIENTES ATENDIDOS", fill='#94a3b8')
+    draw.text((50, 368), "4 Clientes", fill='#38bdf8')
+    draw.text((50, 392), "Códigos de cliente únicos atendidos en el turno", fill='#cbd5e1')
+
+    draw.rectangle([610, 330, 1170, 410], fill='#1e293b', outline='#0284c7')
+    draw.text((630, 345), "🗂️ PROGRAMAS EJECUTADOS", fill='#94a3b8')
+    draw.text((630, 368), "3 Programas", fill='#34d399')
+    draw.text((630, 392), "Categorías y programas de lavado procesados", fill='#cbd5e1')
+
+    # Shift Progress Dual-Axis Chart Mockup
+    draw.rectangle([30, 435, 1170, 810], fill='#1e293b', outline='#334155')
+    draw.text((50, 455), "📈 AVANCE PRODUCTIVO DEL TURNO (Kg/Hora vs Tiempo Acumulado entre Cargas)", fill='#38bdf8')
+    draw.text((800, 455), "Eje Izq: Kg (Línea Azul) | Eje Der: Min Acum (Barras Ámbar)", fill='#94a3b8')
+
+    # Chart Canvas Drawing
+    draw.rectangle([80, 490, 1120, 760], fill='#0f172a', outline='#334155')
     
-    headers = ["Load ID", "Hora / Fecha", "Cliente", "Categoría", "Peso (kg)", "Tiempo s/Carga (s)"]
-    draw.rectangle([30, 385, 1170, 415], fill='#0f172a', outline='#334155')
-    for i, h in enumerate(headers):
-        draw.text((40 + i * 190, 395), h, fill='#38bdf8')
+    # Grid lines
+    for i in range(5):
+        gy = 510 + i * 50
+        draw.line([80, gy, 1120, gy], fill='#1e293b')
 
-    loads_sample = [
-        ("703", "21/09/2026 20:42:15", "150 - Hotel Nájera", "Cat 4 - Mantelería", "59.0 kg", "185 seg (3.08 min)"),
-        ("702", "21/09/2026 20:39:10", "150 - Hotel Nájera", "Cat 4 - Mantelería", "54.5 kg", "175 seg (2.91 min)"),
-        ("701", "21/09/2026 20:36:15", "112 - Residencia Rioja", "Cat 2 - Sábanas", "51.0 kg", "160 seg (2.66 min)"),
-        ("700", "21/09/2026 20:33:35", "112 - Residencia Rioja", "Cat 2 - Sábanas", "53.2 kg", "168 seg (2.80 min)"),
-        ("699", "21/09/2026 20:30:47", "089 - Clínica Nájera", "Cat 1 - Hospitalario", "48.0 kg", "152 seg (2.53 min)")
-    ]
+    # X-Axis Labels (Shift Hours)
+    hours = ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"]
+    for i, h in enumerate(hours):
+        hx = 110 + i * 135
+        draw.text((hx - 15, 770), h, fill='#94a3b8')
+        # Bars (Tiempo Acumulado)
+        t_height = [32, 28, 35, 30, 26, 31, 29, 0][i] * 4
+        if t_height > 0:
+            draw.rectangle([hx - 20, 750 - t_height, hx + 20, 750], fill='#d97706', outline='#fbbf24')
 
-    for idx, row in enumerate(loads_sample):
-        ry = 420 + idx * 45
-        bg = '#1e293b' if idx % 2 == 0 else '#0f172a'
-        draw.rectangle([30, ry, 1170, ry + 40], fill=bg, outline='#334155')
-        for c_idx, val in enumerate(row):
-            draw.text((40 + c_idx * 190, ry + 12), val, fill='#f8fafc')
+    # Line (Kg producidos / hora)
+    kg_points = [(110, 620), (245, 570), (380, 540), (515, 560), (650, 530), (785, 520), (920, 540), (1055, 750)]
+    draw.line(kg_points, fill='#38bdf8', width=4)
+    for px, py in kg_points:
+        draw.ellipse([px-5, py-5, px+5, py+5], fill='#0284c7', outline='#38bdf8')
 
     img.save('pdf_assets/screenshot_expanded.png')
     print("Created screenshot_expanded.png")

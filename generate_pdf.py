@@ -259,6 +259,21 @@ def build_pdf():
             Paragraph("<b>Tprom (Tiempo Promedio)</b>", body_style),
             Paragraph("<code>Tprom = (Sumatoria tiempo_entre_cargas_seg / # cargas) / 60</code>", body_style),
             Paragraph("Expresado en minutos. Mostrado en texto mediano junto al ikProd.", body_style)
+        ],
+        [
+            Paragraph("<b>Clientes Atendidos</b>", body_style),
+            Paragraph("<code>COUNT(DISTINCT cliente)</code> durante el turno activo.", body_style),
+            Paragraph("Conteo de códigos únicos de cliente procesados.", body_style)
+        ],
+        [
+            Paragraph("<b>Programas Ejecutados</b>", body_style),
+            Paragraph("<code>COUNT(DISTINCT categoria)</code> durante el turno activo.", body_style),
+            Paragraph("Conteo de categorías/programas únicos ejecutados.", body_style)
+        ],
+        [
+            Paragraph("<b>Gráfica Avance Productivo</b>", body_style),
+            Paragraph("Gráfica combinada dual-axis (Chart.js) por horas completas de turno.", body_style),
+            Paragraph("<b>Línea Azul</b>: Kg/h<br/><b>Barras Ámbar</b>: Tiempo acumulado (min).", body_style)
         ]
     ]
     t_kpis = Table(kpi_table_data, colWidths=[120, 220, 164])
@@ -308,9 +323,10 @@ def build_pdf():
     # 4.3 Dashboard Ampliado
     story.append(Paragraph("4.3 Dashboard Ampliado del Túnel de Lavado", h2_style))
     story.append(Paragraph(
-        "Vista simplificada y de alta visibilidad para monitores de planta. Se ha <b>eliminado el menú lateral de la izquierda</b> "
-        "y las <b>tarjetas secundarias de telemetría y parámetros operativos</b>, enfocando el espacio exclusivamente en los 4 KPIs principales de turno "
-        "(ikProd %, hProd kg/h, Kg Totales con Meta 14.400 kg, y Cargas Totales) más la tabla en tiempo real de cargas MQTT recibidas.", body_style
+        "Vista simplificada de alta visibilidad para monitores de planta. Se ha eliminado el menú lateral de la izquierda "
+        "y se han reorganizado los elementos incorporando las tarjetas compactas de <b>Clientes Atendidos</b> y <b>Programas Ejecutados</b>, "
+        "así como la <b>Gráfica de Avance Productivo del Turno (Dual-Axis)</b> en la sección inferior, dibujando hora a hora los Kg producidos en línea azul "
+        "y los minutos acumulados entre cargas en barras ámbar.", body_style
     ))
     if os.path.exists("pdf_assets/screenshot_expanded.png"):
         img_exp = RLImage("pdf_assets/screenshot_expanded.png", width=500, height=310)
