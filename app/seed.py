@@ -58,6 +58,28 @@ def seed_database():
             ON CONFLICT(role, module_code) DO UPDATE SET can_view=excluded.can_view, can_edit=excluded.can_edit
         """, (role, module_code, can_view, can_edit))
 
+    # 4. Sembrar datos iniciales de telemetría de agua (1 pulso = 0,1 m3)
+    cursor.execute("SELECT COUNT(*) FROM agua_tunel_telemetria")
+    if cursor.fetchone()[0] == 0:
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        seed_records = [
+            (now - timedelta(hours=6), 25, 2.5, 12.5),
+            (now - timedelta(hours=5), 30, 3.0, 15.0),
+            (now - timedelta(hours=4), 35, 3.5, 17.5),
+            (now - timedelta(hours=3), 28, 2.8, 14.0),
+            (now - timedelta(hours=2), 32, 3.2, 16.0),
+            (now - timedelta(hours=1), 40, 4.0, 20.0),
+            (now, 18, 1.8, 14.2)
+        ]
+        for ts_dt, pulsos, vol, caudal in seed_records:
+            ts_str = ts_dt.strftime("%d/%m/%Y %H:%M:%S")
+            ts_iso = ts_dt.strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute("""
+                INSERT INTO agua_tunel_telemetria (variable, timestamp, timestamp_iso, pulsos, volumen_m3, caudal_m3h)
+                VALUES ('AGUA_TUNEL_LAVADORAS', ?, ?, ?, ?, ?)
+            """, (ts_str, ts_iso, pulsos, vol, caudal))
+
     conn.commit()
     conn.close()
     print("Database seeded successfully!")

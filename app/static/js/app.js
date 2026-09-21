@@ -704,11 +704,14 @@ async function loadConsumosData() {
         <div class="subtitle-line"></div>
       </div>
       <div class="metrics-grid" style="margin-bottom: 28px;">
-        <!-- 4. Agua Túnel y Lavadoras -->
-        <div class="metric-card">
+        <!-- 4. Agua Túnel y Lavadoras (Clicable) -->
+        <div class="metric-card clickable-card" onclick="openAguaTunelModal()" style="cursor: pointer;">
           <div class="metric-icon blue"><i class="fas fa-shower"></i></div>
-          <div class="metric-info">
-            <h4>${agua.agua_tunel_lavadoras?.titulo || 'Agua Túnel y Lavadoras'}</h4>
+          <div class="metric-info" style="width: 100%;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <h4>${agua.agua_tunel_lavadoras?.titulo || 'Agua Túnel y Lavadoras'}</h4>
+              <span class="card-link-badge" style="font-size: 0.68rem; padding: 2px 6px;">🔍 Telemetría</span>
+            </div>
             <div class="metric-value">${agua.agua_tunel_lavadoras?.caudal_m3h || 14.2} m³/h</div>
             <small style="color: var(--text-muted)">Esp: ${agua.agua_tunel_lavadoras?.consumo_especifico_l_kg || 4.8} L/kg | Hoy: ${agua.agua_tunel_lavadoras?.consumo_hoy_m3 || 168.5} m³</small>
           </div>
@@ -915,4 +918,78 @@ async function togglePermission(role, module_code, can_view) {
   });
   // Refresh sidebar if active user role changed
   await checkAuth();
+}
+
+// Telemetría & Modal Agua Túnel y Lavadoras (AGUA_TUNEL_LAVADORAS - 0.1 m3/pulso)
+function openAguaTunelModal() {
+  const modal = document.getElementById('agua-tunel-modal');
+  if (!modal) return;
+  modal.classList.add('active');
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const fechaInicioInput = document.getElementById('agua-filter-fecha-inicio');
+  const fechaFinInput = document.getElementById('agua-filter-fecha-fin');
+  
+  if (fechaInicioInput && !fechaInicioInput.value) fechaInicioInput.value = todayStr;
+  if (fechaFinInput && !fechaFinInput.value) fechaFinInput.value = todayStr;
+
+  fetchAguaTunelData();
+}
+
+function closeAguaTunelModal() {
+  const modal = document.getElementById('agua-tunel-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+function applyAguaTunelFilter() {
+  fetchAguaTunelData();
+}
+
+async function fetchAguaTunelData() {
+  const fechaInicio = document.getElementById('agua-filter-fecha-inicio')?.value || '';
+  const horaInicio = document.getElementById('agua-filter-hora-inicio')?.value || '00:00';
+  const fechaFin = document.getElementById('agua-filter-fecha-fin')?.value || '';
+  const horaFin = document.getElementById('agua-filter-hora-fin')?.value || '23:59';
+
+  const tbody = document.getElementById('agua-telemetria-table-body');
+  const valorAccEl = document.getElementById('agua-acumulado-valor');
+  const subtextAccEl = document.getElementById('agua-acumulado-subtexto');
+  const countEl = document.getElementById('agua-tabla-total-count');
+
+  if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Cargando telemetría...</td></tr>`;
+
+  try {
+    const params = new URLSearchParams({
+      fecha_inicio: fechaInicio,
+      hora_inicio: horaInicio.length === 5 ? `${horaInicio}:00` : horaInicio,
+      fecha_fin: fechaFin,
+      hora_fin: horaFin.length === 5 ? `${horaFin}:59` : horaFin
+    });
+
+    const res = await fetch(`/api/consumos/agua-tunel/telemetria?${params.toString()}`);
+    if (!res.ok) throw new Error('Error consultando telemetría de agua');
+    const data = await res.json();
+
+    if (valorAccEl) valorAccEl.textContent = `${data.acumulado_m3} m³`;
+    if (subtextAccEl) subtextAccEl.textContent = `Total Pulsos: ${data.total_pulsos.toLocaleString()} (0,1 m³/pulso) | Rango: ${data.filtro.start_iso} ➔ ${data.filtro.end_iso}`;
+    if (countEl) countEl.textContent = `${data.total_registros} registros`;
+
+    if (tbody) {
+      if (data.registros.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 15px;">No se encontraron lecturas en el rango seleccionado.</td></tr>`;
+      } else {
+        tbody.innerHTML = data.registros.map(r => `
+          <tr>
+            <td><strong style="color: #38bdf8;">${r.timestamp_iso}</strong></td>
+            <td><span style="color: #fbbf24; font-weight: 700;">${r.pulsos} pulsos</span></td>
+            <td><span style="color: #34d399; font-weight: 800;">${r.volumen_m3} m³</span></td>
+            <td>${r.caudal_m3h} m³/h</td>
+            <td><small style="color: var(--text-muted);">${r.dispositivo}</small></td>
+          </tr>
+        `).join('');
+      }
+    }
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="color: var(--accent-red); text-align: center;">⚠️ ${err.message}</td></tr>`;
+  }
 }

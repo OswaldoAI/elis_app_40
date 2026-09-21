@@ -147,6 +147,25 @@ class TestElis4App(unittest.TestCase):
         self.assertIn("elec_calandra_2", c_data["desglose_electricidad"])
         self.assertIn("elec_calandra_3", c_data["desglose_electricidad"])
 
+    def test_06_agua_tunel_telemetria(self):
+        res = self.client.post("/api/auth/login", json={"username": "Admin", "password": "admin1"})
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Post new pulse ingestion (50 pulses = 5.0 m3)
+        payload = {"pulsos": 50, "caudal_m3h": 22.5, "dispositivo": "Test Contador Agua"}
+        res_ing = self.client.post("/api/consumos/agua-tunel/ingesta", json=payload, headers=headers)
+        self.assertEqual(res_ing.status_code, 200)
+        self.assertEqual(res_ing.json()["volumen_m3"], 5.0)
+
+        # 2. Query telemetry & date range filter
+        res_tel = self.client.get("/api/consumos/agua-tunel/telemetria", headers=headers)
+        self.assertEqual(res_tel.status_code, 200)
+        t_data = res_tel.json()
+        self.assertEqual(t_data["variable"], "AGUA_TUNEL_LAVADORAS")
+        self.assertGreaterEqual(t_data["total_pulsos"], 50)
+        self.assertGreaterEqual(t_data["acumulado_m3"], 5.0)
+
 if __name__ == "__main__":
     unittest.main()
 

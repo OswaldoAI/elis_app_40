@@ -143,3 +143,120 @@ def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
             "eficiencia_caldera": 92.4
         }
     }
+
+
+from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel
+
+class AguaIngestaPayload(BaseModel):
+    pulsos: int
+    caudal_m3h: Optional[float] = 0.0
+    dispositivo: Optional[str] = "Contador Pulsos Agua 192.168.0.116:3000"
+    timestamp: Optional[str] = None
+
+
+@router.get("/agua-tunel/telemetria")
+def get_agua_tunel_telemetria(
+    fecha_inicio: Optional[str] = None,
+    hora_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
+    hora_fin: Optional[str] = None,
+    user: dict = Depends(check_consumos_permission)
+):
+    """Consulta la telemetría de Agua Túnel y Lavadoras (0.1 m3/pulso) con filtros por rango de fecha/hora."""
+    now = datetime.now()
+    
+    if not fecha_inicio:
+        fecha_inicio = now.strftime("%Y-%m-%d")
+    if not hora_inicio:
+        hora_inicio = "00:00:00"
+    if not fecha_fin:
+        fecha_fin = now.strftime("%Y-%m-%d")
+    if not hora_fin:
+        hora_fin = "23:59:59"
+
+    start_iso = f"{fecha_inicio} {hora_inicio}"
+    end_iso = f"{fecha_fin} {hora_fin}"
+
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT id, variable, timestamp, timestamp_iso, pulsos, volumen_m3, caudal_m3h, dispositivo, created_at
+        FROM agua_tunel_telemetria
+        WHERE timestamp_iso >= ? AND timestamp_iso <= ?
+        ORDER BY timestamp_iso DESC
+    """, (start_iso, end_iso)).fetchall()
+
+    total_agg = conn.execute("""
+        SELECT 
+            COALESCE(SUM(pulsos), 0) as total_pulsos,
+            COALESCE(SUM(volumen_m3), 0) as total_volumen
+        FROM agua_tunel_telemetria
+        WHERE timestamp_iso >= ? AND timestamp_iso <= ?
+    """, (start_iso, end_iso)).fetchone()
+    conn.close()
+
+    total_pulsos = total_agg["total_pulsos"] if total_agg else 0
+    acumulado_m3 = round(total_agg["total_volumen"], 2) if total_agg else 0.0
+
+    registros = []
+    for r in rows:
+        registros.append({
+            "id": r["id"],
+            "variable": r["variable"],
+            "timestamp": r["timestamp"],
+            "timestamp_iso": r["timestamp_iso"],
+            "pulsos": r["pulsos"],
+            "volumen_m3": round(r["volumen_m3"], 2),
+            "caudal_m3h": round(r["caudal_m3h"], 1),
+            "dispositivo": r["dispositivo"]
+        })
+
+    return {
+        "variable": "AGUA_TUNEL_LAVADORAS",
+        "factor_conversion": "1 pulso = 0.1 m3 (100 Litros)",
+        "acumulado_m3": acumulado_m3,
+        "total_pulsos": total_pulsos,
+        "filtro": {
+            "fecha_inicio": fecha_inicio,
+            "hora_inicio": hora_inicio,
+            "fecha_fin": fecha_fin,
+            "hora_fin": hora_fin,
+            "start_iso": start_iso,
+            "end_iso": end_iso
+        },
+        "total_registros": len(registros),
+        "registros": registros
+    }
+
+
+@router.post("/agua-tunel/ingesta")
+def registrar_ingesta_agua(
+    payload: AguaIngestaPayload,
+    user: dict = Depends(check_consumos_permission)
+):
+    """Registra una lectura de pulso de Agua Túnel y Lavadoras (1 pulso = 0.1 m3)."""
+    now_dt = datetime.now()
+    timestamp_str = payload.timestamp or now_dt.strftime("%d/%m/%Y %H:%M:%S")
+    timestamp_iso = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+    
+    volumen_m3 = round(payload.pulsos * 0.1, 2)
+    caudal_m3h = float(payload.caudal_m3h or 0.0)
+    dispositivo = payload.dispositivo or "Contador Pulsos Agua 192.168.0.116:3000"
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO agua_tunel_telemetria (variable, timestamp, timestamp_iso, pulsos, volumen_m3, caudal_m3h, dispositivo)
+        VALUES ('AGUA_TUNEL_LAVADORAS', ?, ?, ?, ?, ?, ?)
+    """, (timestamp_str, timestamp_iso, payload.pulsos, volumen_m3, caudal_m3h, dispositivo))
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "success",
+        "pulsos": payload.pulsos,
+        "volumen_m3": volumen_m3,
+        "caudal_m3h": caudal_m3h,
+        "timestamp_iso": timestamp_iso
+    }

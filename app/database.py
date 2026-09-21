@@ -113,6 +113,21 @@ def init_db():
     )
     """)
 
+    # Tabla de Telemetría de Agua Túnel y Lavadoras (0,1 m3 por pulso)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS agua_tunel_telemetria (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        variable TEXT DEFAULT 'AGUA_TUNEL_LAVADORAS',
+        timestamp TEXT NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        pulsos INTEGER NOT NULL,
+        volumen_m3 REAL NOT NULL,
+        caudal_m3h REAL DEFAULT 0.0,
+        dispositivo TEXT DEFAULT 'Contador Pulsos Agua 192.168.0.116:3000',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 
