@@ -37,6 +37,7 @@ app.include_router(auth_router.router)
 app.include_router(users_router.router)
 app.include_router(modules_router.router)
 app.include_router(produccion_router.router)
+app.include_router(consumos_router.router)
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from app.websocket_manager import ws_manager
 

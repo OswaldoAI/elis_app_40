@@ -119,6 +119,34 @@ class TestElis4App(unittest.TestCase):
         self.assertEqual(res_key.status_code, 200)
         self.assertEqual(res_key.json()["shift_key"], shift_key)
 
+    def test_05_consumos_process_cards(self):
+        res = self.client.post("/api/auth/login", json={"username": "Admin", "password": "admin1"})
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        res_c = self.client.get("/api/consumos/summary", headers=headers)
+        self.assertEqual(res_c.status_code, 200)
+        c_data = res_c.json()
+
+        self.assertIn("generales", c_data)
+        self.assertIn("desglose_agua", c_data)
+        self.assertIn("desglose_gas", c_data)
+        self.assertIn("desglose_electricidad", c_data)
+
+        # Check all 12 process cards
+        self.assertIn("agua_general", c_data["generales"])
+        self.assertIn("gas_general", c_data["generales"])
+        self.assertIn("energia_electrica", c_data["generales"])
+        self.assertIn("agua_tunel_lavadoras", c_data["desglose_agua"])
+        self.assertIn("gas_tunel_vt", c_data["desglose_gas"])
+        self.assertIn("gas_calandra_1", c_data["desglose_gas"])
+        self.assertIn("gas_calandra_2", c_data["desglose_gas"])
+        self.assertIn("gas_calandra_3", c_data["desglose_gas"])
+        self.assertIn("elec_tunel", c_data["desglose_electricidad"])
+        self.assertIn("elec_calandra_1", c_data["desglose_electricidad"])
+        self.assertIn("elec_calandra_2", c_data["desglose_electricidad"])
+        self.assertIn("elec_calandra_3", c_data["desglose_electricidad"])
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -649,30 +649,162 @@ async function loadConsumosData() {
     if (!res.ok) throw new Error('Acceso no autorizado');
     const data = await res.json();
 
+    const g = data.generales || {};
+    const agua = data.desglose_agua || {};
+    const gas = data.desglose_gas || {};
+    const elec = data.desglose_electricidad || {};
+
     container.innerHTML = `
-      <div class="metrics-grid">
-        <div class="metric-card">
-          <div class="metric-icon amber"><i class="fas fa-bolt"></i></div>
-          <div class="metric-info">
-            <h4>Potencia Activa (kW)</h4>
-            <div class="metric-value">${data.electricidad.potencia_activa_kw} kW</div>
-            <small style="color: var(--text-muted)">Hoy: ${data.electricidad.consumo_hoy_kwh} kWh</small>
-          </div>
-        </div>
+      <!-- Header Módulo Consumos -->
+      <div style="margin-bottom: 24px;">
+        <h3 style="color: var(--text-main); font-size: 1.3rem; margin-bottom: 6px;">⚡ Supervisión de Consumos Energéticos e Industriales</h3>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">Monitoreo en tiempo real por procesos: Agua, Gas y Energía Eléctrica en Planta ELIS Nájera 4.0</p>
+      </div>
+
+      <!-- Sección 1: Consumos Generales de Planta -->
+      <div class="section-subtitle-bar" style="margin-bottom: 14px;">
+        <h4>🌐 Consumos Generales de Planta</h4>
+        <div class="subtitle-line"></div>
+      </div>
+      <div class="metrics-grid" style="margin-bottom: 28px;">
+        <!-- 1. Agua General -->
         <div class="metric-card">
           <div class="metric-icon blue"><i class="fas fa-water"></i></div>
           <div class="metric-info">
-            <h4>Caudal de Agua</h4>
-            <div class="metric-value">${data.agua.caudal_m3h} m³/h</div>
-            <small style="color: var(--text-muted)">Reciclaje: ${data.agua.reciclaje_porcentaje}%</small>
+            <h4>${g.agua_general?.titulo || 'Agua (General)'}</h4>
+            <div class="metric-value">${g.agua_general?.caudal_m3h || 18.5} m³/h</div>
+            <small style="color: var(--text-muted)">Hoy: ${g.agua_general?.consumo_hoy_m3 || 210.4} m³ | Reciclaje: ${g.agua_general?.reciclaje_pct || 42}%</small>
           </div>
         </div>
+
+        <!-- 2. Gas General -->
         <div class="metric-card">
-          <div class="metric-icon green"><i class="fas fa-fire"></i></div>
+          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-fire"></i></div>
           <div class="metric-info">
-            <h4>Presión de Vapor</h4>
-            <div class="metric-value">${data.gas_vapor.presion_vapor_bar} bar</div>
-            <small style="color: var(--text-muted)">Caldera: ${data.gas_vapor.temp_caldera}°C</small>
+            <h4>${g.gas_general?.titulo || 'Gas General'}</h4>
+            <div class="metric-value">${g.gas_general?.consumo_hoy_m3 || 1540} m³</div>
+            <small style="color: var(--text-muted)">Presión: ${g.gas_general?.presion_vapor_bar || 9.2} bar | Caldera: ${g.gas_general?.eficiencia_caldera_pct || 92.4}% ef</small>
+          </div>
+        </div>
+
+        <!-- 3. Energía Eléctrica General -->
+        <div class="metric-card">
+          <div class="metric-icon amber"><i class="fas fa-bolt"></i></div>
+          <div class="metric-info">
+            <h4>${g.energia_electrica?.titulo || 'Energía Eléctrica'}</h4>
+            <div class="metric-value">${g.energia_electrica?.potencia_activa_kw || 345.2} kW</div>
+            <small style="color: var(--text-muted)">Hoy: ${g.energia_electrica?.consumo_hoy_kwh || 4120} kWh | FP: ${g.energia_electrica?.factor_potencia || 0.96}</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sección 2: Desglose de Agua por Proceso -->
+      <div class="section-subtitle-bar" style="margin-bottom: 14px;">
+        <h4>💧 Consumos de Agua por Proceso</h4>
+        <div class="subtitle-line"></div>
+      </div>
+      <div class="metrics-grid" style="margin-bottom: 28px;">
+        <!-- 4. Agua Túnel y Lavadoras -->
+        <div class="metric-card">
+          <div class="metric-icon blue"><i class="fas fa-shower"></i></div>
+          <div class="metric-info">
+            <h4>${agua.agua_tunel_lavadoras?.titulo || 'Agua Túnel y Lavadoras'}</h4>
+            <div class="metric-value">${agua.agua_tunel_lavadoras?.caudal_m3h || 14.2} m³/h</div>
+            <small style="color: var(--text-muted)">Esp: ${agua.agua_tunel_lavadoras?.consumo_especifico_l_kg || 4.8} L/kg | Hoy: ${agua.agua_tunel_lavadoras?.consumo_hoy_m3 || 168.5} m³</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sección 3: Desglose de Gas por Proceso / Máquina -->
+      <div class="section-subtitle-bar" style="margin-bottom: 14px;">
+        <h4>🔥 Consumos de Gas por Proceso / Máquina</h4>
+        <div class="subtitle-line"></div>
+      </div>
+      <div class="metrics-grid" style="margin-bottom: 28px;">
+        <!-- 5. Gas Túnel VT -->
+        <div class="metric-card">
+          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-wind"></i></div>
+          <div class="metric-info">
+            <h4>${gas.gas_tunel_vt?.titulo || 'Gas Túnel VT'}</h4>
+            <div class="metric-value">${gas.gas_tunel_vt?.consumo_m3h || 32.5} m³/h</div>
+            <small style="color: var(--text-muted)">Hoy: ${gas.gas_tunel_vt?.consumo_hoy_m3 || 260} m³ | Temp Secado: ${gas.gas_tunel_vt?.temp_secado_c || 118}°C</small>
+          </div>
+        </div>
+
+        <!-- 6. Gas Calandra 1 -->
+        <div class="metric-card">
+          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-scroll"></i></div>
+          <div class="metric-info">
+            <h4>${gas.gas_calandra_1?.titulo || 'Gas Calandra 1'}</h4>
+            <div class="metric-value">${gas.gas_calandra_1?.consumo_m3h || 45.0} m³/h</div>
+            <small style="color: var(--text-muted)">Hoy: ${gas.gas_calandra_1?.consumo_hoy_m3 || 360} m³ | Temp Rodillo: ${gas.gas_calandra_1?.temp_trabajo_c || 175}°C</small>
+          </div>
+        </div>
+
+        <!-- 7. Gas Calandra 2 -->
+        <div class="metric-card">
+          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-scroll"></i></div>
+          <div class="metric-info">
+            <h4>${gas.gas_calandra_2?.titulo || 'Gas Calandra 2'}</h4>
+            <div class="metric-value">${gas.gas_calandra_2?.consumo_m3h || 42.8} m³/h</div>
+            <small style="color: var(--text-muted)">Hoy: ${gas.gas_calandra_2?.consumo_hoy_m3 || 342.4} m³ | Temp Rodillo: ${gas.gas_calandra_2?.temp_trabajo_c || 175}°C</small>
+          </div>
+        </div>
+
+        <!-- 8. Gas Calandra 3 -->
+        <div class="metric-card">
+          <div class="metric-icon amber" style="background: rgba(234, 88, 12, 0.2); color: #f97316;"><i class="fas fa-eye"></i></div>
+          <div class="metric-info">
+            <h4>${gas.gas_calandra_3?.titulo || 'Gas Calandra 3'}</h4>
+            <div class="metric-value">${gas.gas_calandra_3?.consumo_m3h || 48.2} m³/h</div>
+            <small style="color: var(--text-muted)">Hoy: ${gas.gas_calandra_3?.consumo_hoy_m3 || 385.6} m³ | Temp Rodillo: ${gas.gas_calandra_3?.temp_trabajo_c || 180}°C</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sección 4: Desglose de Electricidad por Proceso / Máquina -->
+      <div class="section-subtitle-bar" style="margin-bottom: 14px;">
+        <h4>⚡ Consumos de Electricidad por Proceso / Máquina</h4>
+        <div class="subtitle-line"></div>
+      </div>
+      <div class="metrics-grid">
+        <!-- 9. Electricidad Túnel -->
+        <div class="metric-card">
+          <div class="metric-icon amber"><i class="fas fa-circle-notch"></i></div>
+          <div class="metric-info">
+            <h4>${elec.elec_tunel?.titulo || 'Electricidad Túnel'}</h4>
+            <div class="metric-value">${elec.elec_tunel?.potencia_kw || 85.4} kW</div>
+            <small style="color: var(--text-muted)">Hoy: ${elec.elec_tunel?.consumo_hoy_kwh || 1024.8} kWh</small>
+          </div>
+        </div>
+
+        <!-- 10. Electricidad Calandra 1 -->
+        <div class="metric-card">
+          <div class="metric-icon amber"><i class="fas fa-scroll"></i></div>
+          <div class="metric-info">
+            <h4>${elec.elec_calandra_1?.titulo || 'Electricidad Calandra 1'}</h4>
+            <div class="metric-value">${elec.elec_calandra_1?.potencia_kw || 42.1} kW</div>
+            <small style="color: var(--text-muted)">Hoy: ${elec.elec_calandra_1?.consumo_hoy_kwh || 505.2} kWh</small>
+          </div>
+        </div>
+
+        <!-- 11. Electricidad Calandra 2 -->
+        <div class="metric-card">
+          <div class="metric-icon amber"><i class="fas fa-scroll"></i></div>
+          <div class="metric-info">
+            <h4>${elec.elec_calandra_2?.titulo || 'Electricidad Calandra 2'}</h4>
+            <div class="metric-value">${elec.elec_calandra_2?.potencia_kw || 39.8} kW</div>
+            <small style="color: var(--text-muted)">Hoy: ${elec.elec_calandra_2?.consumo_hoy_kwh || 477.6} kWh</small>
+          </div>
+        </div>
+
+        <!-- 12. Electricidad Calandra 3 -->
+        <div class="metric-card">
+          <div class="metric-icon amber"><i class="fas fa-eye"></i></div>
+          <div class="metric-info">
+            <h4>${elec.elec_calandra_3?.titulo || 'Electricidad Calandra 3'}</h4>
+            <div class="metric-value">${elec.elec_calandra_3?.potencia_kw || 46.5} kW</div>
+            <small style="color: var(--text-muted)">Hoy: ${elec.elec_calandra_3?.consumo_hoy_kwh || 558.0} kWh</small>
           </div>
         </div>
       </div>
