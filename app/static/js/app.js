@@ -643,7 +643,23 @@ function renderAvanceChart(graficaData) {
 
 // Load Consumos Data
 // Render process card with expandable telemetry panel
-function renderProcesoCardAndPanel(id, varCode, titulo, unidad, iconClass, colorStyle, mainMetricValue, subtext) {
+  const isElectric = (unidad === 'kWh');
+  const tableHeaders = isElectric
+    ? `<tr>
+        <th>Timestamp ISO</th>
+        <th>Conteos / Lecturas</th>
+        <th>Energía (${unidad})</th>
+        <th>Dispositivo / Fuente</th>
+       </tr>`
+    : `<tr>
+        <th>Timestamp ISO</th>
+        <th>Pulsos (Count)</th>
+        <th>Volumen (${unidad})</th>
+        <th>Caudal (m³/h)</th>
+        <th>Dispositivo / Fuente</th>
+       </tr>`;
+  const initialColspan = isElectric ? 4 : 5;
+
   return `
     <div class="metric-card clickable-card" onclick="toggleProcesoPanel('${id}', '${varCode}', '${titulo.replace(/'/g, "\\'")}', '${unidad}')" style="cursor: pointer;" title="Haz clic para expandir o colapsar la telemetría">
       <div class="metric-icon ${colorStyle}"><i class="fas ${iconClass}"></i></div>
@@ -719,16 +735,10 @@ function renderProcesoCardAndPanel(id, varCode, titulo, unidad, iconClass, color
       <div style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 10px; background: rgba(15, 23, 42, 0.6);">
         <table class="data-table" style="margin-top: 0; font-size: 0.82rem;">
           <thead>
-            <tr>
-              <th>Timestamp ISO</th>
-              <th>Pulsos / Conteos</th>
-              <th>Valor (${unidad})</th>
-              <th>Caudal / Potencia</th>
-              <th>Dispositivo / Fuente</th>
-            </tr>
+            ${tableHeaders}
           </thead>
           <tbody id="table-body-${id}">
-            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Haz clic en Aplicar Filtro para consultar...</td></tr>
+            <tr><td colspan="${initialColspan}" style="text-align: center; color: var(--text-muted);">Haz clic en Aplicar Filtro para consultar...</td></tr>
           </tbody>
         </table>
       </div>
@@ -982,7 +992,10 @@ async function fetchProcesoTelemetria(id, varCode, unidad) {
   const subtextAccEl = document.getElementById(`acumulado-subtexto-${id}`);
   const countEl = document.getElementById(`tabla-count-${id}`);
 
-  if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Cargando telemetría...</td></tr>`;
+  const isElectric = (unidad === 'kWh');
+  const colspanNum = isElectric ? 4 : 5;
+
+  if (tbody) tbody.innerHTML = `<tr><td colspan="${colspanNum}" style="text-align: center; color: var(--text-muted);">Cargando telemetría...</td></tr>`;
 
   try {
     const params = new URLSearchParams({
@@ -999,26 +1012,26 @@ async function fetchProcesoTelemetria(id, varCode, unidad) {
 
     const unitStr = data.unidad || unidad || 'm³';
     if (valorAccEl) valorAccEl.textContent = `${data.acumulado} ${unitStr}`;
-    if (subtextAccEl) subtextAccEl.textContent = `Total Pulsos/Lecturas: ${data.total_pulsos.toLocaleString()} | Variable: ${varCode} | Rango: ${data.filtro.start_iso} ➔ ${data.filtro.end_iso}`;
+    if (subtextAccEl) subtextAccEl.textContent = `Total Lecturas: ${data.total_pulsos.toLocaleString()} | Variable: ${varCode} | Rango: ${data.filtro.start_iso} ➔ ${data.filtro.end_iso}`;
     if (countEl) countEl.textContent = `${data.total_registros} registros`;
 
     if (tbody) {
       if (data.registros.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 15px;">No se encontraron lecturas para ${varCode} en el rango seleccionado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${colspanNum}" style="text-align: center; color: var(--text-muted); padding: 15px;">No se encontraron lecturas para ${varCode} en el rango seleccionado.</td></tr>`;
       } else {
         tbody.innerHTML = data.registros.map(r => `
           <tr>
             <td><strong style="color: #38bdf8;">${r.timestamp_iso}</strong></td>
-            <td><span style="color: #fbbf24; font-weight: 700;">${r.pulsos} pulsos</span></td>
+            <td><span style="color: #fbbf24; font-weight: 700;">${r.pulsos} ${isElectric ? 'lecturas' : 'pulsos'}</span></td>
             <td><span style="color: #34d399; font-weight: 800;">${r.valor} ${r.unidad}</span></td>
-            <td>${r.caudal_m3h} m³/h</td>
+            ${isElectric ? '' : `<td>${r.caudal_m3h} m³/h</td>`}
             <td><small style="color: var(--text-muted);">${r.dispositivo}</small></td>
           </tr>
         `).join('');
       }
     }
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="color: var(--accent-red); text-align: center;">⚠️ ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${colspanNum}" style="color: var(--accent-red); text-align: center;">⚠️ ${err.message}</td></tr>`;
   }
 }
 
