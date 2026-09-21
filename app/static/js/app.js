@@ -432,11 +432,15 @@ async function loadTunelLavadoDashboard() {
             <div class="kpi-icon-circle"><i class="fas ${ikprodInfo.icono}"></i></div>
           </div>
           <div class="kpi-big-number" style="font-size: 3.1rem; font-weight: 900;">${ikprodInfo.valor}</div>
-          <div class="kpi-card-subtext" style="background: rgba(0,0,0,0.35); color: #ffffff;">${ikprodInfo.neto_str}</div>
+          <div style="font-size: 0.95rem; font-weight: 700; color: #ffffff; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 8px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <span style="color: #38bdf8;"><i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}</span>
+            <span>${ikprodInfo.neto_str}</span>
+          </div>
           <div style="font-size: 0.72rem; color: rgba(255, 255, 255, 0.85); margin-top: 8px; font-weight: 600;">
             <i class="fas fa-calculator"></i> ${ikprodInfo.subtexto}
           </div>
         </div>
+
       </div>
     `;
 

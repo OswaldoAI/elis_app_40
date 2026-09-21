@@ -114,7 +114,8 @@ def calculate_tunel_metrics(turno_act: dict = None):
                     "pct_str": f"{ikprod_pct}%",
                     "neto": ikprod_neto,
                     "neto_str": f"ikProd Neto: {ikprod_neto:.2f}",
-                    "formula_str": "Fórmula: (Kg Prom. / Min Prom.) | Ideal: 30 = 100%",
+                    "tprom_str": f"Tprom: {round(promedio_tiempo_min, 1)} min ({promedio_tiempo_seg}s)",
+                    "formula_str": "Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%",
                     "color_code": color_code,
                     "gradient": gradient,
                     "subtexto_color": subtexto_color
@@ -142,7 +143,8 @@ def calculate_tunel_metrics(turno_act: dict = None):
             "pct_str": "0.0%",
             "neto": 0.0,
             "neto_str": "ikProd Neto: 0.00",
-            "formula_str": "Fórmula: (Kg Prom. / Min Prom.) | Ideal: 30 = 100%",
+            "tprom_str": "Tprom: 0 min (0s)",
+            "formula_str": "Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%",
             "color_code": "red",
             "gradient": "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)",
             "subtexto_color": "#f87171"
@@ -294,7 +296,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
             "kg_totales_turno": {
                 "titulo": "Kg Totales Turno",
                 "valor": tunel_kpis["kg_totales_turno"],
-                "subtexto": f"Objetivo Turno: 16.000 kg ({'Real MQTT' if tunel_kpis['is_real'] else 'Simulado'})",
+                "subtexto": f"Objetivo Turno: 14.400 kg ({'Real MQTT' if tunel_kpis['is_real'] else 'Simulado'})",
                 "color_gradiente": "linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)",
                 "icono": "fa-weight-hanging"
             },
@@ -316,6 +318,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
                 "titulo": "Índice de Eficiencia (ikProd)",
                 "valor": tunel_kpis["ikprod"]["pct_str"],
                 "neto_str": tunel_kpis["ikprod"]["neto_str"],
+                "tprom_str": tunel_kpis["ikprod"]["tprom_str"],
                 "subtexto": tunel_kpis["ikprod"]["formula_str"],
                 "color_gradiente": tunel_kpis["ikprod"]["gradient"],
                 "color_codigo": tunel_kpis["ikprod"]["color_code"],
@@ -324,6 +327,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
             }
         }
     }
+
 
 
 
