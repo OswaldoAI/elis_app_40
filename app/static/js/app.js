@@ -370,7 +370,21 @@ async function loadTunelLavadoDashboard() {
     const hprodInfo = data.indicadores_destacados.hprod;
     const ikprodInfo = data.indicadores_destacados.ikprod;
 
-    const ikprodClass = `kpi-card-${ikprodInfo.color_codigo || 'green'}`;
+    // Determinar color de semáforo para el texto numérico de porcentaje de ikProd
+    let ikprodTextColor = ikprodInfo.text_color;
+    let ikprodBorderColor = ikprodInfo.border_color;
+    if (!ikprodTextColor) {
+      if (ikprodInfo.color_codigo === 'red') {
+        ikprodTextColor = '#ef4444';
+        ikprodBorderColor = '#ef4444';
+      } else if (ikprodInfo.color_codigo === 'orange') {
+        ikprodTextColor = '#f97316';
+        ikprodBorderColor = '#f97316';
+      } else {
+        ikprodTextColor = '#34d399';
+        ikprodBorderColor = '#10b981';
+      }
+    }
 
     container.innerHTML = `
       <!-- Banner Sincronización de Turno -->
@@ -425,18 +439,18 @@ async function loadTunelLavadoDashboard() {
           <div class="kpi-card-subtext">${hprodInfo.subtexto}</div>
         </div>
 
-        <!-- Tarjeta 4: Índice de Eficiencia ikProd (%) con Color Dinámico por Rango -->
-        <div class="kpi-card-striking ${ikprodClass}">
+        <!-- Tarjeta 4: Índice de Eficiencia ikProd (%) con Texto Numérico en Color de Semáforo -->
+        <div class="kpi-card-striking" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid ${ikprodBorderColor}; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);">
           <div class="kpi-card-header">
-            <h4>${ikprodInfo.titulo}</h4>
-            <div class="kpi-icon-circle"><i class="fas ${ikprodInfo.icono}"></i></div>
+            <h4 style="color: #f8fafc;">${ikprodInfo.titulo}</h4>
+            <div class="kpi-icon-circle" style="background: rgba(255, 255, 255, 0.08); color: ${ikprodTextColor};"><i class="fas ${ikprodInfo.icono}"></i></div>
           </div>
-          <div class="kpi-big-number" style="font-size: 3.1rem; font-weight: 900;">${ikprodInfo.valor}</div>
-          <div style="font-size: 0.95rem; font-weight: 700; color: #ffffff; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 8px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div class="kpi-big-number" style="font-size: 3.3rem; font-weight: 900; color: ${ikprodTextColor}; text-shadow: 0 0 20px ${ikprodTextColor}60;">${ikprodInfo.valor}</div>
+          <div style="font-size: 0.95rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 8px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
             <span style="color: #38bdf8;"><i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}</span>
             <span>${ikprodInfo.neto_str}</span>
           </div>
-          <div style="font-size: 0.72rem; color: rgba(255, 255, 255, 0.85); margin-top: 8px; font-weight: 600;">
+          <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 8px; font-weight: 600;">
             <i class="fas fa-calculator"></i> ${ikprodInfo.subtexto}
           </div>
         </div>

@@ -82,14 +82,20 @@ def calculate_tunel_metrics(turno_act: dict = None):
                 color_code = "red"
                 gradient = "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)"
                 subtexto_color = "#f87171"
+                text_color = "#ef4444"
+                border_color = "#ef4444"
             elif 30.0 <= ikprod_pct <= 60.0:
                 color_code = "orange"
                 gradient = "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)"
                 subtexto_color = "#fb923c"
+                text_color = "#f97316"
+                border_color = "#f97316"
             else:
                 color_code = "green"
                 gradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
                 subtexto_color = "#6ee7b7"
+                text_color = "#34d399"
+                border_color = "#10b981"
 
             conn = get_db_connection()
             last_carga = conn.execute("SELECT cliente, categoria, peso_kg, timestamp FROM tunel_cargas ORDER BY id DESC LIMIT 1").fetchone()
@@ -118,7 +124,9 @@ def calculate_tunel_metrics(turno_act: dict = None):
                     "formula_str": "Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%",
                     "color_code": color_code,
                     "gradient": gradient,
-                    "subtexto_color": subtexto_color
+                    "subtexto_color": subtexto_color,
+                    "text_color": text_color,
+                    "border_color": border_color
                 },
                 "programa_actual": last_prog_str
             }
@@ -147,7 +155,9 @@ def calculate_tunel_metrics(turno_act: dict = None):
             "formula_str": "Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%",
             "color_code": "red",
             "gradient": "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)",
-            "subtexto_color": "#f87171"
+            "subtexto_color": "#f87171",
+            "text_color": "#ef4444",
+            "border_color": "#ef4444"
         },
         "programa_actual": "Sin cargas registradas aún"
     }

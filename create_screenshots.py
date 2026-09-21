@@ -94,7 +94,7 @@ def create_mockup_produccion():
         ("KG TOTALES TURNO", "8.950 kg", "Meta Objetivo: 14.400 kg", "#38bdf8"),
         ("CARGAS TOTALES TURNO", "172 cargas", "Registradas en Turno Actual", "#34d399"),
         ("hProd (PRODUCTIVIDAD/HORA)", "1.790 kg/h", "Rendimiento Horario del Turno", "#fbbf24"),
-        ("ikProd (INDICADOR CLAVE)", "68.5%", "🟢 Verde (>60%) | Neto: 20.5 | Tprom: 2.5 min", "#10b981")
+        ("ikProd (INDICADOR CLAVE)", "68.5%", "🟢 Semáforo Verde (>60%) | Texto en Verde (#34d399)", "#34d399")
     ]
 
     for idx, (title, main_val, sub_val, color) in enumerate(kpis):
@@ -109,8 +109,8 @@ def create_mockup_produccion():
 
     # Formula Callout Box inside card
     draw.rectangle([x + 20, y + 390, x + 1110, y + 450], fill='#0c4a6e', outline='#0284c7')
-    draw.text((x + 30, y + 402), "💡 Fórmula Aplicada ikProd:", fill='#38bdf8')
-    draw.text((x + 30, y + 423), "ikProd = (Prom. Peso Cargas / Prom. Tiempo entre Cargas) | Ideal: 30 = 100% | Rojo <30% | Naranja 30-60% | Verde >60%", fill='#f8fafc')
+    draw.text((x + 30, y + 402), "💡 Fórmula Aplicada ikProd con Semáforo de Texto Numérico:", fill='#38bdf8')
+    draw.text((x + 30, y + 423), "ikProd = (Prom. Peso Cargas / Prom. Tiempo entre Cargas) | Texto Numérico: Rojo <30% | Naranja 30-60% | Verde >60%", fill='#f8fafc')
 
     # Latest Load Telemetry
     draw.text((x + 20, y + 470), "ÚLTIMA CARGA RECIBIDA VÍA MQTT (Tópico: elis/lavanderia/tunel/carga):", fill='#fbbf24')
@@ -141,11 +141,11 @@ def create_mockup_expanded():
     draw.text((880, 95), "🟢 MQTT BROKER CONECTADO", fill='#34d399')
 
     # Main KPI Cards (4 Cards)
-    # Card 1: ikProd High Impact
+    # Card 1: ikProd High Impact with Dynamic Semáforo Text Color
     draw.rectangle([30, 145, 305, 340], fill='#1e293b', outline='#10b981')
-    draw.rectangle([30, 145, 305, 175], fill='#064e3b')
-    draw.text((45, 153), "ikProd (EFICIENCIA TURNO)", fill='#34d399')
-    draw.text((50, 190), "68.5%", fill='#10b981')
+    draw.rectangle([30, 145, 305, 175], fill='#0f172a')
+    draw.text((45, 153), "ikProd (EFICIENCIA TURNO)", fill='#38bdf8')
+    draw.text((50, 190), "68.5%", fill='#34d399') # Dynamic Semáforo Color (Green)
     draw.text((50, 240), "Valor Neto: 20.5", fill='#f8fafc')
     draw.rectangle([50, 265, 280, 290], fill='#0f172a', outline='#334155')
     draw.text((60, 271), "Tprom: 2.5 min", fill='#38bdf8')
