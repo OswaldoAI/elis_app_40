@@ -51,7 +51,9 @@ class TestElis4App(unittest.TestCase):
         self.assertIn("indicadores_destacados", dash_data)
         self.assertIn("kg_totales_turno", dash_data["indicadores_destacados"])
         self.assertIn("cargas_totales_turno", dash_data["indicadores_destacados"])
-        self.assertIn("kpi_productividad_iprod", dash_data["indicadores_destacados"])
+        self.assertIn("hprod", dash_data["indicadores_destacados"])
+        self.assertIn("ikprod", dash_data["indicadores_destacados"])
+
 
     def test_03_mqtt_save_and_real_metrics(self):
         from app.mqtt_subscriber import save_carga_to_db

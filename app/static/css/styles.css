@@ -529,8 +529,8 @@ body {
 /* Estilos de Tarjetas Grandes de Colores Contrastantes para Dashboard Túnel de Lavado */
 .dashboard-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
   margin-top: 24px;
   margin-bottom: 30px;
 }
@@ -567,6 +567,22 @@ body {
   background: linear-gradient(135deg, #059669 0%, #047857 50%, #0f172a 100%);
   border-color: #34d399;
 }
+
+.kpi-card-red {
+  background: linear-gradient(135deg, #dc2626 0%, #991b1b 50%, #0f172a 100%);
+  border-color: #ef4444;
+}
+
+.kpi-card-orange {
+  background: linear-gradient(135deg, #ea580c 0%, #c2410c 50%, #0f172a 100%);
+  border-color: #f97316;
+}
+
+.kpi-card-green {
+  background: linear-gradient(135deg, #059669 0%, #047857 50%, #0f172a 100%);
+  border-color: #34d399;
+}
+
 
 .kpi-card-header {
   display: flex;

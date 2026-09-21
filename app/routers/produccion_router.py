@@ -65,12 +65,31 @@ def calculate_tunel_metrics(turno_act: dict = None):
         if total_cargas > 0:
             promedio_peso = round(row["promedio_peso"], 1)
             promedio_tiempo_seg = round(row["promedio_tiempo_seg"])
-            promedio_tiempo_min = round(promedio_tiempo_seg / 60.0, 1)
+            promedio_tiempo_min = round(promedio_tiempo_seg / 60.0, 2)
             total_kg = round(row["total_kg"], 1)
 
-            # Productividad Tn/h basada en el tiempo transcurrido del turno activo
+            # Productividad hProd (kg/h)
             horas_trans = max(minutos_transcurridos / 60.0, 0.2)
-            iprod_tnh = round((total_kg / 1000.0) / horas_trans, 2)
+            hprod_kgh = int(round(total_kg / horas_trans))
+            hprod_str = f"{hprod_kgh:,} kg/h".replace(",", ".")
+
+            # Indicador ikProd: (Promedio Kgs / Promedio Tiempos min)
+            ikprod_neto = round(promedio_peso / max(promedio_tiempo_min, 0.01), 2)
+            ikprod_pct = round((ikprod_neto / 30.0) * 100.0, 1)
+
+            # Rango de color ikProd: Rojo (<30%), Naranja (30-60%), Verde (>60%)
+            if ikprod_pct < 30.0:
+                color_code = "red"
+                gradient = "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)"
+                subtexto_color = "#f87171"
+            elif 30.0 <= ikprod_pct <= 60.0:
+                color_code = "orange"
+                gradient = "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)"
+                subtexto_color = "#fb923c"
+            else:
+                color_code = "green"
+                gradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                subtexto_color = "#6ee7b7"
 
             conn = get_db_connection()
             last_carga = conn.execute("SELECT cliente, categoria, peso_kg, timestamp FROM tunel_cargas ORDER BY id DESC LIMIT 1").fetchone()
@@ -84,12 +103,22 @@ def calculate_tunel_metrics(turno_act: dict = None):
                 "cargas_num": total_cargas,
                 "promedio_carga": f"{promedio_peso} kg",
                 "promedio_peso_num": promedio_peso,
-                "promedio_tiempo_carga": f"{promedio_tiempo_min} min ({promedio_tiempo_seg}s)",
+                "promedio_tiempo_carga": f"{round(promedio_tiempo_min, 1)} min ({promedio_tiempo_seg}s)",
                 "promedio_tiempo_seg": promedio_tiempo_seg,
                 "kg_totales_turno": f"{int(total_kg):,} kg".replace(",", "."),
                 "total_kg_num": total_kg,
-                "iprod": f"{iprod_tnh} Tn/h",
-                "iprod_num": iprod_tnh,
+                "hprod": hprod_str,
+                "hprod_num": hprod_kgh,
+                "ikprod": {
+                    "pct": ikprod_pct,
+                    "pct_str": f"{ikprod_pct}%",
+                    "neto": ikprod_neto,
+                    "neto_str": f"ikProd Neto: {ikprod_neto:.2f}",
+                    "formula_str": "Fórmula: (Kg Prom. / Min Prom.) | Ideal: 30 = 100%",
+                    "color_code": color_code,
+                    "gradient": gradient,
+                    "subtexto_color": subtexto_color
+                },
                 "programa_actual": last_prog_str
             }
     except Exception as e:
@@ -106,8 +135,18 @@ def calculate_tunel_metrics(turno_act: dict = None):
         "promedio_tiempo_seg": 0,
         "kg_totales_turno": "0 kg",
         "total_kg_num": 0,
-        "iprod": "0,00 Tn/h",
-        "iprod_num": 0.0,
+        "hprod": "0 kg/h",
+        "hprod_num": 0,
+        "ikprod": {
+            "pct": 0.0,
+            "pct_str": "0.0%",
+            "neto": 0.0,
+            "neto_str": "ikProd Neto: 0.00",
+            "formula_str": "Fórmula: (Kg Prom. / Min Prom.) | Ideal: 30 = 100%",
+            "color_code": "red",
+            "gradient": "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)",
+            "subtexto_color": "#f87171"
+        },
         "programa_actual": "Sin cargas registradas aún"
     }
 
@@ -266,15 +305,26 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
                 "color_gradiente": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
                 "icono": "fa-boxes"
             },
-            "kpi_productividad_iprod": {
-                "titulo": "KPI Productividad (iProd)",
-                "valor": tunel_kpis["iprod"],
+            "hprod": {
+                "titulo": "Productividad hProd",
+                "valor": tunel_kpis["hprod"],
                 "subtexto": f"Tiempo prom: {tunel_kpis['promedio_tiempo_carga']}",
-                "color_gradiente": "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                "color_gradiente": "linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)",
+                "icono": "fa-tachometer-alt"
+            },
+            "ikprod": {
+                "titulo": "Índice de Eficiencia (ikProd)",
+                "valor": tunel_kpis["ikprod"]["pct_str"],
+                "neto_str": tunel_kpis["ikprod"]["neto_str"],
+                "subtexto": tunel_kpis["ikprod"]["formula_str"],
+                "color_gradiente": tunel_kpis["ikprod"]["gradient"],
+                "color_codigo": tunel_kpis["ikprod"]["color_code"],
+                "subtexto_color": tunel_kpis["ikprod"]["subtexto_color"],
                 "icono": "fa-chart-line"
             }
         }
     }
+
 
 
 

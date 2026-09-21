@@ -367,7 +367,10 @@ async function loadTunelLavadoDashboard() {
 
     const kgInfo = data.indicadores_destacados.kg_totales_turno;
     const cargasInfo = data.indicadores_destacados.cargas_totales_turno;
-    const kpiInfo = data.indicadores_destacados.kpi_productividad_iprod;
+    const hprodInfo = data.indicadores_destacados.hprod;
+    const ikprodInfo = data.indicadores_destacados.ikprod;
+
+    const ikprodClass = `kpi-card-${ikprodInfo.color_codigo || 'green'}`;
 
     container.innerHTML = `
       <!-- Banner Sincronización de Turno -->
@@ -412,17 +415,31 @@ async function loadTunelLavadoDashboard() {
           <div class="kpi-card-subtext">${cargasInfo.subtexto}</div>
         </div>
 
-        <!-- Tarjeta 3: KPI Productividad (iProd) -->
-        <div class="kpi-card-striking kpi-card-emerald">
+        <!-- Tarjeta 3: Productividad hProd (kg/h) -->
+        <div class="kpi-card-striking kpi-card-cyan" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
           <div class="kpi-card-header">
-            <h4>${kpiInfo.titulo}</h4>
-            <div class="kpi-icon-circle"><i class="fas ${kpiInfo.icono}"></i></div>
+            <h4>${hprodInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
           </div>
-          <div class="kpi-big-number">${kpiInfo.valor}</div>
-          <div class="kpi-card-subtext">${kpiInfo.subtexto}</div>
+          <div class="kpi-big-number">${hprodInfo.valor}</div>
+          <div class="kpi-card-subtext">${hprodInfo.subtexto}</div>
+        </div>
+
+        <!-- Tarjeta 4: Índice de Eficiencia ikProd (%) con Color Dinámico por Rango -->
+        <div class="kpi-card-striking ${ikprodClass}">
+          <div class="kpi-card-header">
+            <h4>${ikprodInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${ikprodInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number" style="font-size: 3.1rem; font-weight: 900;">${ikprodInfo.valor}</div>
+          <div class="kpi-card-subtext" style="background: rgba(0,0,0,0.35); color: #ffffff;">${ikprodInfo.neto_str}</div>
+          <div style="font-size: 0.72rem; color: rgba(255, 255, 255, 0.85); margin-top: 8px; font-weight: 600;">
+            <i class="fas fa-calculator"></i> ${ikprodInfo.subtexto}
+          </div>
         </div>
       </div>
     `;
+
   } catch (err) {
     container.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
   }
