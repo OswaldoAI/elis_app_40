@@ -70,8 +70,11 @@ def calculate_tunel_metrics(turno_act: dict = None):
             dt_end_obj = dt_curr + timedelta(hours=8)
 
         grafica_labels = []
-        grafica_kg = []
-        grafica_tiempo = []
+        grafica_kg_hora = []
+        grafica_kg_acumulado = []
+        grafica_cargas_hora = []
+
+        running_kg = 0.0
 
         while dt_curr < dt_end_obj:
             dt_next = dt_curr + timedelta(hours=1)
@@ -81,20 +84,21 @@ def calculate_tunel_metrics(turno_act: dict = None):
             
             row_h = conn.execute("""
                 SELECT 
-                    COALESCE(SUM(peso_kg), 0) as kg_hora,
-                    COALESCE(SUM(tiempo_entre_cargas_seg), 0) as seg_hora
+                    COUNT(*) as num_cargas,
+                    COALESCE(SUM(peso_kg), 0) as kg_hora
                 FROM tunel_cargas
                 WHERE (timestamp_iso >= ? AND timestamp_iso < ?)
                    OR (timestamp >= ? AND timestamp < ?)
             """, (h_start_str, h_end_str, h_start_str, h_end_str)).fetchone()
             
             kg_val = round(row_h["kg_hora"], 1) if row_h else 0.0
-            seg_val = row_h["seg_hora"] if row_h else 0
-            min_val = round(seg_val / 60.0, 1)
+            cargas_val = row_h["num_cargas"] if row_h else 0
+            running_kg += kg_val
 
             grafica_labels.append(label_str)
-            grafica_kg.append(kg_val)
-            grafica_tiempo.append(min_val)
+            grafica_kg_hora.append(kg_val)
+            grafica_kg_acumulado.append(round(running_kg, 1))
+            grafica_cargas_hora.append(cargas_val)
 
             dt_curr = dt_next
 
@@ -102,8 +106,9 @@ def calculate_tunel_metrics(turno_act: dict = None):
         label_fin = dt_end_obj.strftime("%H:00")
         if label_fin not in grafica_labels:
             grafica_labels.append(label_fin)
-            grafica_kg.append(0.0)
-            grafica_tiempo.append(0.0)
+            grafica_kg_hora.append(0.0)
+            grafica_kg_acumulado.append(round(running_kg, 1))
+            grafica_cargas_hora.append(0)
 
         conn.close()
 
@@ -167,8 +172,9 @@ def calculate_tunel_metrics(turno_act: dict = None):
                 "hprod": hprod_str,
                 "hprod_num": hprod_kgh,
                 "grafica_labels": grafica_labels,
-                "grafica_kg": grafica_kg,
-                "grafica_tiempo": grafica_tiempo,
+                "grafica_kg_hora": grafica_kg_hora,
+                "grafica_kg_acumulado": grafica_kg_acumulado,
+                "grafica_cargas_hora": grafica_cargas_hora,
                 "ikprod": {
                     "pct": ikprod_pct,
                     "pct_str": f"{ikprod_pct}%",
@@ -203,8 +209,9 @@ def calculate_tunel_metrics(turno_act: dict = None):
         "hprod": "0 kg/h",
         "hprod_num": 0,
         "grafica_labels": ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00"],
-        "grafica_kg": [0.0]*9,
-        "grafica_tiempo": [0.0]*9,
+        "grafica_kg_hora": [0.0]*9,
+        "grafica_kg_acumulado": [0.0]*9,
+        "grafica_cargas_hora": [0]*9,
         "ikprod": {
             "pct": 0.0,
             "pct_str": "0.0%",
@@ -417,8 +424,9 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
         },
         "grafica_avance": {
             "labels": tunel_kpis.get("grafica_labels", []),
-            "kg_por_hora": tunel_kpis.get("grafica_kg", []),
-            "tiempo_acum_por_hora": tunel_kpis.get("grafica_tiempo", [])
+            "kg_por_hora": tunel_kpis.get("grafica_kg_hora", []),
+            "kg_acumulado": tunel_kpis.get("grafica_kg_acumulado", []),
+            "cargas_por_hora": tunel_kpis.get("grafica_cargas_hora", [])
         }
     }
 

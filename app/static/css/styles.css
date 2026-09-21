@@ -535,13 +535,22 @@ body {
   margin-bottom: 30px;
 }
 
+/* Dashboard Ampliado Rediseñado (4 columnas x 2 filas) */
+.dashboard-grid-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr 1fr 220px;
+  grid-template-rows: auto 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
 .kpi-card-striking {
-  border-radius: 18px;
-  padding: 26px 24px;
+  border-radius: 14px;
+  padding: 18px 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.15);
   position: relative;
   overflow: hidden;
@@ -549,8 +558,8 @@ body {
 }
 
 .kpi-card-striking:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
 }
 
 .kpi-card-cyan {
@@ -583,52 +592,51 @@ body {
   border-color: #34d399;
 }
 
-
 .kpi-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .kpi-card-header h4 {
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   font-weight: 800;
   color: #f8fafc;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.6px;
 }
 
 .kpi-icon-circle {
-  width: 48px;
-  height: 48px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.18);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.4rem;
+  font-size: 1.1rem;
   color: white;
   backdrop-filter: blur(4px);
 }
 
 .kpi-big-number {
-  font-size: 2.8rem;
+  font-size: 2.2rem;
   font-weight: 900;
   color: #ffffff;
-  letter-spacing: -1px;
+  letter-spacing: -0.5px;
   line-height: 1.1;
-  margin: 10px 0;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  margin: 6px 0;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 .kpi-card-subtext {
-  font-size: 0.82rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.85);
   background: rgba(0, 0, 0, 0.25);
-  padding: 6px 12px;
-  border-radius: 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
   display: inline-block;
   align-self: flex-start;
 }
@@ -931,34 +939,52 @@ body {
   border: 1px solid rgba(56, 189, 248, 0.25);
 }
 
+.col-secondary-kpis {
+  grid-column: 4;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.col-secondary-kpis .kpi-card-compact {
+  padding: 10px 14px;
+  border-radius: 12px;
+}
+
 /* Gráfica de Avance Productivo del Turno */
 .chart-section-card {
   background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 24px;
-  margin-top: 24px;
-  margin-bottom: 30px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  border-radius: 14px;
+  padding: 16px 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 .chart-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .chart-header-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .chart-header-title h4 {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 800;
   color: var(--text-main);
+}
+
+.chart-wrapper {
+  position: relative;
+  height: 250px;
+  width: 100%;
 }
 
 .chart-wrapper {
