@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, status
+import json
 from app.auth import get_current_user
 from app.database import get_db_connection
 from app.turnos_sync import get_cached_turnos, sync_turnos_from_server_1
@@ -357,7 +358,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
     # Hora de actualización local en tiempo real
     now_local_formatted = get_local_now_str("%Y-%m-%d %H:%M:%S")
 
-    return {
+    dash_response = {
         "maquina": "TÚNEL DE LAVADO",
         "planta": "ELIS NÁJERA 4.0",
         "estado": "Operativa",
@@ -430,8 +431,207 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
         }
     }
 
+    # Auto-guardado dinámico de persistencia del paquete JSON de turno
+    try:
+        pkg = build_shift_json_package(turno_act)
+        save_shift_json_package(pkg)
+    except Exception as e:
+        print(f"Error auto-guardando paquete json de turno: {e}")
+
+    return dash_response
 
 
+def build_shift_json_package(turno_act: dict = None):
+    """Construye dinámicamente el paquete JSON completo de persistencia del turno."""
+    if not turno_act:
+        turnos_cache = get_cached_turnos()
+        turno_act = turnos_cache.get("turno_actual", {})
+
+    nombre_turno = turno_act.get("nombre") or "Turno Mañana"
+    hora_inicio = turno_act.get("hora_inicio", "06:00")
+    hora_fin = turno_act.get("hora_fin", "14:00")
+    fecha_raw = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        fecha_formateada = datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha_formateada = datetime.now().strftime("%d/%m/%Y")
+
+    horario_completo = f"{hora_inicio} - {hora_fin} | {fecha_formateada}"
+    shift_key = f"{fecha_raw}_{nombre_turno.replace(' ', '_')}"
+
+    tunel_kpis = calculate_tunel_metrics(turno_act)
+    ikprod = tunel_kpis.get("ikprod", {})
+
+    total_kg_num = float(tunel_kpis.get("total_kg_num", 0.0))
+    objetivo_kg = 14400.0
+    cumplimiento_pct = round((total_kg_num / objetivo_kg) * 100.0, 2) if objetivo_kg > 0 else 0.0
+
+    shift_package = {
+        "shift_key": shift_key,
+        "meta_info": {
+            "planta": "ELIS NÁJERA 4.0",
+            "maquina": "TÚNEL DE LAVADO",
+            "fecha": fecha_raw,
+            "fecha_formateada": fecha_formateada,
+            "nombre_turno": nombre_turno,
+            "hora_inicio": hora_inicio,
+            "hora_fin": hora_fin,
+            "horario_completo": horario_completo,
+            "timestamp_actualizacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "es_datos_reales": tunel_kpis.get("is_real", False)
+        },
+        "indicadores_ampliados": {
+            "kg_totales_turno": {
+                "valor_num": total_kg_num,
+                "valor_str": tunel_kpis.get("kg_totales_turno", "0 kg"),
+                "objetivo_kg": int(objetivo_kg),
+                "cumplimiento_pct": cumplimiento_pct
+            },
+            "cargas_totales_turno": {
+                "valor_num": tunel_kpis.get("cargas_num", 0),
+                "valor_str": tunel_kpis.get("cantidad_cargas", "0 cargas")
+            },
+            "productividad_hprod": {
+                "valor_num": tunel_kpis.get("hprod_num", 0),
+                "valor_str": tunel_kpis.get("hprod", "0 kg/h")
+            },
+            "indice_eficiencia_ikprod": {
+                "pct_num": ikprod.get("pct", 0.0),
+                "pct_str": ikprod.get("pct_str", "0.0%"),
+                "neto_num": ikprod.get("neto", 0.0),
+                "neto_str": ikprod.get("neto_str", "ikProd Neto: 0.00"),
+                "color_codigo": ikprod.get("color_code", "red"),
+                "text_color": ikprod.get("text_color", "#ef4444"),
+                "subtexto_color": ikprod.get("subtexto_color", "#f87171"),
+                "border_color": ikprod.get("border_color", "#ef4444"),
+                "tprom_str": ikprod.get("tprom_str", "Tprom: 0 min (0s)"),
+                "formula": ikprod.get("formula_str", "Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%")
+            },
+            "clientes_unicos": {
+                "valor_num": tunel_kpis.get("clientes_unicos", 0),
+                "valor_str": f"{tunel_kpis.get('clientes_unicos', 0)} clientes"
+            },
+            "programas_unicos": {
+                "valor_num": tunel_kpis.get("programas_unicos", 0),
+                "valor_str": f"{tunel_kpis.get('programas_unicos', 0)} programas"
+            }
+        },
+        "totales_promedios": {
+            "promedio_peso_carga_kg": tunel_kpis.get("promedio_peso_num", 0.0),
+            "promedio_tiempo_entre_cargas_min": round(tunel_kpis.get("promedio_tiempo_seg", 0) / 60.0, 2),
+            "promedio_tiempo_entre_cargas_seg": tunel_kpis.get("promedio_tiempo_seg", 0),
+            "objetivo_turno_kg": int(objetivo_kg),
+            "cumplimiento_objetivo_pct": cumplimiento_pct
+        },
+        "desglose_horario": {
+            "labels": tunel_kpis.get("grafica_labels", []),
+            "kg_por_hora": tunel_kpis.get("grafica_kg_hora", []),
+            "cargas_por_hora": tunel_kpis.get("grafica_cargas_hora", []),
+            "kg_acumulado_por_hora": tunel_kpis.get("grafica_kg_acumulado", [])
+        },
+        "programa_actual": tunel_kpis.get("programa_actual", "Sin cargas registradas aún")
+    }
+
+    return shift_package
+
+
+def save_shift_json_package(shift_package: dict):
+    """Almacena o actualiza un paquete JSON de turno en la base de datos local SQLite."""
+    shift_key = shift_package["shift_key"]
+    meta = shift_package["meta_info"]
+    fecha = meta["fecha"]
+    nombre_turno = meta["nombre_turno"]
+    hora_inicio = meta["hora_inicio"]
+    hora_fin = meta["hora_fin"]
+    total_kg = shift_package["indicadores_ampliados"]["kg_totales_turno"]["valor_num"]
+    total_cargas = shift_package["indicadores_ampliados"]["cargas_totales_turno"]["valor_num"]
+    ikprod_pct = shift_package["indicadores_ampliados"]["indice_eficiencia_ikprod"]["pct_num"]
+    data_json = json.dumps(shift_package, ensure_ascii=False)
+    now_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO turnos_persistencia (
+            shift_key, fecha, nombre_turno, hora_inicio, hora_fin,
+            total_kg, total_cargas, ikprod_pct, data_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(shift_key) DO UPDATE SET
+            fecha = excluded.fecha,
+            nombre_turno = excluded.nombre_turno,
+            hora_inicio = excluded.hora_inicio,
+            hora_fin = excluded.hora_fin,
+            total_kg = excluded.total_kg,
+            total_cargas = excluded.total_cargas,
+            ikprod_pct = excluded.ikprod_pct,
+            data_json = excluded.data_json,
+            updated_at = excluded.updated_at
+    """, (shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, data_json, now_local))
+    conn.commit()
+    conn.close()
+    return True
+
+
+@router.get("/turnos/json-paquete")
+def get_shift_json_package(user: dict = Depends(check_produccion_permission)):
+    """Genera dinámicamente y auto-guarda en BD local el paquete JSON del turno activo."""
+    pkg = build_shift_json_package()
+    try:
+        save_shift_json_package(pkg)
+    except Exception as e:
+        print(f"Error guardando paquete json: {e}")
+    return pkg
+
+
+@router.post("/turnos/guardar-json")
+def save_current_shift_json(user: dict = Depends(check_produccion_permission)):
+    """Guarda/actualiza explícitamente el paquete JSON de persistencia del turno activo en SQLite."""
+    pkg = build_shift_json_package()
+    success = save_shift_json_package(pkg)
+    return {
+        "status": "success" if success else "error",
+        "shift_key": pkg["shift_key"],
+        "paquete": pkg
+    }
+
+
+@router.get("/turnos/historial-json")
+def list_shift_json_history(user: dict = Depends(check_produccion_permission)):
+    """Lista todos los paquetes JSON de turnos persistidos en la base de datos local."""
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, updated_at
+        FROM turnos_persistencia
+        ORDER BY id DESC
+    """).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        result.append({
+            "shift_key": r["shift_key"],
+            "fecha": r["fecha"],
+            "nombre_turno": r["nombre_turno"],
+            "horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+            "total_kg": r["total_kg"],
+            "total_cargas": r["total_cargas"],
+            "ikprod_pct": r["ikprod_pct"],
+            "updated_at": r["updated_at"]
+        })
+    return {"total": len(result), "historial": result}
+
+
+@router.get("/turnos/historial-json/{shift_key}")
+def get_shift_json_by_key(shift_key: str, user: dict = Depends(check_produccion_permission)):
+    """Recupera el paquete JSON completo de un turno específico guardado en la BD local."""
+    conn = get_db_connection()
+    row = conn.execute("SELECT data_json FROM turnos_persistencia WHERE shift_key = ?", (shift_key,)).fetchone()
+    conn.close()
+
+    if not row or not row["data_json"]:
+        raise HTTPException(status_code=404, detail="Paquete JSON de turno no encontrado")
+
+    return json.loads(row["data_json"])
 
 
 @router.post("/turnos/force-sync")

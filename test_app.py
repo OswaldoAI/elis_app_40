@@ -19,8 +19,11 @@ class TestElis4App(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if os.path.exists("test_elis_40.db"):
-            os.remove("test_elis_40.db")
+        try:
+            if os.path.exists("test_elis_40.db"):
+                os.remove("test_elis_40.db")
+        except Exception:
+            pass
 
     def test_01_users_seeded_correctly(self):
         conn = get_db_connection()
@@ -83,6 +86,38 @@ class TestElis4App(unittest.TestCase):
         dash_data = res_dash.json()
         self.assertEqual(dash_data["indicadores_destacados"]["kg_totales_turno"]["valor"], "59 kg")
         self.assertEqual(dash_data["indicadores_destacados"]["cargas_totales_turno"]["valor"], "1 cargas")
+
+    def test_04_shift_json_persistence(self):
+        res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Get dynamic shift JSON package
+        res_pkg = self.client.get("/api/produccion/turnos/json-paquete", headers=headers)
+        self.assertEqual(res_pkg.status_code, 200)
+        pkg = res_pkg.json()
+        self.assertIn("shift_key", pkg)
+        self.assertIn("meta_info", pkg)
+        self.assertIn("indicadores_ampliados", pkg)
+        self.assertIn("totales_promedios", pkg)
+        self.assertIn("desglose_horario", pkg)
+
+        # 2. Explicitly save shift JSON
+        res_save = self.client.post("/api/produccion/turnos/guardar-json", headers=headers)
+        self.assertEqual(res_save.status_code, 200)
+        self.assertEqual(res_save.json()["status"], "success")
+
+        # 3. List history JSON
+        res_hist = self.client.get("/api/produccion/turnos/historial-json", headers=headers)
+        self.assertEqual(res_hist.status_code, 200)
+        hist = res_hist.json()
+        self.assertGreaterEqual(hist["total"], 1)
+
+        # 4. Fetch specific shift JSON by key
+        shift_key = pkg["shift_key"]
+        res_key = self.client.get(f"/api/produccion/turnos/historial-json/{shift_key}", headers=headers)
+        self.assertEqual(res_key.status_code, 200)
+        self.assertEqual(res_key.json()["shift_key"], shift_key)
 
 if __name__ == "__main__":
     unittest.main()

@@ -95,6 +95,24 @@ def init_db():
         WHERE (timestamp_iso IS NULL OR timestamp_iso = '') AND timestamp LIKE '%/%/% %'
     """)
     
+    # Tabla de Persistencia de Paquetes JSON de Turnos
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS turnos_persistencia (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shift_key TEXT UNIQUE NOT NULL,
+        fecha TEXT NOT NULL,
+        nombre_turno TEXT NOT NULL,
+        hora_inicio TEXT NOT NULL,
+        hora_fin TEXT NOT NULL,
+        total_kg REAL DEFAULT 0,
+        total_cargas INTEGER DEFAULT 0,
+        ikprod_pct REAL DEFAULT 0,
+        data_json TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 
