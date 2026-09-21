@@ -266,6 +266,9 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
         ]
     }
 
+from datetime import datetime, timedelta
+from app.utils import get_local_now_str, get_local_now
+
 @router.get("/tunel-lavado/dashboard")
 def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)):
     turnos_cache = get_cached_turnos()
@@ -274,16 +277,19 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
     nombre_turno = turno_act.get("nombre") or "Turno Mañana"
     progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
 
-    fecha_raw = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    fecha_raw = turno_act.get("fecha") or get_local_now_str("%Y-%m-%d")
     try:
         fecha_formateada = datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
     except Exception:
-        fecha_formateada = datetime.now().strftime("%d/%m/%Y")
+        fecha_formateada = get_local_now_str("%d/%m/%Y")
 
     horario_base = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
     horario_con_fecha = f"{horario_base} | {fecha_formateada}"
 
     tunel_kpis = calculate_tunel_metrics(turno_act)
+
+    # Hora de actualización local en tiempo real
+    now_local_formatted = get_local_now_str("%Y-%m-%d %H:%M:%S")
 
     return {
         "maquina": "TÚNEL DE LAVADO",
@@ -292,7 +298,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
         "oee": 91.2,
         "sync_info": {
             "origen": "MQTT Mosquitto (192.168.0.116:1883) | Turnos Jetson Server 1",
-            "cache_actualizado": turnos_cache.get("cache_updated_at", "Reciente"),
+            "cache_actualizado": now_local_formatted,
             "frecuencia_sync": "Tiempo Real MQTT + Polling 30m Turnos"
         },
         "turno_activo": {

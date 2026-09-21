@@ -1,11 +1,16 @@
 FROM python:3.10-slim
 
+# Configurar zona horaria local Europe/Madrid
+ENV TZ=Europe/Madrid
+
 WORKDIR /app
 
-# Instalar dependencias del sistema requeridas
+# Instalar dependencias del sistema requeridas y tzdata
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libsqlite3-dev \
+    tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import datetime
 from app.database import get_db_connection
+from app.utils import get_local_now_str, get_local_now
 
 JETSON_SERVER_1_URL = "http://192.168.0.137:5001"
 SYNC_INTERVAL_SECONDS = 1800  # 30 minutos
@@ -18,7 +19,7 @@ def sync_turnos_from_server_1():
         req = urllib.request.urlopen(url_jornada, timeout=4)
         jornada_data = json.loads(req.read().decode('utf-8'))
 
-        now_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_local = get_local_now_str()
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
@@ -33,7 +34,7 @@ def sync_turnos_from_server_1():
         print(f"[{now_local}] ✅ Cache de Turnos actualizado exitosamente desde Jetson Server 1")
         return True
     except Exception as e:
-        now_err = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_err = get_local_now_str()
         print(f"[{now_err}] ⚠️ No se pudo conectar a Jetson Server 1 ({e}). Usando datos en cache local.")
         return False
 
@@ -46,14 +47,14 @@ def get_cached_turnos():
     if row and row["data_json"]:
         try:
             data = json.loads(row["data_json"])
-            data["cache_updated_at"] = row["updated_at"] or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            data["cache_updated_at"] = row["updated_at"] or get_local_now_str()
             return data
         except Exception:
             pass
 
     # Fallback predeterminado si aun no hay cache cargado
     return {
-        "jornada": datetime.now().strftime("%Y-%m-%d"),
+        "jornada": get_local_now_str("%Y-%m-%d"),
         "jornada_activa": True,
         "turno_actual": {
             "nombre": "Turno Mañana",
