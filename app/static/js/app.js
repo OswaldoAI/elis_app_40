@@ -703,18 +703,92 @@ async function loadConsumosData() {
         <h4>💧 Consumos de Agua por Proceso</h4>
         <div class="subtitle-line"></div>
       </div>
-      <div class="metrics-grid" style="margin-bottom: 28px;">
-        <!-- 4. Agua Túnel y Lavadoras (Clicable) -->
-        <div class="metric-card clickable-card" onclick="openAguaTunelModal()" style="cursor: pointer;">
+      <div class="metrics-grid" style="margin-bottom: 20px;">
+        <!-- 4. Agua Túnel y Lavadoras -->
+        <div class="metric-card">
           <div class="metric-icon blue"><i class="fas fa-shower"></i></div>
           <div class="metric-info" style="width: 100%;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <h4>${agua.agua_tunel_lavadoras?.titulo || 'Agua Túnel y Lavadoras'}</h4>
-              <span class="card-link-badge" style="font-size: 0.68rem; padding: 2px 6px;">🔍 Telemetría</span>
-            </div>
+            <h4>${agua.agua_tunel_lavadoras?.titulo || 'Agua Túnel y Lavadoras'}</h4>
             <div class="metric-value">${agua.agua_tunel_lavadoras?.caudal_m3h || 14.2} m³/h</div>
             <small style="color: var(--text-muted)">Esp: ${agua.agua_tunel_lavadoras?.consumo_especifico_l_kg || 4.8} L/kg | Hoy: ${agua.agua_tunel_lavadoras?.consumo_hoy_m3 || 168.5} m³</small>
           </div>
+        </div>
+      </div>
+
+      <!-- Panel de Telemetría Incorporado: Agua Túnel y Lavadoras -->
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; margin-bottom: 28px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+              <i class="fas fa-shower"></i>
+            </div>
+            <div>
+              <h4 style="color: var(--text-main); font-size: 1.1rem; margin: 0;">Telemetría Agua Túnel y Lavadoras</h4>
+              <small style="color: var(--text-muted); font-size: 0.75rem;">Variable: <strong>AGUA_TUNEL_LAVADORAS</strong> | Factor: <strong>1 pulso = 0,1 m³ (100 Litros)</strong></small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filtros por Rango de Fechas y Horas -->
+        <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid var(--border-color); padding: 14px 16px; border-radius: 12px; margin-bottom: 20px;">
+          <div style="font-size: 0.8rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+            <i class="fas fa-filter"></i> Filtro de Acumulado por Rango de Fecha y Hora
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: flex-end;">
+            <div>
+              <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Fecha Inicio:</label>
+              <input type="date" id="agua-filter-fecha-inicio" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+            </div>
+            <div>
+              <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Hora Inicio:</label>
+              <input type="time" id="agua-filter-hora-inicio" value="00:00" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+            </div>
+            <div>
+              <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Fecha Fin:</label>
+              <input type="date" id="agua-filter-fecha-fin" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+            </div>
+            <div>
+              <label style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Hora Fin:</label>
+              <input type="time" id="agua-filter-hora-fin" value="23:59" class="form-control" style="font-size: 0.85rem; padding: 6px 10px;">
+            </div>
+            <div>
+              <button type="button" onclick="applyAguaTunelFilter()" class="btn-primary" style="padding: 8px 14px; font-size: 0.85rem;">🔍 Aplicar Filtro</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tarjeta Acumulador Principal -->
+        <div style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 60%, #0f172a 100%); border: 1px solid #38bdf8; border-radius: 14px; padding: 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(2, 132, 199, 0.3);">
+          <div>
+            <div style="font-size: 0.8rem; font-weight: 800; color: #e0f2fe; text-transform: uppercase; letter-spacing: 0.8px;">💧 Acumulador Principal de Consumo</div>
+            <div id="agua-acumulado-valor" style="font-size: 2.6rem; font-weight: 900; color: #ffffff; line-height: 1.1; margin: 6px 0;">0.00 m³</div>
+            <div id="agua-acumulado-subtexto" style="font-size: 0.78rem; color: #bae6fd; font-weight: 600;">Total Pulsos: 0 | Rango: Hoy</div>
+          </div>
+          <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; color: white;">
+            <i class="fas fa-hand-holding-water"></i>
+          </div>
+        </div>
+
+        <!-- Tabla de Registros Entrantes -->
+        <div style="font-size: 0.85rem; font-weight: 800; color: var(--text-main); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+          <span>📋 Historial de Pulsos y Lecturas Entrantes</span>
+          <span id="agua-tabla-total-count" style="font-size: 0.75rem; color: var(--text-muted);">0 registros</span>
+        </div>
+        <div style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 10px; background: rgba(15, 23, 42, 0.6);">
+          <table class="data-table" style="margin-top: 0; font-size: 0.82rem;">
+            <thead>
+              <tr>
+                <th>Timestamp ISO</th>
+                <th>Pulsos (Count)</th>
+                <th>Volumen (m³)</th>
+                <th>Caudal (m³/h)</th>
+                <th>Dispositivo / Fuente</th>
+              </tr>
+            </thead>
+            <tbody id="agua-telemetria-table-body">
+              <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Cargando telemetría...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -812,6 +886,16 @@ async function loadConsumosData() {
         </div>
       </div>
     `;
+
+    // Cargar fechas por defecto y autoejecutar telemetría
+    const todayStr = new Date().toISOString().split('T')[0];
+    const fechaInicioInput = document.getElementById('agua-filter-fecha-inicio');
+    const fechaFinInput = document.getElementById('agua-filter-fecha-fin');
+    if (fechaInicioInput && !fechaInicioInput.value) fechaInicioInput.value = todayStr;
+    if (fechaFinInput && !fechaFinInput.value) fechaFinInput.value = todayStr;
+
+    fetchAguaTunelData();
+
   } catch (err) {
     container.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
   }
