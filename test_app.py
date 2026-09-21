@@ -55,19 +55,23 @@ class TestElis4App(unittest.TestCase):
 
     def test_03_mqtt_save_and_real_metrics(self):
         from app.mqtt_subscriber import save_carga_to_db
+        from datetime import datetime
+        today_str = datetime.now().strftime("%d/%m/%Y")
         sample_payload = {
             "site": "Elis Lavanderia Industrial",
             "device": "Lenovo ThinkCentre PLC FX3U (HELMS Protocol)",
             "load_id": 703,
-            "timestamp": "20/09/2026 22:00:50",
+            "timestamp": f"{today_str} 09:30:00",
             "cliente": 150,
             "categoria": 4,
             "peso_kg": 59,
             "tiempo_entre_cargas_seg": 185,
             "raw_hex": "1A40 10DC"
         }
+
         res_save = save_carga_to_db(sample_payload)
         self.assertTrue(res_save)
+
 
         res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
         token = res.json()["access_token"]

@@ -19,8 +19,33 @@ def check_produccion_permission(current_user: dict = Depends(get_current_user)):
         )
     return current_user
 
-def calculate_tunel_metrics():
-    """Calcula indicadores reales agregados desde la tabla tunel_cargas de SQLite."""
+from datetime import datetime, timedelta
+
+def calculate_tunel_metrics(turno_act: dict = None):
+    """Calcula indicadores reales agregados filtrando estrictamente por el turno activo de Jetson Server 1."""
+    if not turno_act:
+        turnos_cache = get_cached_turnos()
+        turno_act = turnos_cache.get("turno_actual", {})
+
+    fecha = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    hora_inicio = turno_act.get("hora_inicio", "06:00")
+    hora_fin = turno_act.get("hora_fin", "14:00")
+    minutos_transcurridos = float(turno_act.get("minutos_transcurridos") or 240)
+
+    start_iso = f"{fecha} {hora_inicio}:00"
+    
+    # Manejo de turnos que cruzan medianoche (ej. 21:00 a 02:00)
+    try:
+        h_start = int(hora_inicio.split(":")[0])
+        h_end = int(hora_fin.split(":")[0])
+        if h_end < h_start:
+            end_date = (datetime.strptime(fecha, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+            end_iso = f"{end_date} {hora_fin}:00"
+        else:
+            end_iso = f"{fecha} {hora_fin}:00"
+    except Exception:
+        end_iso = f"{fecha} {hora_fin}:00"
+
     try:
         conn = get_db_connection()
         row = conn.execute("""
@@ -30,7 +55,9 @@ def calculate_tunel_metrics():
                 COALESCE(AVG(tiempo_entre_cargas_seg), 0) as promedio_tiempo_seg,
                 COALESCE(SUM(peso_kg), 0) as total_kg
             FROM tunel_cargas
-        """).fetchone()
+            WHERE (timestamp_iso >= ? AND timestamp_iso <= ?)
+               OR (timestamp >= ? AND timestamp <= ?)
+        """, (start_iso, end_iso, start_iso, end_iso)).fetchone()
         conn.close()
 
         total_cargas = row["total_cargas"] if row else 0
@@ -41,9 +68,9 @@ def calculate_tunel_metrics():
             promedio_tiempo_min = round(promedio_tiempo_seg / 60.0, 1)
             total_kg = round(row["total_kg"], 1)
 
-            # Cálculo de productividad Tn/h
-            horas_transcurridas = 4.0
-            iprod_tnh = round((total_kg / 1000.0) / horas_transcurridas, 2)
+            # Productividad Tn/h basada en el tiempo transcurrido del turno activo
+            horas_trans = max(minutos_transcurridos / 60.0, 0.2)
+            iprod_tnh = round((total_kg / 1000.0) / horas_trans, 2)
 
             return {
                 "is_real": True,
@@ -59,22 +86,23 @@ def calculate_tunel_metrics():
                 "iprod_num": iprod_tnh
             }
     except Exception as e:
-        print(f"Error consultando tunel_cargas: {e}")
+        print(f"Error consultando tunel_cargas por turno: {e}")
 
-    # Fallback si aún no se han recibido cargas por MQTT
+    # Fallback si no hay cargas en el turno activo en curso
     return {
         "is_real": False,
-        "cantidad_cargas": "38 cargas",
-        "cargas_num": 38,
-        "promedio_carga": "52.4 kg",
-        "promedio_peso_num": 52.4,
-        "promedio_tiempo_carga": "3.1 min (185s)",
-        "promedio_tiempo_seg": 185,
-        "kg_totales_turno": "14.280 kg",
-        "total_kg_num": 14280,
-        "iprod": "1,45 Tn/h",
-        "iprod_num": 1.45
+        "cantidad_cargas": "0 cargas",
+        "cargas_num": 0,
+        "promedio_carga": "0.0 kg",
+        "promedio_peso_num": 0.0,
+        "promedio_tiempo_carga": "0 min",
+        "promedio_tiempo_seg": 0,
+        "kg_totales_turno": "0 kg",
+        "total_kg_num": 0,
+        "iprod": "0,00 Tn/h",
+        "iprod_num": 0.0
     }
+
 
 @router.get("/summary")
 def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
@@ -84,7 +112,8 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
     nombre_turno = turno_act.get("nombre") or "Turno Activo"
     horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
 
-    tunel_kpis = calculate_tunel_metrics()
+    tunel_kpis = calculate_tunel_metrics(turno_act)
+
 
     return {
         "status": "online",
@@ -179,7 +208,8 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
     horario_turno = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
     progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
 
-    tunel_kpis = calculate_tunel_metrics()
+    tunel_kpis = calculate_tunel_metrics(turno_act)
+
 
     return {
         "maquina": "TÚNEL DE LAVADO",

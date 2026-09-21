@@ -68,6 +68,7 @@ def init_db():
         site TEXT,
         device TEXT,
         timestamp TEXT,
+        timestamp_iso TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         cliente INTEGER,
         categoria INTEGER,
@@ -77,6 +78,24 @@ def init_db():
     )
     """)
     
+    # Migración de columna timestamp_iso si no existe
+    try:
+        cursor.execute("ALTER TABLE tunel_cargas ADD COLUMN timestamp_iso TEXT")
+    except Exception:
+        pass
+
+    # Rellenar timestamp_iso para registros existentes que tengan formato DD/MM/YYYY HH:MM:SS
+    cursor.execute("""
+        UPDATE tunel_cargas 
+        SET timestamp_iso = 
+            substr(timestamp, 7, 4) || '-' || 
+            substr(timestamp, 4, 2) || '-' || 
+            substr(timestamp, 1, 2) || ' ' || 
+            substr(timestamp, 12)
+        WHERE (timestamp_iso IS NULL OR timestamp_iso = '') AND timestamp LIKE '%/%/% %'
+    """)
+    
     conn.commit()
     conn.close()
+
 

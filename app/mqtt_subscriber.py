@@ -15,6 +15,16 @@ MQTT_TOPIC = "elis/lavanderia/tunel/carga"
 logger = logging.getLogger("mqtt_subscriber")
 logging.basicConfig(level=logging.INFO)
 
+def parse_timestamp_to_iso(ts_str: str) -> str:
+    """Convierte formato DD/MM/YYYY HH:MM:SS a YYYY-MM-DD HH:MM:SS para ordenamiento ISO en SQLite."""
+    try:
+        parts = ts_str.strip().split(" ")
+        date_parts = parts[0].split("/")
+        time_part = parts[1] if len(parts) > 1 else "00:00:00"
+        return f"{date_parts[2]}-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)} {time_part}"
+    except Exception:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 def save_carga_to_db(payload: dict):
     """Guarda un registro de carga recibido por MQTT en la base de datos SQLite."""
     try:
@@ -22,6 +32,7 @@ def save_carga_to_db(payload: dict):
         site = payload.get("site", "Elis Lavanderia Industrial")
         device = payload.get("device", "")
         timestamp_str = payload.get("timestamp", datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+        timestamp_iso = parse_timestamp_to_iso(timestamp_str)
         cliente = payload.get("cliente", 0)
         categoria = payload.get("categoria", 0)
         peso_kg = float(payload.get("peso_kg", 0.0))
@@ -32,13 +43,14 @@ def save_carga_to_db(payload: dict):
         cursor = conn.cursor()
         cursor.execute("""
             INSERT OR IGNORE INTO tunel_cargas 
-            (load_id, site, device, timestamp, cliente, categoria, peso_kg, tiempo_entre_cargas_seg, raw_hex)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (load_id, site, device, timestamp_str, cliente, categoria, peso_kg, tiempo_entre_cargas_seg, raw_hex))
+            (load_id, site, device, timestamp, timestamp_iso, cliente, categoria, peso_kg, tiempo_entre_cargas_seg, raw_hex)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (load_id, site, device, timestamp_str, timestamp_iso, cliente, categoria, peso_kg, tiempo_entre_cargas_seg, raw_hex))
         
         inserted = cursor.rowcount > 0
         conn.commit()
         conn.close()
+
 
         if inserted:
             logger.info(f"✅ Nueva Carga #{load_id} registrada: {peso_kg} kg | {tiempo_entre_cargas_seg}s | Cliente #{cliente}")
