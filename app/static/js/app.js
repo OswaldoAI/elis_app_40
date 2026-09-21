@@ -704,19 +704,22 @@ async function loadConsumosData() {
         <div class="subtitle-line"></div>
       </div>
       <div class="metrics-grid" style="margin-bottom: 20px;">
-        <!-- 4. Agua Túnel y Lavadoras -->
-        <div class="metric-card">
+        <!-- 4. Agua Túnel y Lavadoras (Clicable para expandir/colapsar telemetría) -->
+        <div class="metric-card clickable-card" onclick="toggleAguaTunelPanel()" style="cursor: pointer;" title="Haz clic para expandir o colapsar la telemetría">
           <div class="metric-icon blue"><i class="fas fa-shower"></i></div>
           <div class="metric-info" style="width: 100%;">
-            <h4>${agua.agua_tunel_lavadoras?.titulo || 'Agua Túnel y Lavadoras'}</h4>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <h4>${agua.agua_tunel_lavadoras?.titulo || 'Agua Túnel y Lavadoras'}</h4>
+              <span id="agua-tunel-badge" class="card-link-badge" style="font-size: 0.68rem; padding: 2px 6px;">🔍 Ver Telemetría</span>
+            </div>
             <div class="metric-value">${agua.agua_tunel_lavadoras?.caudal_m3h || 14.2} m³/h</div>
             <small style="color: var(--text-muted)">Esp: ${agua.agua_tunel_lavadoras?.consumo_especifico_l_kg || 4.8} L/kg | Hoy: ${agua.agua_tunel_lavadoras?.consumo_hoy_m3 || 168.5} m³</small>
           </div>
         </div>
       </div>
 
-      <!-- Panel de Telemetría Incorporado: Agua Túnel y Lavadoras -->
-      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; margin-bottom: 28px;">
+      <!-- Panel de Telemetría Incorporado: Agua Túnel y Lavadoras (Colapsado por defecto) -->
+      <div id="panel-agua-tunel-telemetria" style="display: none; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; margin-bottom: 28px;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px;">
           <div style="display: flex; align-items: center; gap: 10px;">
             <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
@@ -1004,25 +1007,37 @@ async function togglePermission(role, module_code, can_view) {
   await checkAuth();
 }
 
-// Telemetría & Modal Agua Túnel y Lavadoras (AGUA_TUNEL_LAVADORAS - 0.1 m3/pulso)
+// Telemetría & Panel Incorporado Agua Túnel y Lavadoras (AGUA_TUNEL_LAVADORAS - 0.1 m3/pulso)
+function toggleAguaTunelPanel() {
+  const panel = document.getElementById('panel-agua-tunel-telemetria');
+  const badge = document.getElementById('agua-tunel-badge');
+  if (!panel) return;
+
+  const isHidden = panel.style.display === 'none' || panel.style.display === '';
+  if (isHidden) {
+    panel.style.display = 'block';
+    if (badge) badge.innerHTML = '🔼 Ocultar Telemetría';
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const fechaInicioInput = document.getElementById('agua-filter-fecha-inicio');
+    const fechaFinInput = document.getElementById('agua-filter-fecha-fin');
+    if (fechaInicioInput && !fechaInicioInput.value) fechaInicioInput.value = todayStr;
+    if (fechaFinInput && !fechaFinInput.value) fechaFinInput.value = todayStr;
+
+    fetchAguaTunelData();
+  } else {
+    panel.style.display = 'none';
+    if (badge) badge.innerHTML = '🔍 Ver Telemetría';
+  }
+}
+
 function openAguaTunelModal() {
-  const modal = document.getElementById('agua-tunel-modal');
-  if (!modal) return;
-  modal.classList.add('active');
-
-  const todayStr = new Date().toISOString().split('T')[0];
-  const fechaInicioInput = document.getElementById('agua-filter-fecha-inicio');
-  const fechaFinInput = document.getElementById('agua-filter-fecha-fin');
-  
-  if (fechaInicioInput && !fechaInicioInput.value) fechaInicioInput.value = todayStr;
-  if (fechaFinInput && !fechaFinInput.value) fechaFinInput.value = todayStr;
-
-  fetchAguaTunelData();
+  toggleAguaTunelPanel();
 }
 
 function closeAguaTunelModal() {
-  const modal = document.getElementById('agua-tunel-modal');
-  if (modal) modal.classList.remove('active');
+  const panel = document.getElementById('panel-agua-tunel-telemetria');
+  if (panel) panel.style.display = 'none';
 }
 
 function applyAguaTunelFilter() {
