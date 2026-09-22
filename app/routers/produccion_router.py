@@ -430,6 +430,8 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
                 "valor": tunel_kpis["ikprod"]["pct_str"],
                 "neto_str": tunel_kpis["ikprod"]["neto_str"],
                 "tprom_str": tunel_kpis["ikprod"]["tprom_str"],
+                "promedio_carga_str": f"Prom: {tunel_kpis['promedio_carga']}/carga",
+                "promedio_tiempo_str": f"Tprom: {tunel_kpis['promedio_tiempo_carga']}",
                 "subtexto": tunel_kpis["ikprod"]["formula_str"],
                 "color_gradiente": tunel_kpis["ikprod"]["gradient"],
                 "color_codigo": tunel_kpis["ikprod"]["color_code"],

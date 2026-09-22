@@ -587,6 +587,10 @@ async function loadTunelLavadoDashboard() {
               <div id="dash-icon-ikprod" class="kpi-icon-circle" style="background: rgba(255, 255, 255, 0.08); color: ${ikprodTextColor};"><i class="fas ${ikprodInfo.icono}"></i></div>
             </div>
             <div id="dash-kpi-ikprod" class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: ${ikprodTextColor}; text-shadow: 0 0 16px ${ikprodTextColor}60;">${ikprodInfo.valor}</div>
+            <div id="dash-labels-ikprod" style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 2px; margin-bottom: 6px; flex-wrap: wrap;">
+              <span id="dash-prom-carga-ikprod" style="font-size: 0.72rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);"><i class="fas fa-weight-hanging"></i> ${ikprodInfo.promedio_carga_str || 'Prom: 0.0 kg/carga'}</span>
+              <span id="dash-prom-tiempo-ikprod" style="font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.3);"><i class="fas fa-stopwatch"></i> ${ikprodInfo.promedio_tiempo_str || ikprodInfo.tprom_str || 'Tprom: 0 min'}</span>
+            </div>
             <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
               <span id="dash-tprom-ikprod" style="color: #38bdf8;"><i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}</span>
               <span id="dash-neto-ikprod">${ikprodInfo.neto_str}</span>
@@ -681,6 +685,10 @@ async function loadTunelLavadoDashboard() {
         ikprodEl.style.color = ikprodTextColor;
         ikprodEl.style.textShadow = `0 0 16px ${ikprodTextColor}60`;
       }
+      const promCargaEl = document.getElementById('dash-prom-carga-ikprod');
+      if (promCargaEl) promCargaEl.innerHTML = `<i class="fas fa-weight-hanging"></i> ${ikprodInfo.promedio_carga_str || 'Prom: 0.0 kg/carga'}`;
+      const promTiempoEl = document.getElementById('dash-prom-tiempo-ikprod');
+      if (promTiempoEl) promTiempoEl.innerHTML = `<i class="fas fa-stopwatch"></i> ${ikprodInfo.promedio_tiempo_str || ikprodInfo.tprom_str || 'Tprom: 0 min'}`;
       const ikprodCard = document.getElementById('dash-card-ikprod');
       if (ikprodCard) ikprodCard.style.borderColor = ikprodBorderColor;
       const ikprodIcon = document.getElementById('dash-icon-ikprod');
