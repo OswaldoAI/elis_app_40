@@ -547,109 +547,155 @@ async function loadTunelLavadoDashboard() {
       }
     }
 
-    container.innerHTML = `
-      <!-- Banner Sincronización de Turno -->
-      <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; padding: 10px 16px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.1rem;">
-            <i class="fas fa-user-clock"></i>
-          </div>
-          <div>
-            <h4 style="color: var(--text-main); font-size: 0.95rem;">${data.turno_activo.nombre} (${data.turno_activo.horario}) — <span style="color: #38bdf8;">📅 ${data.turno_activo.fecha || ''}</span></h4>
-            <small style="color: var(--text-muted); font-size: 0.72rem;">Sincronizado desde: ${data.sync_info.origen} | Frecuencia: ${data.sync_info.frecuencia_sync}</small>
-          </div>
-        </div>
-
-        <div style="text-align: right;">
-          <span style="font-size: 0.8rem; color: #34d399; font-weight: 700;">🟢 CONEXIÓN ACTIVADA</span>
-          <div style="font-size: 0.7rem; color: var(--text-muted);">Cache: ${data.sync_info.cache_actualizado}</div>
-        </div>
-      </div>
-
-      <!-- Cuadrícula 4 Columnas x 2 Filas del Dashboard -->
-      <div class="dashboard-grid-layout">
-        <!-- Columna 1, Fila 1: Kg Totales Turno -->
-        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 1; grid-row: 1;">
-          <div class="kpi-card-header">
-            <h4>${kgInfo.titulo}</h4>
-            <div class="kpi-icon-circle"><i class="fas ${kgInfo.icono}"></i></div>
-          </div>
-          <div class="kpi-big-number">${kgInfo.valor}</div>
-          <div class="kpi-card-subtext">${kgInfo.subtexto}</div>
-        </div>
-
-        <!-- Columna 1, Fila 2: ikProd (stacked verticalmente bajo Kg Totales) -->
-        <div class="kpi-card-striking" style="grid-column: 1; grid-row: 2; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid ${ikprodBorderColor}; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);">
-          <div class="kpi-card-header">
-            <h4 style="color: #f8fafc;">${ikprodInfo.titulo}</h4>
-            <div class="kpi-icon-circle" style="background: rgba(255, 255, 255, 0.08); color: ${ikprodTextColor};"><i class="fas ${ikprodInfo.icono}"></i></div>
-          </div>
-          <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: ${ikprodTextColor}; text-shadow: 0 0 16px ${ikprodTextColor}60;">${ikprodInfo.valor}</div>
-          <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-            <span style="color: #38bdf8;"><i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}</span>
-            <span>${ikprodInfo.neto_str}</span>
-          </div>
-          <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
-            <i class="fas fa-calculator"></i> ${ikprodInfo.subtexto}
-          </div>
-        </div>
-
-        <!-- Columna 2, Fila 1: Cargas Totales Turno -->
-        <div class="kpi-card-striking kpi-card-amber" style="grid-column: 2; grid-row: 1;">
-          <div class="kpi-card-header">
-            <h4>${cargasInfo.titulo}</h4>
-            <div class="kpi-icon-circle"><i class="fas ${cargasInfo.icono}"></i></div>
-          </div>
-          <div class="kpi-big-number">${cargasInfo.valor}</div>
-          <div class="kpi-card-subtext">${cargasInfo.subtexto}</div>
-        </div>
-
-        <!-- Columna 3, Fila 1: Productividad hProd (kg/h) -->
-        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 3; grid-row: 1; background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
-          <div class="kpi-card-header">
-            <h4>${hprodInfo.titulo}</h4>
-            <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
-          </div>
-          <div class="kpi-big-number">${hprodInfo.valor}</div>
-          <div class="kpi-card-subtext">${hprodInfo.subtexto}</div>
-        </div>
-
-        <!-- Columna 4, Fila 1: Clientes y Programas (stacked verticalmente) -->
-        <div class="col-secondary-kpis" style="grid-column: 4; grid-row: 1;">
-          <div class="kpi-card-compact">
-            <div class="kpi-compact-info">
-              <h5>${clientesInfo.titulo}</h5>
-              <div class="kpi-compact-value">${clientesInfo.valor}</div>
-              <div class="kpi-compact-sub">${clientesInfo.subtexto}</div>
+    const canvasExists = document.getElementById('chart-avance-turno');
+    if (!canvasExists) {
+      container.innerHTML = `
+        <!-- Banner Sincronización de Turno -->
+        <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; padding: 10px 16px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.1rem;">
+              <i class="fas fa-user-clock"></i>
             </div>
-            <div class="kpi-compact-icon"><i class="fas ${clientesInfo.icono}"></i></div>
+            <div>
+              <h4 id="dash-shift-header" style="color: var(--text-main); font-size: 0.95rem;">${data.turno_activo.nombre} (${data.turno_activo.horario}) — <span style="color: #38bdf8;">📅 ${data.turno_activo.fecha || ''}</span></h4>
+              <small style="color: var(--text-muted); font-size: 0.72rem;">Sincronizado desde: ${data.sync_info.origen} | Frecuencia: ${data.sync_info.frecuencia_sync}</small>
+            </div>
           </div>
 
-          <div class="kpi-card-compact">
-            <div class="kpi-compact-info">
-              <h5>${programasInfo.titulo}</h5>
-              <div class="kpi-compact-value">${programasInfo.valor}</div>
-              <div class="kpi-compact-sub">${programasInfo.subtexto}</div>
-            </div>
-            <div class="kpi-compact-icon"><i class="fas ${programasInfo.icono}"></i></div>
+          <div style="text-align: right;">
+            <span style="font-size: 0.8rem; color: #34d399; font-weight: 700;">🟢 CONEXIÓN ACTIVADA</span>
+            <div id="dash-cache-timestamp" style="font-size: 0.7rem; color: var(--text-muted);">Cache: ${data.sync_info.cache_actualizado}</div>
           </div>
         </div>
 
-        <!-- Fila 2, Columnas 2 a 4: Gráfica de Avance Productivo -->
-        <div class="chart-section-card" style="grid-column: 2 / span 3; grid-row: 2;">
-          <div class="chart-header-row">
-            <div class="chart-header-title">
-              <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
-              <h4>Avance Productivo del Turno (Kg Acumulados vs Kg Hora vs Cargas/Hora)</h4>
+        <!-- Cuadrícula 4 Columnas x 2 Filas del Dashboard -->
+        <div class="dashboard-grid-layout">
+          <!-- Columna 1, Fila 1: Kg Totales Turno -->
+          <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 1; grid-row: 1;">
+            <div class="kpi-card-header">
+              <h4>${kgInfo.titulo}</h4>
+              <div class="kpi-icon-circle"><i class="fas ${kgInfo.icono}"></i></div>
             </div>
-            <small style="color: var(--text-muted); font-weight: 600; font-size: 0.72rem;">Eje Y Izq 1: Kg/Hora (rosa magenta) | Eje Y Izq 2: Kg Acumulados (azul cían) | Eje Y Der: Cargas por hora (oro)</small>
+            <div id="dash-kpi-kg-totales" class="kpi-big-number">${kgInfo.valor}</div>
+            <div id="dash-sub-kg-totales" class="kpi-card-subtext">${kgInfo.subtexto}</div>
           </div>
-          <div class="chart-wrapper">
-            <canvas id="chart-avance-turno"></canvas>
+
+          <!-- Columna 1, Fila 2: ikProd (stacked verticalmente bajo Kg Totales) -->
+          <div id="dash-card-ikprod" class="kpi-card-striking" style="grid-column: 1; grid-row: 2; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid ${ikprodBorderColor}; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);">
+            <div class="kpi-card-header">
+              <h4 style="color: #f8fafc;">${ikprodInfo.titulo}</h4>
+              <div id="dash-icon-ikprod" class="kpi-icon-circle" style="background: rgba(255, 255, 255, 0.08); color: ${ikprodTextColor};"><i class="fas ${ikprodInfo.icono}"></i></div>
+            </div>
+            <div id="dash-kpi-ikprod" class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: ${ikprodTextColor}; text-shadow: 0 0 16px ${ikprodTextColor}60;">${ikprodInfo.valor}</div>
+            <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+              <span id="dash-tprom-ikprod" style="color: #38bdf8;"><i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}</span>
+              <span id="dash-neto-ikprod">${ikprodInfo.neto_str}</span>
+            </div>
+            <div id="dash-sub-ikprod" style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
+              <i class="fas fa-calculator"></i> ${ikprodInfo.subtexto}
+            </div>
+          </div>
+
+          <!-- Columna 2, Fila 1: Cargas Totales Turno -->
+          <div class="kpi-card-striking kpi-card-amber" style="grid-column: 2; grid-row: 1;">
+            <div class="kpi-card-header">
+              <h4>${cargasInfo.titulo}</h4>
+              <div class="kpi-icon-circle"><i class="fas ${cargasInfo.icono}"></i></div>
+            </div>
+            <div id="dash-kpi-cargas-totales" class="kpi-big-number">${cargasInfo.valor}</div>
+            <div id="dash-sub-cargas-totales" class="kpi-card-subtext">${cargasInfo.subtexto}</div>
+          </div>
+
+          <!-- Columna 3, Fila 1: Productividad hProd (kg/h) -->
+          <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 3; grid-row: 1; background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
+            <div class="kpi-card-header">
+              <h4>${hprodInfo.titulo}</h4>
+              <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
+            </div>
+            <div id="dash-kpi-hprod" class="kpi-big-number">${hprodInfo.valor}</div>
+            <div id="dash-sub-hprod" class="kpi-card-subtext">${hprodInfo.subtexto}</div>
+          </div>
+
+          <!-- Columna 4, Fila 1: Clientes y Programas (stacked verticalmente) -->
+          <div class="col-secondary-kpis" style="grid-column: 4; grid-row: 1;">
+            <div class="kpi-card-compact">
+              <div class="kpi-compact-info">
+                <h5>${clientesInfo.titulo}</h5>
+                <div id="dash-kpi-clientes" class="kpi-compact-value">${clientesInfo.valor}</div>
+                <div class="kpi-compact-sub">${clientesInfo.subtexto}</div>
+              </div>
+              <div class="kpi-compact-icon"><i class="fas ${clientesInfo.icono}"></i></div>
+            </div>
+
+            <div class="kpi-card-compact">
+              <div class="kpi-compact-info">
+                <h5>${programasInfo.titulo}</h5>
+                <div id="dash-kpi-programas" class="kpi-compact-value">${programasInfo.valor}</div>
+                <div class="kpi-compact-sub">${programasInfo.subtexto}</div>
+              </div>
+              <div class="kpi-compact-icon"><i class="fas ${programasInfo.icono}"></i></div>
+            </div>
+          </div>
+
+          <!-- Fila 2, Columnas 2 a 4: Gráfica de Avance Productivo -->
+          <div class="chart-section-card" style="grid-column: 2 / span 3; grid-row: 2;">
+            <div class="chart-header-row">
+              <div class="chart-header-title">
+                <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
+                <h4>Avance Productivo del Turno (Kg Acumulados vs Kg Hora vs Cargas/Hora)</h4>
+              </div>
+              <small style="color: var(--text-muted); font-weight: 600; font-size: 0.72rem;">Eje Y Izq 1: Kg/Hora (rosa magenta) | Eje Y Izq 2: Kg Acumulados (azul cían) | Eje Y Der: Cargas por hora (oro)</small>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chart-avance-turno"></canvas>
+            </div>
           </div>
         </div>
-      </div>
-    `;
+      `;
+    } else {
+      // Actualizaciones in-place sin parpadear ni re-crear canvas
+      const cacheEl = document.getElementById('dash-cache-timestamp');
+      if (cacheEl) cacheEl.textContent = `Cache: ${data.sync_info.cache_actualizado}`;
+
+      const shiftHeadEl = document.getElementById('dash-shift-header');
+      if (shiftHeadEl) shiftHeadEl.innerHTML = `${data.turno_activo.nombre} (${data.turno_activo.horario}) — <span style="color: #38bdf8;">📅 ${data.turno_activo.fecha || ''}</span>`;
+
+      const kgEl = document.getElementById('dash-kpi-kg-totales');
+      if (kgEl) kgEl.textContent = kgInfo.valor;
+      const subKgEl = document.getElementById('dash-sub-kg-totales');
+      if (subKgEl) subKgEl.textContent = kgInfo.subtexto;
+
+      const cargasEl = document.getElementById('dash-kpi-cargas-totales');
+      if (cargasEl) cargasEl.textContent = cargasInfo.valor;
+      const subCargasEl = document.getElementById('dash-sub-cargas-totales');
+      if (subCargasEl) subCargasEl.textContent = cargasInfo.subtexto;
+
+      const hprodEl = document.getElementById('dash-kpi-hprod');
+      if (hprodEl) hprodEl.textContent = hprodInfo.valor;
+      const subHprodEl = document.getElementById('dash-sub-hprod');
+      if (subHprodEl) subHprodEl.textContent = hprodInfo.subtexto;
+
+      const ikprodEl = document.getElementById('dash-kpi-ikprod');
+      if (ikprodEl) {
+        ikprodEl.textContent = ikprodInfo.valor;
+        ikprodEl.style.color = ikprodTextColor;
+        ikprodEl.style.textShadow = `0 0 16px ${ikprodTextColor}60`;
+      }
+      const ikprodCard = document.getElementById('dash-card-ikprod');
+      if (ikprodCard) ikprodCard.style.borderColor = ikprodBorderColor;
+      const ikprodIcon = document.getElementById('dash-icon-ikprod');
+      if (ikprodIcon) ikprodIcon.style.color = ikprodTextColor;
+      const ikprodTprom = document.getElementById('dash-tprom-ikprod');
+      if (ikprodTprom) ikprodTprom.innerHTML = `<i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}`;
+      const ikprodNeto = document.getElementById('dash-neto-ikprod');
+      if (ikprodNeto) ikprodNeto.textContent = ikprodInfo.neto_str;
+
+      const clientesEl = document.getElementById('dash-kpi-clientes');
+      if (clientesEl) clientesEl.textContent = clientesInfo.valor;
+
+      const programasEl = document.getElementById('dash-kpi-programas');
+      if (programasEl) programasEl.textContent = programasInfo.valor;
+    }
 
     // Renderizar / Actualizar gráfica Chart.js
     renderAvanceChart(data.grafica_avance);
@@ -666,6 +712,16 @@ function renderAvanceChart(graficaData) {
   if (!graficaData || !graficaData.labels) return;
   const canvasEl = document.getElementById('chart-avance-turno');
   if (!canvasEl) return;
+
+  // Actualización in-place en la misma instancia de gráfica (sin animación de cero y sin parpadeo)
+  if (avanceChartInstance && avanceChartInstance.ctx && avanceChartInstance.ctx.canvas === canvasEl) {
+    avanceChartInstance.data.labels = graficaData.labels;
+    avanceChartInstance.data.datasets[0].data = graficaData.kg_acumulado;
+    avanceChartInstance.data.datasets[1].data = graficaData.kg_por_hora;
+    avanceChartInstance.data.datasets[2].data = graficaData.cargas_por_hora;
+    avanceChartInstance.update('none');
+    return;
+  }
 
   if (avanceChartInstance) {
     avanceChartInstance.destroy();
