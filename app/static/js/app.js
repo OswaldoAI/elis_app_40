@@ -626,7 +626,7 @@ async function loadTunelLavadoDashboard() {
               <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
               <h4>Avance Productivo del Turno (Kg Acumulados vs Kg Hora vs Cargas/Hora)</h4>
             </div>
-            <small style="color: var(--text-muted); font-weight: 600; font-size: 0.72rem;">Eje Y Izq: Kg totales y por hora | Eje Y Der: Cargas por hora</small>
+            <small style="color: var(--text-muted); font-weight: 600; font-size: 0.72rem;">Eje Y Izq 1: Kg/Hora (verde) | Eje Y Izq 2: Kg Acumulados (azul) | Eje Y Der: Cargas por hora (oro)</small>
           </div>
           <div class="chart-wrapper">
             <canvas id="chart-avance-turno"></canvas>
@@ -666,28 +666,28 @@ function renderAvanceChart(graficaData) {
           label: 'Kg Acumulados Turno (kg)',
           data: graficaData.kg_acumulado,
           borderColor: '#38bdf8',
-          backgroundColor: 'rgba(56, 189, 248, 0.1)',
+          backgroundColor: 'rgba(56, 189, 248, 0.08)',
           borderWidth: 3,
           pointBackgroundColor: '#0284c7',
           pointBorderColor: '#38bdf8',
           pointRadius: 4,
           tension: 0.3,
           fill: false,
-          yAxisID: 'yKg'
+          yAxisID: 'yKgAcumulado'
         },
         {
           type: 'line',
           label: 'Kg de la Hora (kg)',
           data: graficaData.kg_por_hora,
           borderColor: '#34d399',
-          borderDash: [5, 5],
-          borderWidth: 2.5,
+          backgroundColor: 'rgba(52, 211, 153, 0.08)',
+          borderWidth: 3,
           pointBackgroundColor: '#059669',
           pointBorderColor: '#34d399',
           pointRadius: 4,
           tension: 0.3,
           fill: false,
-          yAxisID: 'yKg'
+          yAxisID: 'yKgHora'
         },
         {
           type: 'bar',
@@ -711,17 +711,26 @@ function renderAvanceChart(graficaData) {
           grid: { color: 'rgba(255, 255, 255, 0.06)' },
           ticks: { color: '#94a3b8', font: { weight: 'bold', size: 10 } }
         },
-        yKg: {
+        yKgHora: {
           type: 'linear',
           position: 'left',
-          title: { display: true, text: 'Kg Producidos (kg)', color: '#38bdf8', font: { weight: 'bold', size: 11 } },
+          title: { display: true, text: 'Kg / Hora (kg)', color: '#34d399', font: { weight: 'bold', size: 10 } },
           grid: { color: 'rgba(255, 255, 255, 0.06)' },
-          ticks: { color: '#38bdf8', font: { weight: 'bold', size: 10 } }
+          ticks: { color: '#34d399', font: { weight: 'bold', size: 10 } },
+          suggestedMin: 0
+        },
+        yKgAcumulado: {
+          type: 'linear',
+          position: 'left',
+          title: { display: true, text: 'Kg Acumulados (kg)', color: '#38bdf8', font: { weight: 'bold', size: 10 } },
+          grid: { drawOnChartArea: false },
+          ticks: { color: '#38bdf8', font: { weight: 'bold', size: 10 } },
+          suggestedMin: 0
         },
         yCargas: {
           type: 'linear',
           position: 'right',
-          title: { display: true, text: 'Cargas / Hora', color: '#fbbf24', font: { weight: 'bold', size: 11 } },
+          title: { display: true, text: 'Cargas / Hora', color: '#fbbf24', font: { weight: 'bold', size: 10 } },
           grid: { drawOnChartArea: false },
           ticks: { color: '#fbbf24', font: { weight: 'bold', size: 10 }, stepSize: 1, precision: 0 }
         }
