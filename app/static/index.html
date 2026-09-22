@@ -31,7 +31,7 @@
           <span class="user-role" id="current-role">Sin Sesión</span>
         </div>
       </div>
-      <button class="btn-header" onclick="showLoginModal()" title="Cambiar de usuario">
+      <button class="btn-header" id="btn-change-user" onclick="showLoginModal()" title="Cambiar de usuario">
         <i class="fas fa-sync-alt"></i> Cambiar Usuario
       </button>
       <button class="btn-header btn-logout" id="btn-logout" title="Cerrar sesión">
@@ -86,40 +86,38 @@
       </div>
     </aside>
 
-    <!-- Área de Contenido Principal -->
+    <!-- Área de Vistas Dinámicas -->
     <main class="content-area">
-      <!-- Vista 1: Inicio (/inicio) -->
-      <section id="view-inicio" class="view-section active">
-        <div class="inicio-container">
-          <div class="hero-card">
-            <h2 style="font-size: 1.8rem; color: #38bdf8; margin-bottom: 8px;">Sistema de Supervisión Industria 4.0</h2>
-            <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 750px;">
-              Bienvenido al centro de control integral de la planta de lavandería industrial <strong>ELIS NÁJERA 4.0</strong>. Monitoreo en tiempo real de producción, eficiencia operativa y consumos energéticos.
-            </p>
-            <img src="/static/images/industria_40.png" alt="ELIS Industria 4.0" class="hero-image">
-          </div>
 
-          <div class="metrics-grid">
-            <div class="metric-card">
-              <div class="metric-icon blue"><i class="fas fa-cogs"></i></div>
-              <div class="metric-info">
-                <h4>Estado de Planta</h4>
-                <div class="metric-value" style="color: #34d399;">100% OPERATIVA</div>
-              </div>
+      <!-- VISTA 1: INICIO (/inicio) -->
+      <section id="view-inicio" class="view-section active">
+        <div class="hero-card">
+          <h2 style="font-size: 1.8rem; color: #38bdf8; margin-bottom: 8px;">Sistema de Supervisión Industria 4.0</h2>
+          <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 750px;">
+            Bienvenido al centro de control integral de la planta de lavandería industrial <strong>ELIS NÁJERA 4.0</strong>. Monitoreo en tiempo real de producción, eficiencia operativa y consumos energéticos.
+          </p>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-icon blue"><i class="fas fa-cogs"></i></div>
+            <div class="metric-info">
+              <h4>Estado de Planta</h4>
+              <div class="metric-value" style="color: #34d399;">100% OPERATIVA</div>
             </div>
-            <div class="metric-card">
-              <div class="metric-icon green"><i class="fas fa-tachometer-alt"></i></div>
-              <div class="metric-info">
-                <h4>Disponibilidad</h4>
-                <div class="metric-value">98.4%</div>
-              </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon green"><i class="fas fa-tachometer-alt"></i></div>
+            <div class="metric-info">
+              <h4>Disponibilidad</h4>
+              <div class="metric-value">98.4%</div>
             </div>
-            <div class="metric-card">
-              <div class="metric-icon amber"><i class="fas fa-chart-line"></i></div>
-              <div class="metric-info">
-                <h4>Rendimiento</h4>
-                <div class="metric-value">14.2 Tn/Día</div>
-              </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon amber"><i class="fas fa-chart-line"></i></div>
+            <div class="metric-info">
+              <h4>Rendimiento</h4>
+              <div class="metric-value">14.2 Tn/Día</div>
             </div>
           </div>
         </div>
@@ -261,7 +259,7 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=4.0.13"></script>
+  <script src="/static/js/app.js?v=4.0.14"></script>
 
 
 

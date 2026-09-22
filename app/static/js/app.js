@@ -4,8 +4,8 @@ let currentUser = null;
 let userPermissions = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await checkAuth();
   setupEventListeners();
+  await checkAuth();
   handleRoute();
   setupWebSocket();
 });
@@ -39,17 +39,22 @@ async function checkAuth() {
 
 // Update User Header Info
 function updateUserUI() {
+  const usernameEl = document.getElementById('current-username');
+  const roleEl = document.getElementById('current-role');
+  const initialEl = document.getElementById('user-initial');
+
   if (!currentUser) {
-    document.getElementById('current-username').textContent = 'Invitado';
-    document.getElementById('current-role').textContent = 'Sin Sesión';
-    document.getElementById('user-initial').textContent = '?';
+    if (usernameEl) usernameEl.textContent = 'Invitado';
+    if (roleEl) roleEl.textContent = 'Sin Sesión';
+    if (initialEl) initialEl.textContent = '?';
     const adminSections = document.querySelectorAll('.admin-only');
     adminSections.forEach(el => { el.style.display = 'none'; });
     return;
   }
-  document.getElementById('current-username').textContent = currentUser.full_name || currentUser.username;
-  document.getElementById('current-role').textContent = currentUser.role;
-  document.getElementById('user-initial').textContent = currentUser.username.charAt(0).toUpperCase();
+
+  if (usernameEl) usernameEl.textContent = currentUser.full_name || currentUser.username;
+  if (roleEl) roleEl.textContent = currentUser.role;
+  if (initialEl) initialEl.textContent = currentUser.username ? currentUser.username.charAt(0).toUpperCase() : '?';
 
   // Admin menu buttons visibility
   const adminSections = document.querySelectorAll('.admin-only');
@@ -63,34 +68,49 @@ function renderSidebar() {
   const produccionBtn = document.getElementById('btn-module-produccion');
   const consumosBtn = document.getElementById('btn-module-consumos');
 
-  const canProduccion = userPermissions['produccion'] && userPermissions['produccion'].can_view;
-  const canConsumos = userPermissions['consumos'] && userPermissions['consumos'].can_view;
+  const canProduccion = userPermissions && userPermissions['produccion'] && userPermissions['produccion'].can_view;
+  const canConsumos = userPermissions && userPermissions['consumos'] && userPermissions['consumos'].can_view;
 
   // Configure Producción Button
-  if (canProduccion) {
-    produccionBtn.classList.remove('locked');
-    produccionBtn.querySelector('.lock-badge').style.display = 'none';
-    produccionBtn.title = "Acceso a Módulo Producción";
-  } else {
-    produccionBtn.classList.add('locked');
-    produccionBtn.querySelector('.lock-badge').style.display = 'inline-block';
-    produccionBtn.title = "Acceso Restringido para tu rol";
+  if (produccionBtn) {
+    const lockBadge = produccionBtn.querySelector('.lock-badge');
+    if (canProduccion) {
+      produccionBtn.classList.remove('locked');
+      if (lockBadge) lockBadge.style.display = 'none';
+      produccionBtn.title = "Acceso a Módulo Producción";
+    } else {
+      produccionBtn.classList.add('locked');
+      if (lockBadge) lockBadge.style.display = 'inline-block';
+      produccionBtn.title = "Acceso Restringido para tu rol";
+    }
   }
 
   // Configure Consumos Button
-  if (canConsumos) {
-    consumosBtn.classList.remove('locked');
-    consumosBtn.querySelector('.lock-badge').style.display = 'none';
-    consumosBtn.title = "Acceso a Módulo Consumos";
-  } else {
-    consumosBtn.classList.add('locked');
-    consumosBtn.querySelector('.lock-badge').style.display = 'inline-block';
-    consumosBtn.title = "Acceso Restringido para tu rol";
+  if (consumosBtn) {
+    const lockBadge = consumosBtn.querySelector('.lock-badge');
+    if (canConsumos) {
+      consumosBtn.classList.remove('locked');
+      if (lockBadge) lockBadge.style.display = 'none';
+      consumosBtn.title = "Acceso a Módulo Consumos";
+    } else {
+      consumosBtn.classList.add('locked');
+      if (lockBadge) lockBadge.style.display = 'inline-block';
+      consumosBtn.title = "Acceso Restringido para tu rol";
+    }
   }
 }
 
 // Setup Navigation and UI Event Listeners
 function setupEventListeners() {
+  // Cambiar Usuario button handler
+  const btnChangeUser = document.getElementById('btn-change-user');
+  if (btnChangeUser) {
+    btnChangeUser.addEventListener('click', (e) => {
+      e.preventDefault();
+      showLoginModal();
+    });
+  }
+
   // Navigation Links
   document.querySelectorAll('.menu-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -107,77 +127,94 @@ function setupEventListeners() {
   });
 
   // Login Form Submission
-  document.getElementById('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const username = document.getElementById('login-username').value.trim();
-    const password = document.getElementById('login-password').value.trim();
+  const loginForm = document.getElementById('login-form');
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('login-username').value.trim();
+      const password = document.getElementById('login-password').value.trim();
 
-    try {
-      const res = await fetch('/api/auth/login', {
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          currentUser = data.user;
+          userPermissions = data.permissions;
+          closeLoginModal();
+          updateUserUI();
+          renderSidebar();
+          switchView('inicio');
+        } else {
+          const errData = await res.json();
+          const errEl = document.getElementById('login-error');
+          if (errEl) {
+            errEl.textContent = errData.detail || 'Error de autenticación';
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        console.error('Login error:', err);
+      }
+    });
+  }
+
+  // Logout Button
+  const btnLogout = document.getElementById('btn-logout');
+  if (btnLogout) {
+    btnLogout.addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      currentUser = null;
+      userPermissions = {};
+      updateUserUI();
+      renderSidebar();
+      showLoginModal();
+    });
+  }
+
+  // User Preset Selector in Login Modal
+  const presetSelect = document.getElementById('preset-user-select');
+  if (presetSelect) {
+    presetSelect.addEventListener('change', (e) => {
+      const role = e.target.value;
+      if (!role) return;
+      const usernameInput = document.getElementById('login-username');
+      const passwordInput = document.getElementById('login-password');
+      if (usernameInput) usernameInput.value = role;
+      if (passwordInput) passwordInput.value = (role === 'Admin') ? 'admin1' : 'admin';
+    });
+  }
+
+  // User Management Form Submit
+  const formCreateUser = document.getElementById('form-create-user');
+  if (formCreateUser) {
+    formCreateUser.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('new-username').value.trim();
+      const full_name = document.getElementById('new-fullname').value.trim();
+      const role = document.getElementById('new-role').value;
+      const password = document.getElementById('new-password').value.trim() || 'admin';
+
+      const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, full_name, role, password })
       });
 
       if (res.ok) {
-        const data = await res.json();
-        currentUser = data.user;
-        userPermissions = data.permissions;
-        closeLoginModal();
-        updateUserUI();
-        renderSidebar();
-        switchView('inicio');
+        alert('Usuario creado correctamente');
+        formCreateUser.reset();
+        loadUsersList();
       } else {
-        const errData = await res.json();
-        document.getElementById('login-error').textContent = errData.detail || 'Error de autenticación';
-        document.getElementById('login-error').style.display = 'block';
+        const err = await res.json();
+        alert('Error: ' + (err.detail || 'No se pudo crear el usuario'));
       }
-    } catch (err) {
-      console.error('Login error:', err);
-    }
-  });
-
-  // Logout Button
-  document.getElementById('btn-logout').addEventListener('click', async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    currentUser = null;
-    userPermissions = {};
-    updateUserUI();
-    renderSidebar();
-    showLoginModal();
-  });
-
-  // User Preset Selector in Login Modal
-  document.getElementById('preset-user-select').addEventListener('change', (e) => {
-    const role = e.target.value;
-    if (!role) return;
-    document.getElementById('login-username').value = role;
-    document.getElementById('login-password').value = (role === 'Admin') ? 'admin1' : 'admin';
-  });
-
-  // User Management Form Submit
-  document.getElementById('form-create-user')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const username = document.getElementById('new-username').value.trim();
-    const full_name = document.getElementById('new-fullname').value.trim();
-    const role = document.getElementById('new-role').value;
-    const password = document.getElementById('new-password').value.trim() || 'admin';
-
-    const res = await fetch('/api/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, full_name, role, password })
     });
-
-    if (res.ok) {
-      alert('Usuario creado correctamente');
-      document.getElementById('form-create-user').reset();
-      loadUsersList();
-    } else {
-      const err = await res.json();
-      alert('Error: ' + (err.detail || 'No se pudo crear el usuario'));
-    }
-  });
+  }
 }
 
 // Switch View Sections (Manages Full Screen vs Sidebar Layout)
@@ -274,13 +311,19 @@ function setupWebSocket() {
 
 // Modal Controllers
 function showLoginModal() {
-  document.getElementById('login-modal').classList.add('active');
-  document.getElementById('login-error').style.display = 'none';
+  const modal = document.getElementById('login-modal');
+  if (modal) modal.classList.add('active');
+  const errEl = document.getElementById('login-error');
+  if (errEl) errEl.style.display = 'none';
 }
 
 function closeLoginModal() {
-  document.getElementById('login-modal').classList.remove('active');
+  const modal = document.getElementById('login-modal');
+  if (modal) modal.classList.remove('active');
 }
+
+window.showLoginModal = showLoginModal;
+window.closeLoginModal = closeLoginModal;
 
 // Load Produccion Data: Rendering Graphic Cards for Machines
 async function loadProduccionData() {
