@@ -59,6 +59,7 @@ def deploy():
         "app/auth.py",
         "app/seed.py",
         "app/turnos_sync.py",
+        "app/telemetria_sync.py",
         "app/mqtt_subscriber.py",
         "app/websocket_manager.py",
         "app/utils.py",

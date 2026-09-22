@@ -1056,10 +1056,15 @@ function toggleProcesoPanel(id, varCode, titulo, unidad) {
     panel.style.display = 'block';
     if (badge) badge.innerHTML = '🔼 Ocultar Telemetría';
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const todayStr = today.toISOString().split('T')[0];
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
     const fechaInicioInput = document.getElementById(`filter-fecha-inicio-${id}`);
     const fechaFinInput = document.getElementById(`filter-fecha-fin-${id}`);
-    if (fechaInicioInput && !fechaInicioInput.value) fechaInicioInput.value = todayStr;
+    if (fechaInicioInput && !fechaInicioInput.value) fechaInicioInput.value = yesterdayStr;
     if (fechaFinInput && !fechaFinInput.value) fechaFinInput.value = todayStr;
 
     fetchProcesoTelemetria(id, varCode, unidad);

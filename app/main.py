@@ -8,6 +8,7 @@ from app.database import init_db
 from app.seed import seed_database
 from app.turnos_sync import start_turnos_background_sync, sync_turnos_from_server_1
 from app.mqtt_subscriber import start_mqtt_background_subscriber
+from app.telemetria_sync import start_telemetria_background_sync
 from app.routers import (
     auth_router,
     users_router,
@@ -26,6 +27,7 @@ def startup_event():
 # 2. Iniciar sincronizaciones en segundo plano
 start_turnos_background_sync(app)
 start_mqtt_background_subscriber(app)
+start_telemetria_background_sync(app)
 
 
 # 3. Servir Archivos Estáticos
