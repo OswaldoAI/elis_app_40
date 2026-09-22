@@ -312,14 +312,20 @@ function setupWebSocket() {
 // Modal Controllers
 function showLoginModal() {
   const modal = document.getElementById('login-modal');
-  if (modal) modal.classList.add('active');
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.classList.add('active');
+  }
   const errEl = document.getElementById('login-error');
   if (errEl) errEl.style.display = 'none';
 }
 
 function closeLoginModal() {
   const modal = document.getElementById('login-modal');
-  if (modal) modal.classList.remove('active');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
 }
 
 window.showLoginModal = showLoginModal;
