@@ -21,17 +21,32 @@ async function checkAuth() {
       updateUserUI();
       renderSidebar();
     } else {
+      currentUser = null;
+      userPermissions = {};
+      updateUserUI();
+      renderSidebar();
       showLoginModal();
     }
   } catch (err) {
     console.error('Error checking auth:', err);
+    currentUser = null;
+    userPermissions = {};
+    updateUserUI();
+    renderSidebar();
     showLoginModal();
   }
 }
 
 // Update User Header Info
 function updateUserUI() {
-  if (!currentUser) return;
+  if (!currentUser) {
+    document.getElementById('current-username').textContent = 'Invitado';
+    document.getElementById('current-role').textContent = 'Sin Sesión';
+    document.getElementById('user-initial').textContent = '?';
+    const adminSections = document.querySelectorAll('.admin-only');
+    adminSections.forEach(el => { el.style.display = 'none'; });
+    return;
+  }
   document.getElementById('current-username').textContent = currentUser.full_name || currentUser.username;
   document.getElementById('current-role').textContent = currentUser.role;
   document.getElementById('user-initial').textContent = currentUser.username.charAt(0).toUpperCase();
@@ -127,6 +142,8 @@ function setupEventListeners() {
     await fetch('/api/auth/logout', { method: 'POST' });
     currentUser = null;
     userPermissions = {};
+    updateUserUI();
+    renderSidebar();
     showLoginModal();
   });
 
