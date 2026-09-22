@@ -275,6 +275,7 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "subtitulo_resumen": "Resumen turno actual",
                 "indicadores_turno": {
                     "promedio_carga": tunel_kpis["promedio_carga"],
+                    "kgs_totales": tunel_kpis["kg_totales_turno"],
                     "ikprod": tunel_kpis["ikprod"]["pct_str"],
                     "ikprod_details": tunel_kpis["ikprod"],
                     "promedio_tiempo_carga": tunel_kpis["promedio_tiempo_carga"],

@@ -446,9 +446,9 @@ async function loadProduccionData() {
               <span class="shift-indicator-label">Promedio Carga</span>
               <span class="shift-indicator-val">${m.indicadores_turno.promedio_carga}</span>
             </div>
-            <div class="shift-indicator-box" style="border-color: ${m.indicadores_turno.ikprod_details?.border_color || 'var(--border-color)'};">
-              <span class="shift-indicator-label">Rendimiento ikProd</span>
-              <span class="shift-indicator-val" style="color: ${m.indicadores_turno.ikprod_details?.text_color || '#34d399'}; font-weight: 800;">${m.indicadores_turno.ikprod || '0.0%'}</span>
+            <div class="shift-indicator-box">
+              <span class="shift-indicator-label">Kgs Totales</span>
+              <span class="shift-indicator-val">${m.indicadores_turno.kgs_totales || m.indicadores_turno.promedio_tiempo_carga}</span>
             </div>
             <div class="shift-indicator-box">
               <span class="shift-indicator-label">Cant. Cargas</span>
@@ -475,11 +475,13 @@ async function loadProduccionData() {
       html += `
           <div class="performance-section">
             <div class="performance-header">
-              <span>Rendimiento OEE / Disponibilidad</span>
-              <span class="oee-value-tag">${m.oee}% OEE</span>
+              <span>${m.indicadores_turno?.ikprod_details ? 'Rendimiento ikProd / Eficiencia' : 'Rendimiento OEE / Disponibilidad'}</span>
+              <span class="oee-value-tag" style="${m.indicadores_turno?.ikprod_details ? `color: ${m.indicadores_turno.ikprod_details.text_color}; border-color: ${m.indicadores_turno.ikprod_details.border_color};` : ''}">
+                ${m.indicadores_turno?.ikprod_details ? `${m.indicadores_turno.ikprod_details.pct_str} ikProd` : `${m.oee}% OEE`}
+              </span>
             </div>
             <div class="progress-track">
-              <div class="progress-fill" style="width: ${m.oee}%;"></div>
+              <div class="progress-fill" style="width: ${m.indicadores_turno?.ikprod_details ? Math.min(m.indicadores_turno.ikprod_details.pct, 100) : m.oee}%; ${m.indicadores_turno?.ikprod_details ? `background: ${m.indicadores_turno.ikprod_details.gradient};` : ''}"></div>
             </div>
           </div>
 
