@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
   handleRoute();
   setupWebSocket();
+  startAutoRefreshTimer();
 });
 
 // Check authentication status
@@ -326,6 +327,21 @@ function setupWebSocket() {
   } catch (err) {
     console.error('Error al inicializar WebSocket:', err);
   }
+}
+
+// Auto-Refresh Controller (Refresca la vista activa cada 10 segundos para datos e indicadores en tiempo real)
+let autoRefreshTimer = null;
+
+function startAutoRefreshTimer() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(() => {
+    const currentHash = window.location.hash.replace('#', '') || 'inicio';
+    if (currentHash === 'tunel_lavado') {
+      loadTunelLavadoDashboard();
+    } else if (currentHash === 'produccion') {
+      loadProduccionData();
+    }
+  }, 10000); // 10 segundos
 }
 
 // Modal Controllers

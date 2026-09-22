@@ -34,9 +34,19 @@ def calculate_tunel_metrics(turno_act: dict = None):
     fecha = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
     hora_inicio = turno_act.get("hora_inicio", "06:00")
     hora_fin = turno_act.get("hora_fin", "14:00")
-    minutos_transcurridos = float(turno_act.get("minutos_transcurridos") or 240)
-
+    
     start_iso = f"{fecha} {hora_inicio}:00"
+    
+    now_dt = get_local_now()
+    try:
+        dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+        if now_dt >= dt_start:
+            calc_min = (now_dt - dt_start).total_seconds() / 60.0
+            minutos_transcurridos = max(calc_min, 1.0)
+        else:
+            minutos_transcurridos = float(turno_act.get("minutos_transcurridos") or 1.0)
+    except Exception:
+        minutos_transcurridos = float(turno_act.get("minutos_transcurridos") or 240)
     
     # Manejo de turnos que cruzan medianoche (ej. 21:00 a 02:00)
     try:
@@ -348,7 +358,6 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
     turno_act = turnos_cache.get("turno_actual", {})
     
     nombre_turno = turno_act.get("nombre") or "Turno Mañana"
-    progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
 
     fecha_raw = turno_act.get("fecha") or get_local_now_str("%Y-%m-%d")
     try:
@@ -358,6 +367,19 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
 
     horario_base = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
     horario_con_fecha = f"{horario_base} | {fecha_formateada}"
+
+    # Calcular progreso dinámico del turno
+    try:
+        dt_start = datetime.strptime(f"{fecha_raw} {turno_act.get('hora_inicio', '06:00')}:00", "%Y-%m-%d %H:%M:%S")
+        dt_end = datetime.strptime(f"{fecha_raw} {turno_act.get('hora_fin', '14:00')}:00", "%Y-%m-%d %H:%M:%S")
+        if dt_end < dt_start:
+            dt_end += timedelta(days=1)
+        duracion_total = max((dt_end - dt_start).total_seconds() / 60.0, 1.0)
+        now_dt = get_local_now()
+        elapsed_min = max((now_dt - dt_start).total_seconds() / 60.0, 0.0)
+        progreso_turno = round(min((elapsed_min / duracion_total) * 100.0, 100.0), 1)
+    except Exception:
+        progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
 
     tunel_kpis = calculate_tunel_metrics(turno_act)
 
