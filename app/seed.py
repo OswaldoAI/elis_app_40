@@ -115,6 +115,24 @@ def seed_database():
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (var_code, ts_str, ts_iso, pulsos, valor, unidad, caudal, f"Monitor Telemetría 192.168.0.116:3000 ({var_code})"))
 
+    # 6. Sembrar cargas históricas iniciales del Turno 3 (21:00 - 23:59 del 22/09) si no existen
+    cursor.execute("SELECT COUNT(*) FROM tunel_cargas WHERE timestamp_iso >= '2026-09-22 21:00:00' AND timestamp_iso < '2026-09-23 00:00:00'")
+    if cursor.fetchone()[0] == 0:
+        cargas_iniciales_turno3 = [
+            (1590, "22/09/2026 21:15:20", "2026-09-22 21:15:20", 851, 1, 58.0, 120, "32B0 4010"),
+            (1591, "22/09/2026 21:38:40", "2026-09-22 21:38:40", 851, 1, 60.0, 140, "32B0 4020"),
+            (1592, "22/09/2026 22:05:10", "2026-09-22 22:05:10", 851, 1, 57.0, 115, "32B0 4030"),
+            (1593, "22/09/2026 22:32:30", "2026-09-22 22:32:30", 851, 1, 59.0, 125, "32B0 4040"),
+            (1594, "22/09/2026 23:02:15", "2026-09-22 23:02:15", 851, 1, 58.0, 110, "32B0 4050"),
+            (1595, "22/09/2026 23:28:45", "2026-09-22 23:28:45", 851, 1, 61.0, 130, "32B0 4060"),
+            (1596, "22/09/2026 23:55:10", "2026-09-22 23:55:10", 851, 1, 57.5, 120, "32B0 4070")
+        ]
+        for lid, ts, ts_iso, cli, cat, peso, tseg, raw in cargas_iniciales_turno3:
+            cursor.execute("""
+                INSERT OR IGNORE INTO tunel_cargas (load_id, site, device, timestamp, timestamp_iso, cliente, categoria, peso_kg, tiempo_entre_cargas_seg, raw_hex)
+                VALUES (?, 'Elis Lavanderia Industrial', 'Lenovo ThinkCentre PLC FX3U (HELMS Protocol)', ?, ?, ?, ?, ?, ?, ?)
+            """, (lid, ts, ts_iso, cli, cat, peso, tseg, raw))
+
     conn.commit()
     conn.close()
     print("Database seeded successfully!")

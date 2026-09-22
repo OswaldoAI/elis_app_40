@@ -16,14 +16,29 @@ logger = logging.getLogger("mqtt_subscriber")
 logging.basicConfig(level=logging.INFO)
 
 def parse_timestamp_to_iso(ts_str: str) -> str:
-    """Convierte formato DD/MM/YYYY HH:MM:SS a YYYY-MM-DD HH:MM:SS para ordenamiento ISO en SQLite."""
-    try:
-        parts = ts_str.strip().split(" ")
-        date_parts = parts[0].split("/")
-        time_part = parts[1] if len(parts) > 1 else "00:00:00"
-        return f"{date_parts[2]}-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)} {time_part}"
-    except Exception:
+    """Convierte cualquier formato de timestamp (DD/MM/YYYY HH:MM:SS, YYYY-MM-DD HH:MM:SS, ISO) a YYYY-MM-DD HH:MM:SS."""
+    if not ts_str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts_clean = str(ts_str).strip().replace("T", " ")
+    try:
+        parts = ts_clean.split(" ")
+        date_part = parts[0]
+        time_part = parts[1] if len(parts) > 1 else "00:00:00"
+        
+        if "/" in date_part:
+            d_parts = date_part.split("/")
+            if len(d_parts) == 3:
+                return f"{d_parts[2]}-{d_parts[1].zfill(2)}-{d_parts[0].zfill(2)} {time_part}"
+        elif "-" in date_part:
+            d_parts = date_part.split("-")
+            if len(d_parts) == 3:
+                if len(d_parts[0]) == 4:
+                    return f"{d_parts[0]}-{d_parts[1].zfill(2)}-{d_parts[2].zfill(2)} {time_part}"
+                elif len(d_parts[2]) == 4:
+                    return f"{d_parts[2]}-{d_parts[1].zfill(2)}-{d_parts[0].zfill(2)} {time_part}"
+    except Exception:
+        pass
+    return ts_clean
 
 def save_carga_to_db(payload: dict):
     """Guarda un registro de carga recibido por MQTT en la base de datos SQLite."""

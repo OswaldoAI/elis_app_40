@@ -71,9 +71,8 @@ def calculate_tunel_metrics(turno_act: dict = None):
                 COUNT(DISTINCT cliente) as clientes_unicos,
                 COUNT(DISTINCT categoria) as programas_unicos
             FROM tunel_cargas
-            WHERE (timestamp_iso >= ? AND timestamp_iso <= ?)
-               OR (timestamp >= ? AND timestamp <= ?)
-        """, (start_iso, end_iso, start_iso, end_iso)).fetchone()
+            WHERE timestamp_iso >= ? AND timestamp_iso <= ?
+        """, (start_iso, end_iso)).fetchone()
         
         # Generar desglose horario desde inicio hasta fin del turno activo para la gráfica de avance
         try:
@@ -101,9 +100,8 @@ def calculate_tunel_metrics(turno_act: dict = None):
                     COUNT(*) as num_cargas,
                     COALESCE(SUM(peso_kg), 0) as kg_hora
                 FROM tunel_cargas
-                WHERE (timestamp_iso >= ? AND timestamp_iso < ?)
-                   OR (timestamp >= ? AND timestamp < ?)
-            """, (h_start_str, h_end_str, h_start_str, h_end_str)).fetchone()
+                WHERE timestamp_iso >= ? AND timestamp_iso < ?
+            """, (h_start_str, h_end_str)).fetchone()
             
             kg_val = round(row_h["kg_hora"], 1) if row_h else 0.0
             cargas_val = row_h["num_cargas"] if row_h else 0
