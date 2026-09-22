@@ -446,9 +446,9 @@ async function loadProduccionData() {
               <span class="shift-indicator-label">Promedio Carga</span>
               <span class="shift-indicator-val">${m.indicadores_turno.promedio_carga}</span>
             </div>
-            <div class="shift-indicator-box">
-              <span class="shift-indicator-label">Promedio Tiempo</span>
-              <span class="shift-indicator-val">${m.indicadores_turno.promedio_tiempo_carga}</span>
+            <div class="shift-indicator-box" style="border-color: ${m.indicadores_turno.ikprod_details?.border_color || 'var(--border-color)'};">
+              <span class="shift-indicator-label">Rendimiento ikProd</span>
+              <span class="shift-indicator-val" style="color: ${m.indicadores_turno.ikprod_details?.text_color || '#34d399'}; font-weight: 800;">${m.indicadores_turno.ikprod || '0.0%'}</span>
             </div>
             <div class="shift-indicator-box">
               <span class="shift-indicator-label">Cant. Cargas</span>
