@@ -772,14 +772,15 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 99999;
+  z-index: 999999;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.25s ease, visibility 0.25s ease;
 }
 
-.modal-overlay.active {
+.modal-overlay.active,
+#login-modal.active,
+#login-modal[style*="display: flex"] {
   display: flex !important;
   opacity: 1 !important;
   visibility: visible !important;
@@ -793,7 +794,9 @@ body {
   width: 90%;
   max-width: 480px;
   padding: 30px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+  box-shadow: 0 20px 40px rgba(0,0,0,0.8);
+  position: relative;
+  z-index: 1000000;
 }
 
 .modal-header {

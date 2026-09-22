@@ -332,8 +332,12 @@ function setupWebSocket() {
 function showLoginModal() {
   const modal = document.getElementById('login-modal');
   if (modal) {
-    modal.style.display = 'flex';
     modal.classList.add('active');
+    modal.style.setProperty('display', 'flex', 'important');
+    modal.style.setProperty('opacity', '1', 'important');
+    modal.style.setProperty('visibility', 'visible', 'important');
+    modal.style.setProperty('pointer-events', 'auto', 'important');
+    modal.style.setProperty('z-index', '999999', 'important');
   }
   const errEl = document.getElementById('login-error');
   if (errEl) errEl.style.display = 'none';
@@ -343,7 +347,10 @@ function closeLoginModal() {
   const modal = document.getElementById('login-modal');
   if (modal) {
     modal.classList.remove('active');
-    modal.style.display = 'none';
+    modal.style.setProperty('display', 'none', 'important');
+    modal.style.setProperty('opacity', '0', 'important');
+    modal.style.setProperty('visibility', 'hidden', 'important');
+    modal.style.setProperty('pointer-events', 'none', 'important');
   }
 }
 
