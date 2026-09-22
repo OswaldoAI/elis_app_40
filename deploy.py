@@ -6,7 +6,7 @@ from pathlib import Path
 # Force UTF-8 stdout
 sys.stdout.reconfigure(encoding='utf-8', errors='ignore')
 
-JETSON_IP = "100.121.212.67"
+JETSON_IPS = ["192.168.0.116", "100.121.212.67"]
 JETSON_USER = "elisnajera"
 JETSON_PASS = "serveriot2026"
 REMOTE_DIR = "/home/elisnajera/elis_4.0_v1"
@@ -14,11 +14,22 @@ CONTAINER_NAME = "elis_industry4_app"
 HOST_PORT = 8084
 
 def deploy():
-    print(f"Connecting to Jetson Server A at {JETSON_IP}...")
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(JETSON_IP, username=JETSON_USER, password=JETSON_PASS, timeout=15)
-    print("SSH Connection established.")
+    
+    connected_ip = None
+    for ip in JETSON_IPS:
+        print(f"Connecting to Jetson Server A at {ip}...")
+        try:
+            ssh.connect(ip, username=JETSON_USER, password=JETSON_PASS, timeout=10, look_for_keys=False, allow_agent=False)
+            connected_ip = ip
+            print(f"SSH Connection established with {ip}.")
+            break
+        except Exception as e:
+            print(f"Failed connecting to {ip}: {e}")
+            
+    if not connected_ip:
+        raise RuntimeError("Could not connect to Jetson Server A on any IP address.")
 
     sftp = ssh.open_sftp()
 
@@ -106,7 +117,7 @@ def deploy():
 
     ssh.close()
     print(f"\nDeployment completed successfully!")
-    print(f"URL: http://{JETSON_IP}:{HOST_PORT}/inicio")
+    print(f"URL: http://{connected_ip}:{HOST_PORT}/inicio")
 
 if __name__ == "__main__":
     deploy()

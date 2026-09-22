@@ -21,20 +21,22 @@ async function checkAuth() {
       updateUserUI();
       renderSidebar();
     } else {
-      currentUser = null;
-      userPermissions = {};
-      updateUserUI();
-      renderSidebar();
-      showLoginModal();
+      setGuestState();
     }
   } catch (err) {
     console.error('Error checking auth:', err);
-    currentUser = null;
-    userPermissions = {};
-    updateUserUI();
-    renderSidebar();
-    showLoginModal();
+    setGuestState();
   }
+}
+
+function setGuestState() {
+  currentUser = { id: 0, username: 'Invitado', role: 'Invitado', full_name: 'Invitado (Acceso Libre)' };
+  userPermissions = {
+    'produccion': { can_view: true },
+    'consumos': { can_view: true }
+  };
+  updateUserUI();
+  renderSidebar();
 }
 
 // Update User Header Info
@@ -46,9 +48,11 @@ function updateUserUI() {
   const btnChangeUserEl = document.getElementById('btn-change-user');
   const btnLogoutEl = document.getElementById('btn-logout');
 
-  if (!currentUser) {
+  const isGuest = !currentUser || currentUser.role === 'Invitado';
+
+  if (isGuest) {
     if (usernameEl) usernameEl.textContent = 'Invitado';
-    if (roleEl) roleEl.textContent = 'Sin Sesión';
+    if (roleEl) roleEl.textContent = 'Acceso Libre';
     if (initialEl) initialEl.textContent = '?';
     if (btnLoginEl) btnLoginEl.style.display = 'flex';
     if (btnChangeUserEl) btnChangeUserEl.style.display = 'none';
@@ -187,11 +191,7 @@ function setupEventListeners() {
   if (btnLogout) {
     btnLogout.addEventListener('click', async () => {
       await fetch('/api/auth/logout', { method: 'POST' });
-      currentUser = null;
-      userPermissions = {};
-      updateUserUI();
-      renderSidebar();
-      showLoginModal();
+      setGuestState();
     });
   }
 
@@ -733,8 +733,8 @@ function renderAvanceChart(graficaData) {
   });
 }
 
-// Load Consumos Data
 // Render process card with expandable telemetry panel
+function renderProcesoCardAndPanel(id, varCode, titulo, unidad, iconClass, colorStyle, mainMetricValue, subtext) {
   const isElectric = (unidad === 'kWh');
   const tableHeaders = isElectric
     ? `<tr>

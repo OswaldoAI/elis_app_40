@@ -61,15 +61,20 @@ def logout(response: Response):
 
 @router.get("/me")
 def get_me(current_user: dict = Depends(get_current_user)):
-    conn = get_db_connection()
-    perms = conn.execute("""
-        SELECT module_code, can_view, can_edit 
-        FROM role_permissions 
-        WHERE role = ?
-    """, (current_user["role"],)).fetchall()
-    conn.close()
-
-    permissions = {p["module_code"]: {"can_view": bool(p["can_view"]), "can_edit": bool(p["can_edit"])} for p in perms}
+    if current_user["role"] == "Invitado":
+        permissions = {
+            "produccion": {"can_view": True, "can_edit": False},
+            "consumos": {"can_view": True, "can_edit": False}
+        }
+    else:
+        conn = get_db_connection()
+        perms = conn.execute("""
+            SELECT module_code, can_view, can_edit 
+            FROM role_permissions 
+            WHERE role = ?
+        """, (current_user["role"],)).fetchall()
+        conn.close()
+        permissions = {p["module_code"]: {"can_view": bool(p["can_view"]), "can_edit": bool(p["can_edit"])} for p in perms}
 
     return {
         "user": current_user,

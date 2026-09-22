@@ -40,30 +40,32 @@ def get_token_from_header_or_cookie(request: Request, token_header: Optional[str
         return cookie_token
     return None
 
+GUEST_USER = {
+    "id": 0,
+    "username": "Invitado",
+    "full_name": "Invitado (Acceso Libre)",
+    "role": "Invitado",
+    "is_active": True
+}
+
 def get_current_user(token: Optional[str] = Depends(get_token_from_header_or_cookie)):
     if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No se proporcionó token de autenticación",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        return GUEST_USER
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         role: str = payload.get("role")
         if username is None or role is None:
-            raise HTTPException(status_code=401, detail="Token inválido")
+            return GUEST_USER
     except JWTError:
-        raise HTTPException(status_code=401, detail="Token caducado o inválido")
+        return GUEST_USER
 
     conn = get_db_connection()
     user = conn.execute("SELECT id, username, full_name, role, is_active FROM users WHERE username = ?", (username,)).fetchone()
     conn.close()
 
-    if user is None:
-        raise HTTPException(status_code=401, detail="Usuario no encontrado")
-    if not user["is_active"]:
-        raise HTTPException(status_code=403, detail="Usuario deshabilitado")
+    if user is None or not user["is_active"]:
+        return GUEST_USER
 
     return dict(user)
 

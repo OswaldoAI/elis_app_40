@@ -7,6 +7,9 @@ from app.turnos_sync import get_cached_turnos, sync_turnos_from_server_1
 router = APIRouter(prefix="/api/produccion", tags=["Producción"])
 
 def check_produccion_permission(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") == "Invitado":
+        return current_user
+
     conn = get_db_connection()
     perm = conn.execute("""
         SELECT can_view FROM role_permissions WHERE role = ? AND module_code = 'produccion'
