@@ -368,18 +368,24 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
     horario_base = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
     horario_con_fecha = f"{horario_base} | {fecha_formateada}"
 
-    # Calcular progreso dinámico del turno
+    # Calcular progreso dinámico y duración del turno
     try:
         dt_start = datetime.strptime(f"{fecha_raw} {turno_act.get('hora_inicio', '06:00')}:00", "%Y-%m-%d %H:%M:%S")
         dt_end = datetime.strptime(f"{fecha_raw} {turno_act.get('hora_fin', '14:00')}:00", "%Y-%m-%d %H:%M:%S")
         if dt_end < dt_start:
             dt_end += timedelta(days=1)
-        duracion_total = max((dt_end - dt_start).total_seconds() / 60.0, 1.0)
+        duracion_total_min = max((dt_end - dt_start).total_seconds() / 60.0, 1.0)
         now_dt = get_local_now()
         elapsed_min = max((now_dt - dt_start).total_seconds() / 60.0, 0.0)
-        progreso_turno = round(min((elapsed_min / duracion_total) * 100.0, 100.0), 1)
+        progreso_turno = round(min((elapsed_min / duracion_total_min) * 100.0, 100.0), 1)
+        duracion_horas = duracion_total_min / 60.0
     except Exception:
         progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
+        duracion_horas = 8.0
+
+    # Objetivo dinámico de kg por turno: (minutos del turno / 2) * 60 kg = (duracion_horas * 60 / 2) * 60 kg
+    objetivo_kg = (duracion_horas * 60.0 / 2.0) * 60.0
+    objetivo_kg_str = f"{int(objetivo_kg):,}".replace(",", ".")
 
     tunel_kpis = calculate_tunel_metrics(turno_act)
 
@@ -407,7 +413,7 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
             "kg_totales_turno": {
                 "titulo": "Kg Totales Turno",
                 "valor": tunel_kpis["kg_totales_turno"],
-                "subtexto": f"Objetivo Turno: 14.400 kg ({'Real MQTT' if tunel_kpis['is_real'] else 'Simulado'})",
+                "subtexto": f"Objetivo Turno: {objetivo_kg_str} kg ({'Real MQTT' if tunel_kpis['is_real'] else 'Simulado'})",
                 "color_gradiente": "linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)",
                 "icono": "fa-weight-hanging"
             },
@@ -493,7 +499,16 @@ def build_shift_json_package(turno_act: dict = None):
     ikprod = tunel_kpis.get("ikprod", {})
 
     total_kg_num = float(tunel_kpis.get("total_kg_num", 0.0))
-    objetivo_kg = 14400.0
+    try:
+        dt_s = datetime.strptime(f"{fecha_raw} {hora_inicio}:00", "%Y-%m-%d %H:%M:%S")
+        dt_e = datetime.strptime(f"{fecha_raw} {hora_fin}:00", "%Y-%m-%d %H:%M:%S")
+        if dt_e < dt_s:
+            dt_e += timedelta(days=1)
+        duracion_hrs = max((dt_e - dt_s).total_seconds() / 3600.0, 0.5)
+    except Exception:
+        duracion_hrs = 8.0
+
+    objetivo_kg = (duracion_hrs * 60.0 / 2.0) * 60.0
     cumplimiento_pct = round((total_kg_num / objetivo_kg) * 100.0, 2) if objetivo_kg > 0 else 0.0
 
     shift_package = {
