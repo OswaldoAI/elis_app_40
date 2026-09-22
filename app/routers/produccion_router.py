@@ -352,6 +352,35 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
 from datetime import datetime, timedelta
 from app.utils import get_local_now_str, get_local_now
 
+def calculate_shift_duration_and_objetivo(turno_act: dict) -> tuple[float, float]:
+    """
+    Calcula la duración del turno en minutos y el objetivo dinámico de kg.
+    Fórmula: (minutos_del_turno / 2) * 60 kg = (horas_del_turno * 60 / 2) * 60 kg
+    """
+    duracion_min = 0.0
+    if turno_act and "duracion_total_minutos" in turno_act and float(turno_act.get("duracion_total_minutos") or 0) > 0:
+        duracion_min = float(turno_act["duracion_total_minutos"])
+    else:
+        h_start_str = turno_act.get("hora_inicio", "06:00") if turno_act else "06:00"
+        h_end_str = turno_act.get("hora_fin", "14:00") if turno_act else "14:00"
+        try:
+            h_start, m_start = map(int, h_start_str.split(":")[:2])
+            h_end, m_end = map(int, h_end_str.split(":")[:2])
+            start_min = h_start * 60 + m_start
+            end_min = h_end * 60 + m_end
+            if end_min <= start_min:
+                end_min += 24 * 60
+            duracion_min = float(end_min - start_min)
+        except Exception:
+            duracion_min = 480.0
+
+    if duracion_min <= 0:
+        duracion_min = 480.0
+
+    objetivo_kg = (duracion_min / 2.0) * 60.0
+    return duracion_min, objetivo_kg
+
+
 @router.get("/tunel-lavado/dashboard")
 def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)):
     turnos_cache = get_cached_turnos()
@@ -368,24 +397,22 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
     horario_base = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
     horario_con_fecha = f"{horario_base} | {fecha_formateada}"
 
-    # Calcular progreso dinámico y duración del turno
+    # Calcular duración del turno y objetivo dinámico de kg
+    duracion_total_min, objetivo_kg = calculate_shift_duration_and_objetivo(turno_act)
+    objetivo_kg_str = f"{int(objetivo_kg):,}".replace(",", ".")
+
+    # Calcular progreso dinámico del turno
     try:
-        dt_start = datetime.strptime(f"{fecha_raw} {turno_act.get('hora_inicio', '06:00')}:00", "%Y-%m-%d %H:%M:%S")
-        dt_end = datetime.strptime(f"{fecha_raw} {turno_act.get('hora_fin', '14:00')}:00", "%Y-%m-%d %H:%M:%S")
-        if dt_end < dt_start:
-            dt_end += timedelta(days=1)
-        duracion_total_min = max((dt_end - dt_start).total_seconds() / 60.0, 1.0)
         now_dt = get_local_now()
+        h_start_str = turno_act.get("hora_inicio", "06:00")
+        h_start, m_start = map(int, h_start_str.split(":")[:2])
+        dt_start = now_dt.replace(hour=h_start, minute=m_start, second=0, microsecond=0)
+        if now_dt < dt_start:
+            dt_start -= timedelta(days=1)
         elapsed_min = max((now_dt - dt_start).total_seconds() / 60.0, 0.0)
         progreso_turno = round(min((elapsed_min / duracion_total_min) * 100.0, 100.0), 1)
-        duracion_horas = duracion_total_min / 60.0
     except Exception:
         progreso_turno = turno_act.get("progreso_porcentaje") or 68.5
-        duracion_horas = 8.0
-
-    # Objetivo dinámico de kg por turno: (minutos del turno / 2) * 60 kg = (duracion_horas * 60 / 2) * 60 kg
-    objetivo_kg = (duracion_horas * 60.0 / 2.0) * 60.0
-    objetivo_kg_str = f"{int(objetivo_kg):,}".replace(",", ".")
 
     tunel_kpis = calculate_tunel_metrics(turno_act)
 
@@ -499,16 +526,7 @@ def build_shift_json_package(turno_act: dict = None):
     ikprod = tunel_kpis.get("ikprod", {})
 
     total_kg_num = float(tunel_kpis.get("total_kg_num", 0.0))
-    try:
-        dt_s = datetime.strptime(f"{fecha_raw} {hora_inicio}:00", "%Y-%m-%d %H:%M:%S")
-        dt_e = datetime.strptime(f"{fecha_raw} {hora_fin}:00", "%Y-%m-%d %H:%M:%S")
-        if dt_e < dt_s:
-            dt_e += timedelta(days=1)
-        duracion_hrs = max((dt_e - dt_s).total_seconds() / 3600.0, 0.5)
-    except Exception:
-        duracion_hrs = 8.0
-
-    objetivo_kg = (duracion_hrs * 60.0 / 2.0) * 60.0
+    _, objetivo_kg = calculate_shift_duration_and_objetivo(turno_act)
     cumplimiento_pct = round((total_kg_num / objetivo_kg) * 100.0, 2) if objetivo_kg > 0 else 0.0
 
     shift_package = {
