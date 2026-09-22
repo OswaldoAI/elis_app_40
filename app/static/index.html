@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ELIS NÁJERA 4.0 - Sistema de Supervisión Industrial</title>
-  <link rel="stylesheet" href="/static/css/styles.css?v=4.0.15">
+  <link rel="stylesheet" href="/static/css/styles.css?v=4.0.16">
 
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -31,10 +31,13 @@
           <span class="user-role" id="current-role">Sin Sesión</span>
         </div>
       </div>
-      <button class="btn-header" id="btn-change-user" onclick="showLoginModal()" title="Cambiar de usuario">
+      <button class="btn-header btn-login" id="btn-open-login" onclick="showLoginModal()" title="Iniciar sesión">
+        <i class="fas fa-sign-in-alt"></i> Iniciar Sesión
+      </button>
+      <button class="btn-header" id="btn-change-user" onclick="showLoginModal()" title="Cambiar de usuario" style="display:none;">
         <i class="fas fa-sync-alt"></i> Cambiar Usuario
       </button>
-      <button class="btn-header btn-logout" id="btn-logout" title="Cerrar sesión">
+      <button class="btn-header btn-logout" id="btn-logout" title="Cerrar sesión" style="display:none;">
         <i class="fas fa-power-off"></i> Salir
       </button>
     </div>
@@ -259,7 +262,7 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=4.0.15"></script>
+  <script src="/static/js/app.js?v=4.0.16"></script>
 
 
 

@@ -42,11 +42,18 @@ function updateUserUI() {
   const usernameEl = document.getElementById('current-username');
   const roleEl = document.getElementById('current-role');
   const initialEl = document.getElementById('user-initial');
+  const btnLoginEl = document.getElementById('btn-open-login');
+  const btnChangeUserEl = document.getElementById('btn-change-user');
+  const btnLogoutEl = document.getElementById('btn-logout');
 
   if (!currentUser) {
     if (usernameEl) usernameEl.textContent = 'Invitado';
     if (roleEl) roleEl.textContent = 'Sin Sesión';
     if (initialEl) initialEl.textContent = '?';
+    if (btnLoginEl) btnLoginEl.style.display = 'flex';
+    if (btnChangeUserEl) btnChangeUserEl.style.display = 'none';
+    if (btnLogoutEl) btnLogoutEl.style.display = 'none';
+
     const adminSections = document.querySelectorAll('.admin-only');
     adminSections.forEach(el => { el.style.display = 'none'; });
     return;
@@ -55,6 +62,9 @@ function updateUserUI() {
   if (usernameEl) usernameEl.textContent = currentUser.full_name || currentUser.username;
   if (roleEl) roleEl.textContent = currentUser.role;
   if (initialEl) initialEl.textContent = currentUser.username ? currentUser.username.charAt(0).toUpperCase() : '?';
+  if (btnLoginEl) btnLoginEl.style.display = 'none';
+  if (btnChangeUserEl) btnChangeUserEl.style.display = 'flex';
+  if (btnLogoutEl) btnLogoutEl.style.display = 'flex';
 
   // Admin menu buttons visibility
   const adminSections = document.querySelectorAll('.admin-only');
@@ -102,6 +112,15 @@ function renderSidebar() {
 
 // Setup Navigation and UI Event Listeners
 function setupEventListeners() {
+  // Iniciar Sesión button handler
+  const btnOpenLogin = document.getElementById('btn-open-login');
+  if (btnOpenLogin) {
+    btnOpenLogin.addEventListener('click', (e) => {
+      e.preventDefault();
+      showLoginModal();
+    });
+  }
+
   // Cambiar Usuario button handler
   const btnChangeUser = document.getElementById('btn-change-user');
   if (btnChangeUser) {

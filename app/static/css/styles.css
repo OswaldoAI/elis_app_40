@@ -150,6 +150,20 @@ body {
   background-color: #fca5a5;
 }
 
+.btn-login {
+  background-color: var(--primary-blue);
+  color: white;
+  border: none;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+}
+
+.btn-login:hover {
+  background-color: var(--primary-blue-hover);
+  color: white;
+  transform: translateY(-1px);
+}
+
 /* Layout Principal */
 .main-wrapper {
   display: flex;
