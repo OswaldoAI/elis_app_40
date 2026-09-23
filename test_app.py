@@ -61,6 +61,12 @@ class TestElis4App(unittest.TestCase):
     def test_03_mqtt_save_and_real_metrics(self):
         from app.mqtt_subscriber import save_carga_to_db
         from datetime import datetime
+        
+        conn = get_db_connection()
+        conn.execute("DELETE FROM tunel_cargas")
+        conn.commit()
+        conn.close()
+
         today_str = datetime.now().strftime("%d/%m/%Y")
         sample_payload = {
             "site": "Elis Lavanderia Industrial",

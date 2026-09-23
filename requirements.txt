@@ -7,3 +7,5 @@ python-multipart>=0.0.6
 aiofiles>=23.1.0
 paho-mqtt>=1.6.1
 tzdata>=2023.3
+websockets>=11.0
+
