@@ -95,7 +95,7 @@ def deploy():
         f"{sudo_pass} chown -R elisnajera:elisnajera /home/elisnajera/.docker || true",
         f"{sudo_pass} docker stop {CONTAINER_NAME} || true",
         f"{sudo_pass} docker rm {CONTAINER_NAME} || true",
-        f"cd {REMOTE_DIR} && {sudo_pass} DOCKER_BUILDKIT=0 docker build -t elis_industry4_img .",
+        f"cd {REMOTE_DIR} && {sudo_pass} DOCKER_BUILDKIT=0 docker build --no-cache -t elis_industry4_img .",
         f"{sudo_pass} docker run -d --name {CONTAINER_NAME} -p {HOST_PORT}:8000 --restart always -v elis_data:/app/data elis_industry4_img",
         f"{sudo_pass} docker ps | grep {CONTAINER_NAME}"
     ]
