@@ -244,7 +244,7 @@ function switchView(viewName) {
 
   const sidebarEl = document.querySelector('.sidebar');
 
-  if (viewName === 'tunel_lavado') {
+  if (viewName === 'tunel_lavado' || viewName === 'historial_turnos') {
     // Quitar menú de la izquierda para vista panorámica completa del dashboard
     if (sidebarEl) sidebarEl.style.display = 'none';
   } else {
@@ -260,7 +260,7 @@ function switchView(viewName) {
   }
   if (targetBtn) {
     targetBtn.classList.add('active');
-  } else if (viewName === 'tunel_lavado') {
+  } else if (viewName === 'tunel_lavado' || viewName === 'historial_turnos') {
     const prodBtn = document.querySelector(`.menu-btn[data-view="produccion"]`);
     if (prodBtn) prodBtn.classList.add('active');
   }
@@ -271,6 +271,7 @@ function switchView(viewName) {
   // Load section specific data
   if (viewName === 'produccion') loadProduccionData();
   if (viewName === 'tunel_lavado') loadTunelLavadoDashboard();
+  if (viewName === 'historial_turnos') initHistorialTurnosScreen();
   if (viewName === 'consumos') loadConsumosData();
   if (viewName === 'usuarios') loadUsersList();
   if (viewName === 'permisos') loadPermissionsMatrix();
@@ -1243,5 +1244,401 @@ function applyAguaTunelFilter() {
 
 function fetchAguaTunelData() {
   fetchProcesoTelemetria('agua_tunel_lavadoras', 'AGUA_TUNEL_LAVADORAS', 'm³');
+}
+
+// ==========================================
+// SECCIÓN: HISTORIAL DE TURNOS RECONSTRUIDOS
+// ==========================================
+let chartHistorialTurno = null;
+
+async function initHistorialTurnosScreen() {
+  const fechaPicker = document.getElementById('historial-fecha-picker');
+  const turnoSelect = document.getElementById('historial-turno-select');
+
+  if (!fechaPicker || !turnoSelect) return;
+
+  // Fijar atributo max a la fecha local actual (YYYY-MM-DD)
+  const todayStr = new Date().toLocaleDateString('sv-SE');
+  fechaPicker.max = todayStr;
+
+  if (!fechaPicker.dataset.initialized) {
+    fechaPicker.dataset.initialized = 'true';
+    try {
+      const res = await fetch('/api/produccion/turnos/fechas-disponibles');
+      if (res.ok) {
+        const data = await res.json();
+        if (!fechaPicker.value) {
+          fechaPicker.value = data.hoy || todayStr;
+          await loadShiftsForHistorialDate(fechaPicker.value);
+        }
+      }
+    } catch (e) {
+      console.error('Error cargando fechas disponibles:', e);
+    }
+
+    // Event Listener al cambiar fecha
+    fechaPicker.addEventListener('change', async (e) => {
+      const val = e.target.value;
+      if (val) {
+        await loadShiftsForHistorialDate(val);
+      } else {
+        turnoSelect.innerHTML = '<option value="">-- Seleccionar Turno --</option>';
+        turnoSelect.disabled = true;
+        resetHistorialView();
+      }
+    });
+
+    // Event Listener al seleccionar turno
+    turnoSelect.addEventListener('change', async (e) => {
+      const shiftKey = e.target.value;
+      if (shiftKey) {
+        await loadReconstructedShiftDashboard(shiftKey);
+      } else {
+        resetHistorialView();
+      }
+    });
+  }
+}
+
+function resetHistorialView() {
+  const placeholder = document.getElementById('historial-placeholder');
+  const dashboardContainer = document.getElementById('historial-dashboard-container');
+  if (placeholder) placeholder.style.display = 'block';
+  if (dashboardContainer) {
+    dashboardContainer.style.display = 'none';
+    dashboardContainer.innerHTML = '';
+  }
+  if (chartHistorialTurno) {
+    chartHistorialTurno.destroy();
+    chartHistorialTurno = null;
+  }
+}
+
+async function loadShiftsForHistorialDate(fechaStr) {
+  const turnoSelect = document.getElementById('historial-turno-select');
+  if (!turnoSelect) return;
+
+  try {
+    turnoSelect.innerHTML = '<option value="">Cargando turnos...</option>';
+    turnoSelect.disabled = true;
+
+    const res = await fetch(`/api/produccion/turnos/por-fecha/${fechaStr}`);
+    if (!res.ok) throw new Error('Error al obtener turnos de la fecha');
+    const data = await res.json();
+
+    turnoSelect.innerHTML = '<option value="">-- Seleccionar Turno --</option>';
+
+    if (data.turnos && data.turnos.length > 0) {
+      data.turnos.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.shift_key;
+        const totalKgStr = typeof t.total_kg === 'number' ? t.total_kg.toLocaleString('es-ES') : t.total_kg;
+        opt.textContent = `${t.nombre_turno} (${t.horario}) — ${totalKgStr} kg`;
+        turnoSelect.appendChild(opt);
+      });
+      turnoSelect.disabled = false;
+    } else {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Sin turnos guardados en esta fecha';
+      turnoSelect.appendChild(opt);
+      turnoSelect.disabled = true;
+    }
+
+    resetHistorialView();
+  } catch (err) {
+    console.error('Error cargando turnos por fecha:', err);
+    turnoSelect.innerHTML = '<option value="">Error cargando turnos</option>';
+    turnoSelect.disabled = true;
+    resetHistorialView();
+  }
+}
+
+async function loadReconstructedShiftDashboard(shiftKey) {
+  const placeholder = document.getElementById('historial-placeholder');
+  const dashboardContainer = document.getElementById('historial-dashboard-container');
+  if (!dashboardContainer) return;
+
+  try {
+    dashboardContainer.style.display = 'block';
+    dashboardContainer.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">Reconstruyendo dashboard del turno guardado...</p>';
+
+    const res = await fetch(`/api/produccion/turnos/historial-json/${shiftKey}`);
+    if (!res.ok) throw new Error('No se pudo cargar el paquete JSON del turno');
+    const pkg = await res.json();
+
+    if (placeholder) placeholder.style.display = 'none';
+
+    // Formatear datos para el layout del dashboard
+    const meta = pkg.meta_info || {};
+    const ind = pkg.indicadores_ampliados || {};
+    const tot = pkg.totales_promedios || {};
+    const desglose = pkg.desglose_horario || {};
+
+    const kgInfo = {
+      titulo: 'Kg Totales Turno',
+      valor: ind.kg_totales_turno?.valor_str || '0 kg',
+      subtexto: `Objetivo Turno: ${(tot.objetivo_turno_kg || 0).toLocaleString('es-ES')} kg (${meta.es_datos_reales ? 'Real MQTT' : 'Simulado'})`,
+      icono: 'fa-balance-scale'
+    };
+
+    const cargasInfo = {
+      titulo: 'Cargas Totales Turno',
+      valor: ind.cargas_totales_turno?.valor_str || '0 cargas',
+      subtexto: `Promedio: ${tot.promedio_peso_carga_kg || 0} kg/carga`,
+      icono: 'fa-boxes'
+    };
+
+    const hprodInfo = {
+      titulo: 'Productividad (hProd)',
+      valor: ind.productividad_hprod?.valor_str || '0 kg/h',
+      subtexto: `Tiempo prom: ${tot.promedio_tiempo_entre_cargas_min || 0} min (${tot.promedio_tiempo_entre_cargas_seg || 0}s)`,
+      icono: 'fa-tachometer-alt'
+    };
+
+    const ikprodInfo = ind.indice_eficiencia_ikprod || {
+      pct_str: '0.0%',
+      neto_str: 'ikProd Neto: 0.00',
+      color_codigo: 'red',
+      tprom_str: 'Tprom: 0 min',
+      subtexto: 'Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%'
+    };
+
+    const clientesInfo = {
+      titulo: 'Clientes Atendidos',
+      valor: ind.clientes_unicos?.valor_str || '0 clientes',
+      subtexto: 'Códigos únicos de cliente en turno',
+      icono: 'fa-users'
+    };
+
+    const programasInfo = {
+      titulo: 'Programas Ejecutados',
+      valor: ind.programas_unicos?.valor_str || '0 programas',
+      subtexto: 'Categorías/Programas únicos en turno',
+      icono: 'fa-layer-group'
+    };
+
+    let ikprodTextColor = ikprodInfo.text_color || (ikprodInfo.color_codigo === 'red' ? '#ef4444' : ikprodInfo.color_codigo === 'orange' ? '#f97316' : '#34d399');
+    let ikprodBorderColor = ikprodInfo.border_color || (ikprodInfo.color_codigo === 'red' ? '#ef4444' : ikprodInfo.color_codigo === 'orange' ? '#f97316' : '#10b981');
+
+    dashboardContainer.innerHTML = `
+      <!-- Banner Sincronización del Turno Reconstruido -->
+      <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; padding: 12px 18px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="fas fa-file-archive"></i>
+          </div>
+          <div>
+            <h4 style="color: var(--text-main); font-size: 1rem;">${meta.nombre_turno || 'Turno'} (${meta.hora_inicio || ''} - ${meta.hora_fin || ''}) — <span style="color: #38bdf8;">📅 ${meta.fecha_formateada || meta.fecha}</span></h4>
+            <small style="color: var(--text-muted); font-size: 0.78rem;">Origen: Persistencia SQLite (Clave: ${pkg.shift_key}) | Guardado el: ${meta.timestamp_actualizacion || ''}</small>
+          </div>
+        </div>
+
+        <div style="text-align: right;">
+          <span style="font-size: 0.82rem; color: #38bdf8; font-weight: 700; background: rgba(56, 189, 248, 0.15); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.4);">📜 TURNO RECONSTRUIDO</span>
+        </div>
+      </div>
+
+      <!-- Cuadrícula 4 Columnas x 2 Filas del Dashboard -->
+      <div class="dashboard-grid-layout">
+        <!-- Columna 1, Fila 1: Kg Totales Turno -->
+        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 1; grid-row: 1;">
+          <div class="kpi-card-header">
+            <h4>${kgInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${kgInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${kgInfo.valor}</div>
+          <div class="kpi-card-subtext">${kgInfo.subtexto}</div>
+        </div>
+
+        <!-- Columna 1, Fila 2: ikProd (stacked verticalmente) -->
+        <div class="kpi-card-striking" style="grid-column: 1; grid-row: 2; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid ${ikprodBorderColor}; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);">
+          <div class="kpi-card-header">
+            <h4 style="color: #f8fafc;">ÍNDICE DE EFICIENCIA (IKPROD)</h4>
+            <div class="kpi-icon-circle" style="background: rgba(255, 255, 255, 0.08); color: ${ikprodTextColor};"><i class="fas fa-chart-line"></i></div>
+          </div>
+          <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: ${ikprodTextColor}; text-shadow: 0 0 16px ${ikprodTextColor}60;">${ikprodInfo.pct_str}</div>
+          <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 2px; margin-bottom: 6px; flex-wrap: wrap;">
+            <span style="font-size: 0.72rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);"><i class="fas fa-weight-hanging"></i> Prom: ${tot.promedio_peso_carga_kg || 0} kg/carga</span>
+            <span style="font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.3);"><i class="fas fa-stopwatch"></i> ${ikprodInfo.tprom_str || 'Tprom: 0 min'}</span>
+          </div>
+          <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+            <span style="color: #38bdf8;"><i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}</span>
+            <span>${ikprodInfo.neto_str}</span>
+          </div>
+          <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
+            <i class="fas fa-calculator"></i> ${ikprodInfo.formula || 'Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%'}
+          </div>
+        </div>
+
+        <!-- Columna 2, Fila 1: Cargas Totales Turno -->
+        <div class="kpi-card-striking kpi-card-amber" style="grid-column: 2; grid-row: 1;">
+          <div class="kpi-card-header">
+            <h4>${cargasInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${cargasInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${cargasInfo.valor}</div>
+          <div class="kpi-card-subtext">${cargasInfo.subtexto}</div>
+        </div>
+
+        <!-- Columna 3, Fila 1: Productividad hProd -->
+        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 3; grid-row: 1; background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
+          <div class="kpi-card-header">
+            <h4>${hprodInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${hprodInfo.valor}</div>
+          <div class="kpi-card-subtext">${hprodInfo.subtexto}</div>
+        </div>
+
+        <!-- Columna 4, Fila 1: Clientes y Programas -->
+        <div class="col-secondary-kpis" style="grid-column: 4; grid-row: 1;">
+          <div class="kpi-card-compact">
+            <div class="kpi-compact-info">
+              <h5>${clientesInfo.titulo}</h5>
+              <div class="kpi-compact-value">${clientesInfo.valor}</div>
+              <div class="kpi-compact-sub">${clientesInfo.subtexto}</div>
+            </div>
+            <div class="kpi-compact-icon"><i class="fas ${clientesInfo.icono}"></i></div>
+          </div>
+
+          <div class="kpi-card-compact">
+            <div class="kpi-compact-info">
+              <h5>${programasInfo.titulo}</h5>
+              <div class="kpi-compact-value">${programasInfo.valor}</div>
+              <div class="kpi-compact-sub">${programasInfo.subtexto}</div>
+            </div>
+            <div class="kpi-compact-icon"><i class="fas ${programasInfo.icono}"></i></div>
+          </div>
+        </div>
+
+        <!-- Fila 2, Columnas 2 a 4: Gráfica de Avance Productivo -->
+        <div class="chart-section-card" style="grid-column: 2 / span 3; grid-row: 2;">
+          <div class="chart-header-row">
+            <div class="chart-header-title">
+              <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
+              <h4>Avance Productivo del Turno (Kg Acumulados vs Kg Hora vs Cargas/Hora)</h4>
+            </div>
+            <div style="font-size: 0.72rem; color: #94a3b8;">Eje Y Izq 1: Kg/Hora (rosa) | Eje Y Izq 2: Kg Acum (cian) | Eje Y Der: Cargas (oro)</div>
+          </div>
+          <div class="chart-container-wrapper">
+            <canvas id="chart-historial-turno"></canvas>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Renderizar gráfico con Chart.js
+    if (chartHistorialTurno) {
+      chartHistorialTurno.destroy();
+      chartHistorialTurno = null;
+    }
+
+    const ctx = document.getElementById('chart-historial-turno');
+    if (ctx && typeof Chart !== 'undefined') {
+      const labels = desglose.labels || [];
+      const kgHora = desglose.kg_por_hora || [];
+      const cargasHora = desglose.cargas_por_hora || [];
+      const kgAcumulado = desglose.kg_acumulado_por_hora || [];
+
+      chartHistorialTurno = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Cargas / Hora',
+              data: cargasHora,
+              type: 'bar',
+              backgroundColor: 'rgba(217, 119, 6, 0.75)',
+              borderColor: '#f59e0b',
+              borderWidth: 1,
+              borderRadius: 6,
+              yAxisID: 'yCargas',
+              order: 3
+            },
+            {
+              label: 'Kg de la Hora (kg)',
+              data: kgHora,
+              type: 'line',
+              borderColor: '#ec4899',
+              backgroundColor: 'rgba(236, 72, 153, 0.15)',
+              borderWidth: 3,
+              pointRadius: 5,
+              pointHoverRadius: 7,
+              pointBackgroundColor: '#ec4899',
+              tension: 0.3,
+              yAxisID: 'yKgHora',
+              order: 2
+            },
+            {
+              label: 'Kg Acumulados Turno (kg)',
+              data: kgAcumulado,
+              type: 'line',
+              borderColor: '#06b6d4',
+              backgroundColor: 'rgba(6, 182, 212, 0.15)',
+              borderWidth: 3.5,
+              pointRadius: 5,
+              pointHoverRadius: 7,
+              pointBackgroundColor: '#06b6d4',
+              tension: 0.2,
+              yAxisID: 'yKgAcumulado',
+              order: 1
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 600 },
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              labels: { color: '#cbd5e1', font: { size: 11, weight: 'bold' } }
+            },
+            tooltip: {
+              backgroundColor: 'rgba(15, 23, 42, 0.95)',
+              titleColor: '#38bdf8',
+              bodyColor: '#f8fafc',
+              borderColor: '#38bdf8',
+              borderWidth: 1,
+              padding: 10
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#94a3b8', font: { size: 11, weight: 'bold' } }
+            },
+            yKgHora: {
+              type: 'linear',
+              position: 'left',
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: { color: '#ec4899', font: { size: 11 } },
+              title: { display: true, text: 'Kg / Hora (kg)', color: '#ec4899', font: { size: 10 } }
+            },
+            yKgAcumulado: {
+              type: 'linear',
+              position: 'left',
+              display: false,
+              grid: { drawOnChartArea: false }
+            },
+            yCargas: {
+              type: 'linear',
+              position: 'right',
+              grid: { drawOnChartArea: false },
+              ticks: { color: '#f59e0b', stepSize: 1, font: { size: 11 } },
+              title: { display: true, text: 'Cargas / Hora', color: '#f59e0b', font: { size: 10 } },
+              min: 0
+            }
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Error cargando turno reconstruido:', err);
+    dashboardContainer.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
+  }
 }
 

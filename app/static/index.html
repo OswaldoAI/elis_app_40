@@ -124,14 +124,57 @@
             <h2 style="font-size: 1.8rem; color: #38bdf8;">🌊 Dashboard Ampliado: Túnel de Lavado</h2>
             <p style="color: var(--text-muted); font-size: 0.9rem;">Planta Nájera — Telemetría Avanzada e Indicadores por Turno</p>
           </div>
-          <button class="btn-header" onclick="loadTunelLavadoDashboard()" title="Actualizar datos">
-            <i class="fas fa-sync-alt"></i> Actualizar
-          </button>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <button class="btn-header" onclick="switchView('historial_turnos')" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; font-weight: 600;">
+              <i class="fas fa-history"></i> Historial
+            </button>
+            <button class="btn-header" onclick="loadTunelLavadoDashboard()" title="Actualizar datos">
+              <i class="fas fa-sync-alt"></i> Actualizar
+            </button>
+          </div>
         </div>
 
         <div id="tunel-lavado-dashboard-content">
           <p style="color: var(--text-muted)">Cargando Dashboard de Túnel de Lavado...</p>
         </div>
+      </section>
+
+      <!-- Vista 2.2: Historial de Turnos Reconstruidos -->
+      <section id="view-historial_turnos" class="view-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <button class="btn-header" onclick="switchView('tunel_lavado')" style="margin-bottom: 10px;">
+              <i class="fas fa-arrow-left"></i> Volver a Túnel de Lavado
+            </button>
+            <h2 style="font-size: 1.8rem; color: #38bdf8;">📜 Historial de Turnos Reconstruidos</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">Consulta la producción, indicadores y gráficas persistidas por fecha y turno</p>
+          </div>
+
+          <!-- Barra de Controles: Selector de Fecha y Turno -->
+          <div style="display: flex; gap: 16px; align-items: center; background: rgba(30, 41, 59, 0.8); padding: 12px 20px; border-radius: 12px; border: 1px solid rgba(56, 189, 248, 0.3);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="historial-fecha-picker" style="color: #cbd5e1; font-weight: 600; font-size: 0.9rem;"><i class="fas fa-calendar"></i> Fecha:</label>
+              <input type="date" id="historial-fecha-picker" class="form-control" style="width: auto; background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px;">
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="historial-turno-select" style="color: #cbd5e1; font-weight: 600; font-size: 0.9rem;"><i class="fas fa-clock"></i> Turno:</label>
+              <select id="historial-turno-select" class="form-control" style="width: auto; background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px;" disabled>
+                <option value="">-- Seleccionar Turno --</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mensaje Placeholder Inicial (Fondo Oscuro) -->
+        <div id="historial-placeholder" style="text-align: center; padding: 100px 20px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px; border: 1px dashed rgba(56, 189, 248, 0.3); margin-top: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+          <i class="fas fa-calendar-alt" style="font-size: 4rem; color: #38bdf8; opacity: 0.7; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.4));"></i>
+          <h3 style="font-size: 1.6rem; color: #f8fafc; font-weight: 600;">Seleccionar fecha y turno</h3>
+          <p style="color: #94a3b8; font-size: 1rem; max-width: 550px; margin: 10px auto 0 auto;">Elige una fecha y un turno en los controles superiores para reconstruir los indicadores y el gráfico del turno.</p>
+        </div>
+
+        <!-- Contenedor del Dashboard Reconstruido -->
+        <div id="historial-dashboard-container" style="display: none;"></div>
       </section>
 
       <!-- Vista 3: Consumos -->

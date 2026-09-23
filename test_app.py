@@ -125,6 +125,17 @@ class TestElis4App(unittest.TestCase):
         self.assertEqual(res_key.status_code, 200)
         self.assertEqual(res_key.json()["shift_key"], shift_key)
 
+        # 5. Fetch available dates for turnos
+        res_dates = self.client.get("/api/produccion/turnos/fechas-disponibles", headers=headers)
+        self.assertEqual(res_dates.status_code, 200)
+        self.assertIn("fechas", res_dates.json())
+
+        # 6. Fetch shifts for a specific date
+        fecha_test = pkg["meta_info"]["fecha"]
+        res_shifts = self.client.get(f"/api/produccion/turnos/por-fecha/{fecha_test}", headers=headers)
+        self.assertEqual(res_shifts.status_code, 200)
+        self.assertIn("turnos", res_shifts.json())
+
     def test_05_consumos_process_cards(self):
         res = self.client.post("/api/auth/login", json={"username": "Admin", "password": "admin1"})
         token = res.json()["access_token"]

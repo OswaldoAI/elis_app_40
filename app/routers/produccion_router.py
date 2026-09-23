@@ -807,3 +807,58 @@ def force_turnos_sync(admin: dict = Depends(check_produccion_permission)):
     success = sync_turnos_from_server_1()
     return {"status": "success" if success else "warning", "synced": success}
 
+
+@router.get("/turnos/fechas-disponibles")
+def get_available_shift_dates(user: dict = Depends(check_produccion_permission)):
+    """Obtiene la lista de fechas únicas registradas en la persistencia de turnos."""
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT DISTINCT fecha FROM turnos_persistencia
+        ORDER BY fecha DESC
+    """).fetchall()
+    conn.close()
+    
+    dates = [r["fecha"] for r in rows if r["fecha"]]
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    if today_str not in dates:
+        dates.insert(0, today_str)
+        
+    return {"fechas": dates, "hoy": today_str}
+
+
+@router.get("/turnos/por-fecha/{fecha}")
+def get_shifts_by_date(fecha: str, user: dict = Depends(check_produccion_permission)):
+    """Obtiene la lista de turnos generados o disponibles para una fecha específica."""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    if fecha == today_str:
+        try:
+            pkg = build_shift_json_package()
+            save_shift_json_package(pkg)
+        except Exception as e:
+            print(f"Error asegurando turno activo para hoy: {e}")
+
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, updated_at
+        FROM turnos_persistencia
+        WHERE fecha = ?
+        ORDER BY hora_inicio ASC, id ASC
+    """, (fecha,)).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        result.append({
+            "shift_key": r["shift_key"],
+            "fecha": r["fecha"],
+            "nombre_turno": r["nombre_turno"],
+            "horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+            "total_kg": r["total_kg"],
+            "total_cargas": r["total_cargas"],
+            "ikprod_pct": r["ikprod_pct"],
+            "updated_at": r["updated_at"]
+        })
+    return {"fecha": fecha, "total": len(result), "turnos": result}
+
+
