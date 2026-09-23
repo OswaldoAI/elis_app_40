@@ -716,28 +716,34 @@ async function loadTunelLavadoDashboard() {
 
 // Chart.js Manager for Shift Progress Chart
 let avanceChartInstance = null;
+let historialChartInstance = null;
 
-function renderAvanceChart(graficaData) {
+function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
   if (!graficaData || !graficaData.labels) return;
-  const canvasEl = document.getElementById('chart-avance-turno');
+  const canvasEl = document.getElementById(canvasId);
   if (!canvasEl) return;
 
+  const isHistorial = (canvasId === 'chart-historial-turno');
+  let chartInst = isHistorial ? historialChartInstance : avanceChartInstance;
+
+  const kgAcum = graficaData.kg_acumulado || graficaData.kg_acumulado_por_hora || [];
+
   // Actualización in-place en la misma instancia de gráfica (sin animación de cero y sin parpadeo)
-  if (avanceChartInstance && avanceChartInstance.ctx && avanceChartInstance.ctx.canvas === canvasEl) {
-    avanceChartInstance.data.labels = graficaData.labels;
-    avanceChartInstance.data.datasets[0].data = graficaData.kg_acumulado;
-    avanceChartInstance.data.datasets[1].data = graficaData.kg_por_hora;
-    avanceChartInstance.data.datasets[2].data = graficaData.cargas_por_hora;
-    avanceChartInstance.update('none');
+  if (chartInst && chartInst.ctx && chartInst.ctx.canvas === canvasEl) {
+    chartInst.data.labels = graficaData.labels;
+    chartInst.data.datasets[0].data = kgAcum;
+    chartInst.data.datasets[1].data = graficaData.kg_por_hora;
+    chartInst.data.datasets[2].data = graficaData.cargas_por_hora;
+    chartInst.update('none');
     return;
   }
 
-  if (avanceChartInstance) {
-    avanceChartInstance.destroy();
+  if (chartInst) {
+    chartInst.destroy();
   }
 
   const ctx = canvasEl.getContext('2d');
-  avanceChartInstance = new Chart(ctx, {
+  const newChart = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: graficaData.labels,
@@ -745,7 +751,7 @@ function renderAvanceChart(graficaData) {
         {
           type: 'line',
           label: 'Kg Acumulados Turno (kg)',
-          data: graficaData.kg_acumulado,
+          data: kgAcum,
           borderColor: '#00f0ff',
           backgroundColor: 'rgba(0, 240, 255, 0.08)',
           borderWidth: 3.5,
@@ -813,7 +819,8 @@ function renderAvanceChart(graficaData) {
           position: 'right',
           title: { display: true, text: 'Cargas / Hora', color: '#fbbf24', font: { weight: 'bold', size: 10 } },
           grid: { drawOnChartArea: false },
-          ticks: { color: '#fbbf24', font: { weight: 'bold', size: 10 }, stepSize: 1, precision: 0 }
+          ticks: { color: '#fbbf24', font: { weight: 'bold', size: 10 }, stepSize: 1, precision: 0 },
+          suggestedMin: 0
         }
       },
       plugins: {
@@ -823,6 +830,12 @@ function renderAvanceChart(graficaData) {
       }
     }
   });
+
+  if (isHistorial) {
+    historialChartInstance = newChart;
+  } else {
+    avanceChartInstance = newChart;
+  }
 }
 
 // Render process card with expandable telemetry panel
@@ -1521,121 +1534,21 @@ async function loadReconstructedShiftDashboard(shiftKey) {
             </div>
             <div style="font-size: 0.72rem; color: #94a3b8;">Eje Y Izq 1: Kg/Hora (rosa) | Eje Y Izq 2: Kg Acum (cian) | Eje Y Der: Cargas (oro)</div>
           </div>
-          <div class="chart-container-wrapper">
+          <div class="chart-wrapper">
             <canvas id="chart-historial-turno"></canvas>
           </div>
         </div>
       </div>
     `;
 
-    // Renderizar gráfico con Chart.js
-    if (chartHistorialTurno) {
-      chartHistorialTurno.destroy();
-      chartHistorialTurno = null;
-    }
-
-    const ctx = document.getElementById('chart-historial-turno');
-    if (ctx && typeof Chart !== 'undefined') {
-      const labels = desglose.labels || [];
-      const kgHora = desglose.kg_por_hora || [];
-      const cargasHora = desglose.cargas_por_hora || [];
-      const kgAcumulado = desglose.kg_acumulado_por_hora || [];
-
-      chartHistorialTurno = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: labels,
-          datasets: [
-            {
-              label: 'Cargas / Hora',
-              data: cargasHora,
-              type: 'bar',
-              backgroundColor: 'rgba(217, 119, 6, 0.75)',
-              borderColor: '#f59e0b',
-              borderWidth: 1,
-              borderRadius: 6,
-              yAxisID: 'yCargas',
-              order: 3
-            },
-            {
-              label: 'Kg de la Hora (kg)',
-              data: kgHora,
-              type: 'line',
-              borderColor: '#ec4899',
-              backgroundColor: 'rgba(236, 72, 153, 0.15)',
-              borderWidth: 3,
-              pointRadius: 5,
-              pointHoverRadius: 7,
-              pointBackgroundColor: '#ec4899',
-              tension: 0.3,
-              yAxisID: 'yKgHora',
-              order: 2
-            },
-            {
-              label: 'Kg Acumulados Turno (kg)',
-              data: kgAcumulado,
-              type: 'line',
-              borderColor: '#06b6d4',
-              backgroundColor: 'rgba(6, 182, 212, 0.15)',
-              borderWidth: 3.5,
-              pointRadius: 5,
-              pointHoverRadius: 7,
-              pointBackgroundColor: '#06b6d4',
-              tension: 0.2,
-              yAxisID: 'yKgAcumulado',
-              order: 1
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: { duration: 600 },
-          plugins: {
-            legend: {
-              display: true,
-              position: 'top',
-              labels: { color: '#cbd5e1', font: { size: 11, weight: 'bold' } }
-            },
-            tooltip: {
-              backgroundColor: 'rgba(15, 23, 42, 0.95)',
-              titleColor: '#38bdf8',
-              bodyColor: '#f8fafc',
-              borderColor: '#38bdf8',
-              borderWidth: 1,
-              padding: 10
-            }
-          },
-          scales: {
-            x: {
-              grid: { color: 'rgba(255, 255, 255, 0.05)' },
-              ticks: { color: '#94a3b8', font: { size: 11, weight: 'bold' } }
-            },
-            yKgHora: {
-              type: 'linear',
-              position: 'left',
-              grid: { color: 'rgba(255, 255, 255, 0.05)' },
-              ticks: { color: '#ec4899', font: { size: 11 } },
-              title: { display: true, text: 'Kg / Hora (kg)', color: '#ec4899', font: { size: 10 } }
-            },
-            yKgAcumulado: {
-              type: 'linear',
-              position: 'left',
-              display: false,
-              grid: { drawOnChartArea: false }
-            },
-            yCargas: {
-              type: 'linear',
-              position: 'right',
-              grid: { drawOnChartArea: false },
-              ticks: { color: '#f59e0b', stepSize: 1, font: { size: 11 } },
-              title: { display: true, text: 'Cargas / Hora', color: '#f59e0b', font: { size: 10 } },
-              min: 0
-            }
-          }
-        }
-      });
-    }
+    // Renderizar gráfico exacto con renderAvanceChart
+    const graficaData = {
+      labels: desglose.labels || [],
+      kg_por_hora: desglose.kg_por_hora || [],
+      cargas_por_hora: desglose.cargas_por_hora || [],
+      kg_acumulado: desglose.kg_acumulado_por_hora || desglose.kg_acumulado || []
+    };
+    renderAvanceChart(graficaData, 'chart-historial-turno');
   } catch (err) {
     console.error('Error cargando turno reconstruido:', err);
     dashboardContainer.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
