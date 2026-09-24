@@ -107,17 +107,6 @@ def calculate_tunel_metrics(turno_act: dict = None):
     
     start_iso = f"{fecha} {hora_inicio}:00"
     
-    now_dt = get_local_now().replace(tzinfo=None)
-    try:
-        dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
-        if now_dt >= dt_start:
-            calc_min = (now_dt - dt_start).total_seconds() / 60.0
-            minutos_transcurridos = max(calc_min, 1.0)
-        else:
-            minutos_transcurridos = float(turno_act.get("minutos_transcurridos") or 1.0)
-    except Exception:
-        minutos_transcurridos = float(turno_act.get("minutos_transcurridos") or 240)
-    
     # Manejo de turnos que cruzan medianoche (ej. 21:00 a 02:00)
     try:
         h_start = int(hora_inicio.split(":")[0])
@@ -129,6 +118,22 @@ def calculate_tunel_metrics(turno_act: dict = None):
             end_iso = f"{fecha} {hora_fin}:00"
     except Exception:
         end_iso = f"{fecha} {hora_fin}:00"
+
+    now_dt = get_local_now().replace(tzinfo=None)
+    try:
+        dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+        dt_end = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
+        if now_dt >= dt_end:
+            # Turno pasado y completado: los minutos transcurridos son exactamente la duración del turno
+            minutos_transcurridos = max((dt_end - dt_start).total_seconds() / 60.0, 1.0)
+        elif now_dt >= dt_start:
+            # Turno activo en curso
+            calc_min = (now_dt - dt_start).total_seconds() / 60.0
+            minutos_transcurridos = max(calc_min, 1.0)
+        else:
+            minutos_transcurridos = float(turno_act.get("minutos_transcurridos") or 1.0)
+    except Exception:
+        minutos_transcurridos = float(turno_act.get("minutos_transcurridos") or 240)
 
     try:
         conn = get_db_connection()
@@ -144,7 +149,7 @@ def calculate_tunel_metrics(turno_act: dict = None):
             WHERE timestamp_iso >= ? AND timestamp_iso <= ?
         """, (start_iso, end_iso)).fetchone()
         
-        # Verificar si no hay cargas o si han pasado más de 6 minutos desde la última carga durante el turno activo
+        # Verificar si no hay cargas o si han pasado más de 6 minutos desde la última carga SOLO durante el turno activo actual
         last_carga_row = conn.execute("""
             SELECT MAX(timestamp_iso) as last_ts
             FROM tunel_cargas
@@ -154,17 +159,18 @@ def calculate_tunel_metrics(turno_act: dict = None):
         last_ts_str = last_carga_row["last_ts"] if (last_carga_row and last_carga_row["last_ts"]) else None
         
         should_seed = False
-        if not row or row["total_cargas"] == 0:
-            should_seed = True
-        elif last_ts_str:
-            try:
-                last_dt = datetime.strptime(last_ts_str, "%Y-%m-%d %H:%M:%S")
-                dt_end_obj = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
-                limit_dt = min(now_dt, dt_end_obj)
-                if (limit_dt - last_dt).total_seconds() > 360 and limit_dt > dt_start:
-                    should_seed = True
-            except Exception:
-                pass
+        dt_end_obj = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
+        if now_dt < dt_end_obj: # Solo para el turno en curso
+            if not row or row["total_cargas"] == 0:
+                should_seed = True
+            elif last_ts_str:
+                try:
+                    last_dt = datetime.strptime(last_ts_str, "%Y-%m-%d %H:%M:%S")
+                    limit_dt = min(now_dt, dt_end_obj)
+                    if (limit_dt - last_dt).total_seconds() > 360 and limit_dt > dt_start:
+                        should_seed = True
+                except Exception:
+                    pass
 
         if should_seed:
             seed_active_shift_cargas(start_iso, end_iso)
@@ -927,6 +933,77 @@ def get_shift_results_by_date(fecha: str, user: dict = Depends(check_produccion_
             "updated_at": r["updated_at"]
         })
     return {"fecha": fecha, "total": len(resultados), "resultados": resultados}
+
+
+def sync_all_historical_shifts():
+    """Recorre todas las fechas con registros de cargas en tunel_cargas y genera/actualiza 
+    los paquetes JSON y resultados para todos los turnos históricos."""
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT DISTINCT substr(timestamp_iso, 1, 10) as f 
+        FROM tunel_cargas 
+        WHERE timestamp_iso IS NOT NULL AND timestamp_iso != ''
+        ORDER BY f ASC
+    """).fetchall()
+    conn.close()
+
+    fechas = [r["f"] for r in rows if r["f"]]
+    turnos_plantilla = [
+        {"nombre": "Turno 1", "hora_inicio": "06:00", "hora_fin": "14:00"},
+        {"nombre": "Turno 2", "hora_inicio": "14:00", "hora_fin": "21:00"},
+        {"nombre": "Turno 3", "hora_inicio": "21:00", "hora_fin": "02:00"}
+    ]
+
+    total_synced = 0
+    for fecha in fechas:
+        try:
+            dt_f = datetime.strptime(fecha, "%Y-%m-%d")
+        except Exception:
+            continue
+            
+        for t_info in turnos_plantilla:
+            nombre = t_info["nombre"]
+            h_start = t_info["hora_inicio"]
+            h_end = t_info["hora_fin"]
+            
+            start_iso = f"{fecha} {h_start}:00"
+            if int(h_end.split(":")[0]) < int(h_start.split(":")[0]):
+                end_date = (dt_f + timedelta(days=1)).strftime("%Y-%m-%d")
+                end_iso = f"{end_date} {h_end}:00"
+            else:
+                end_iso = f"{fecha} {h_end}:00"
+
+            # Verificar si hay al menos 1 carga en el intervalo
+            conn_check = get_db_connection()
+            count_cargas = conn_check.execute("""
+                SELECT COUNT(*) FROM tunel_cargas
+                WHERE timestamp_iso >= ? AND timestamp_iso < ?
+            """, (start_iso, end_iso)).fetchone()[0]
+            conn_check.close()
+
+            if count_cargas > 0:
+                turno_dict = {
+                    "nombre": nombre,
+                    "fecha": fecha,
+                    "hora_inicio": h_start,
+                    "hora_fin": h_end
+                }
+                pkg = build_shift_json_package(turno_dict)
+                save_shift_json_package(pkg)
+                total_synced += 1
+
+    return total_synced
+
+
+@router.post("/turnos/sincronizar-historico")
+def trigger_historical_sync(user: dict = Depends(check_produccion_permission)):
+    """Sincroniza y pobla retroactivamente todos los turnos históricos desde la tabla tunel_cargas."""
+    synced_count = sync_all_historical_shifts()
+    return {
+        "status": "success",
+        "turnos_sincronizados": synced_count
+    }
+
 
 
 

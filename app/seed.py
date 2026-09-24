@@ -170,6 +170,14 @@ def seed_database():
 
     conn.commit()
     conn.close()
+
+    # 8. Sincronizar automáticamente todos los turnos históricos desde la tabla de cargas
+    try:
+        from app.routers.produccion_router import sync_all_historical_shifts
+        sync_all_historical_shifts()
+    except Exception as e:
+        print(f"Error sincronizando turnos históricos en seed: {e}")
+
     print("Database seeded successfully!")
 
 if __name__ == "__main__":
