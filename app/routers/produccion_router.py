@@ -729,6 +729,24 @@ def save_shift_json_package(shift_package: dict):
             data_json = excluded.data_json,
             updated_at = excluded.updated_at
     """, (shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, data_json, now_local))
+
+    # Guardar o actualizar en la tabla rápida de comparación: resultados_turnos
+    rango_horario = f"{hora_inicio} - {hora_fin}"
+    cursor.execute("""
+        INSERT INTO resultados_turnos (
+            shift_key, fecha, nombre_turno, rango_horario,
+            total_kg, ikprod, total_cargas, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(shift_key) DO UPDATE SET
+            fecha = excluded.fecha,
+            nombre_turno = excluded.nombre_turno,
+            rango_horario = excluded.rango_horario,
+            total_kg = excluded.total_kg,
+            ikprod = excluded.ikprod,
+            total_cargas = excluded.total_cargas,
+            updated_at = excluded.updated_at
+    """, (shift_key, fecha, nombre_turno, rango_horario, total_kg, ikprod_pct, total_cargas, now_local))
+
     conn.commit()
     conn.close()
     return True
@@ -854,5 +872,61 @@ def get_shifts_by_date(fecha: str, user: dict = Depends(check_produccion_permiss
             "updated_at": r["updated_at"]
         })
     return {"fecha": fecha, "total": len(result), "turnos": result}
+
+
+@router.get("/turnos/resultados")
+def get_shift_results_summary(user: dict = Depends(check_produccion_permission)):
+    """Consulta la tabla rápida de resultados de turnos (resultados_turnos) para comparaciones rápidas."""
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT id, shift_key, fecha, nombre_turno, rango_horario, total_kg, ikprod, total_cargas, updated_at
+        FROM resultados_turnos
+        ORDER BY id DESC
+    """).fetchall()
+    conn.close()
+
+    resultados = []
+    for r in rows:
+        resultados.append({
+            "id": r["id"],
+            "shift_key": r["shift_key"],
+            "fecha": r["fecha"],
+            "nombre_turno": r["nombre_turno"],
+            "rango_horario": r["rango_horario"],
+            "total_kg": r["total_kg"],
+            "ikprod": r["ikprod"],
+            "total_cargas": r["total_cargas"],
+            "updated_at": r["updated_at"]
+        })
+    return {"total": len(resultados), "resultados": resultados}
+
+
+@router.get("/turnos/resultados/por-fecha/{fecha}")
+def get_shift_results_by_date(fecha: str, user: dict = Depends(check_produccion_permission)):
+    """Consulta los resultados de turnos filtrados por una fecha específica."""
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT id, shift_key, fecha, nombre_turno, rango_horario, total_kg, ikprod, total_cargas, updated_at
+        FROM resultados_turnos
+        WHERE fecha = ?
+        ORDER BY rango_horario ASC, id ASC
+    """, (fecha,)).fetchall()
+    conn.close()
+
+    resultados = []
+    for r in rows:
+        resultados.append({
+            "id": r["id"],
+            "shift_key": r["shift_key"],
+            "fecha": r["fecha"],
+            "nombre_turno": r["nombre_turno"],
+            "rango_horario": r["rango_horario"],
+            "total_kg": r["total_kg"],
+            "ikprod": r["ikprod"],
+            "total_cargas": r["total_cargas"],
+            "updated_at": r["updated_at"]
+        })
+    return {"fecha": fecha, "total": len(resultados), "resultados": resultados}
+
 
 

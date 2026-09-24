@@ -136,6 +136,23 @@ class TestElis4App(unittest.TestCase):
         self.assertEqual(res_shifts.status_code, 200)
         self.assertIn("turnos", res_shifts.json())
 
+        # 7. Fetch quick comparison results table (resultados_turnos)
+        res_res = self.client.get("/api/produccion/turnos/resultados", headers=headers)
+        self.assertEqual(res_res.status_code, 200)
+        self.assertIn("resultados", res_res.json())
+        self.assertGreaterEqual(res_res.json()["total"], 1)
+        r0 = res_res.json()["resultados"][0]
+        self.assertIn("total_kg", r0)
+        self.assertIn("ikprod", r0)
+        self.assertIn("total_cargas", r0)
+        self.assertIn("rango_horario", r0)
+        self.assertIn("fecha", r0)
+
+        # 8. Fetch quick comparison results filtered by date
+        res_res_date = self.client.get(f"/api/produccion/turnos/resultados/por-fecha/{fecha_test}", headers=headers)
+        self.assertEqual(res_res_date.status_code, 200)
+        self.assertIn("resultados", res_res_date.json())
+
     def test_05_consumos_process_cards(self):
         res = self.client.post("/api/auth/login", json={"username": "Admin", "password": "admin1"})
         token = res.json()["access_token"]
