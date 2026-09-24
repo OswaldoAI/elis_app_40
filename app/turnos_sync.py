@@ -2,6 +2,7 @@ import urllib.request
 import json
 import asyncio
 import logging
+import time
 from datetime import datetime
 from app.database import get_db_connection
 from app.utils import get_local_now_str, get_local_now
@@ -70,17 +71,91 @@ def get_cached_turnos():
         "cache_updated_at": "Local default"
     }
 
+DECODER_API_URLS = [
+    "http://100.105.75.39:8080/api/data",
+    "http://192.168.0.139:8080/api/data",
+    "http://192.168.0.137:8080/api/data"
+]
+
+def sync_cargas_from_decoder_api():
+    """Consulta la API HTTP del Decodificador HELMS (100.105.75.39:8080) e ingiere cargas reales continuamente."""
+    from app.mqtt_subscriber import parse_timestamp_to_iso
+    from app.routers.produccion_router import sync_all_historical_shifts
+
+    loads = []
+    for url in DECODER_API_URLS:
+        try:
+            req = urllib.request.urlopen(url, timeout=3)
+            data = json.loads(req.read().decode('utf-8'))
+            loads = data.get("load_history", [])
+            if loads:
+                break
+        except Exception:
+            pass
+
+    if not loads:
+        return
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        inserted_count = 0
+        for l in loads:
+            load_id = l.get("load_id")
+            ts_local = l.get("time") or l.get("created_at") or get_local_now_str("%d/%m/%Y %H:%M:%S")
+            ts_iso = parse_timestamp_to_iso(ts_local)
+            cliente = l.get("cliente", 0)
+            categoria = l.get("categoria", 0)
+            peso_kg = float(l.get("peso_kg", 0.0))
+            t_seg = int(l.get("tiempo_entre_cargas_seg", 0))
+            raw_hex = l.get("raw_hex", "")
+
+            cursor.execute("""
+                INSERT INTO tunel_cargas (load_id, site, device, timestamp, timestamp_iso, cliente, categoria, peso_kg, tiempo_entre_cargas_seg, raw_hex)
+                VALUES (?, 'Elis Lavanderia Industrial', 'Lenovo ThinkCentre PLC FX3U (HELMS Protocol)', ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(load_id) DO UPDATE SET
+                    timestamp = excluded.timestamp,
+                    timestamp_iso = excluded.timestamp_iso,
+                    cliente = excluded.cliente,
+                    categoria = excluded.categoria,
+                    peso_kg = excluded.peso_kg,
+                    tiempo_entre_cargas_seg = excluded.tiempo_entre_cargas_seg,
+                    raw_hex = excluded.raw_hex
+            """, (load_id, ts_local, ts_iso, cliente, categoria, peso_kg, t_seg, raw_hex))
+            
+            if cursor.rowcount > 0:
+                inserted_count += 1
+
+        conn.commit()
+        conn.close()
+
+        if inserted_count > 0:
+            logger.info(f"✅ Ingeridas {inserted_count} cargas reales desde API Decodificador HELMS")
+            sync_all_historical_shifts()
+    except Exception as e:
+        logger.error(f"Error ingiriendo cargas desde API Decodificador HELMS: {e}")
+
+
 async def turnos_sync_loop():
-    """Bucle asíncrono para ejecutar la sincronización cada 30 minutos."""
+    """Bucle asíncrono para ejecutar la sincronización de turnos y telemetría real del decodificador."""
+    last_shift_sync = 0
     while True:
         try:
-            await asyncio.to_thread(sync_turnos_from_server_1)
+            # 1. Ingesta continua de cargas reales desde Decodificador HELMS (cada 10 seg)
+            await asyncio.to_thread(sync_cargas_from_decoder_api)
+
+            # 2. Sincronizar cache de jornada desde Server 1 cada 30 min
+            now_ts = time.time()
+            if now_ts - last_shift_sync >= SYNC_INTERVAL_SECONDS:
+                await asyncio.to_thread(sync_turnos_from_server_1)
+                last_shift_sync = now_ts
         except Exception as e:
-            logger.error(f"Error en bucle de sincronización de turnos: {e}")
-        await asyncio.sleep(SYNC_INTERVAL_SECONDS)
+            logger.error(f"Error en bucle de sincronización: {e}")
+        await asyncio.sleep(10)
 
 def start_turnos_background_sync(app):
     """Inicializa la sincronización asíncrona de turnos al arrancar FastAPI."""
     @app.on_event("startup")
     async def schedule_sync():
         asyncio.create_task(turnos_sync_loop())
+
