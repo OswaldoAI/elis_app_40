@@ -726,14 +726,36 @@ function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
   const isHistorial = (canvasId === 'chart-historial-turno');
   let chartInst = isHistorial ? historialChartInstance : avanceChartInstance;
 
-  const kgAcum = graficaData.kg_acumulado || graficaData.kg_acumulado_por_hora || [];
+  const rawLabels = [...graficaData.labels];
+  const rawKgHora = [...(graficaData.kg_por_hora || [])];
+  const rawCargasHora = [...(graficaData.cargas_por_hora || [])];
+  const rawKgAcum = [...(graficaData.kg_acumulado || graficaData.kg_acumulado_por_hora || [])];
+
+  // Normalización de etiquetas: Si vienen como horas sueltas ["06:00", "07:00", ..., "14:00"],
+  // convertirlas a rangos de horas ["06:00 - 07:00", ...] y descartar la última etiqueta vacía de cierre.
+  let formattedLabels = [];
+  let formattedKgHora = rawKgHora;
+  let formattedCargasHora = rawCargasHora;
+  let formattedKgAcum = rawKgAcum;
+
+  if (rawLabels.length > 0 && !rawLabels[0].includes(' - ')) {
+    for (let i = 0; i < rawLabels.length - 1; i++) {
+      formattedLabels.push(`${rawLabels[i]} - ${rawLabels[i+1]}`);
+    }
+    const numSlots = formattedLabels.length;
+    formattedKgHora = rawKgHora.slice(0, numSlots);
+    formattedCargasHora = rawCargasHora.slice(0, numSlots);
+    formattedKgAcum = rawKgAcum.slice(0, numSlots);
+  } else {
+    formattedLabels = rawLabels;
+  }
 
   // Actualización in-place en la misma instancia de gráfica (sin animación de cero y sin parpadeo)
   if (chartInst && chartInst.ctx && chartInst.ctx.canvas === canvasEl) {
-    chartInst.data.labels = graficaData.labels;
-    chartInst.data.datasets[0].data = kgAcum;
-    chartInst.data.datasets[1].data = graficaData.kg_por_hora;
-    chartInst.data.datasets[2].data = graficaData.cargas_por_hora;
+    chartInst.data.labels = formattedLabels;
+    chartInst.data.datasets[0].data = formattedKgAcum;
+    chartInst.data.datasets[1].data = formattedKgHora;
+    chartInst.data.datasets[2].data = formattedCargasHora;
     chartInst.update('none');
     return;
   }
@@ -746,12 +768,12 @@ function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
   const newChart = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: graficaData.labels,
+      labels: formattedLabels,
       datasets: [
         {
           type: 'line',
           label: 'Kg Acumulados Turno (kg)',
-          data: kgAcum,
+          data: formattedKgAcum,
           borderColor: '#00f0ff',
           backgroundColor: 'rgba(0, 240, 255, 0.08)',
           borderWidth: 3.5,
@@ -765,7 +787,7 @@ function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
         {
           type: 'line',
           label: 'Kg de la Hora (kg)',
-          data: graficaData.kg_por_hora,
+          data: formattedKgHora,
           borderColor: '#ff3b70',
           backgroundColor: 'rgba(255, 59, 112, 0.08)',
           borderWidth: 3.5,
@@ -779,7 +801,7 @@ function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
         {
           type: 'bar',
           label: 'Cargas / Hora',
-          data: graficaData.cargas_por_hora,
+          data: formattedCargasHora,
           backgroundColor: 'rgba(245, 158, 11, 0.75)',
           borderColor: '#fbbf24',
           borderWidth: 1,

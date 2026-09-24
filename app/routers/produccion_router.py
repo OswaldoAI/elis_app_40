@@ -200,7 +200,8 @@ def calculate_tunel_metrics(turno_act: dict = None):
             dt_next = dt_curr + timedelta(hours=1)
             h_start_str = dt_curr.strftime("%Y-%m-%d %H:%M:%S")
             h_end_str = dt_next.strftime("%Y-%m-%d %H:%M:%S")
-            label_str = dt_curr.strftime("%H:00")
+            # Formato de intervalo para la barra (ej: "06:00 - 07:00")
+            label_str = f"{dt_curr.strftime('%H:%M')} - {dt_next.strftime('%H:%M')}"
             
             row_h = conn.execute("""
                 SELECT 
@@ -221,14 +222,7 @@ def calculate_tunel_metrics(turno_act: dict = None):
 
             dt_curr = dt_next
 
-        # Incluir etiqueta final de cierre del turno
-        label_fin = dt_end_obj.strftime("%H:00")
-        if label_fin not in grafica_labels:
-            grafica_labels.append(label_fin)
-            grafica_kg_hora.append(0.0)
-            grafica_kg_acumulado.append(round(running_kg, 1))
-            grafica_cargas_hora.append(0)
-
+        # No se incluye etiqueta de cierre final (ej: 14:00) para evitar puntos sobrantes sin cargas
         conn.close()
 
         total_cargas = row["total_cargas"] if row else 0
@@ -327,10 +321,10 @@ def calculate_tunel_metrics(turno_act: dict = None):
         "total_kg_num": 0,
         "hprod": "0 kg/h",
         "hprod_num": 0,
-        "grafica_labels": ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00"],
-        "grafica_kg_hora": [0.0]*9,
-        "grafica_kg_acumulado": [0.0]*9,
-        "grafica_cargas_hora": [0]*9,
+        "grafica_labels": ["06:00 - 07:00", "07:00 - 08:00", "08:00 - 09:00", "09:00 - 10:00", "10:00 - 11:00", "11:00 - 12:00", "12:00 - 13:00", "13:00 - 14:00"],
+        "grafica_kg_hora": [0.0]*8,
+        "grafica_kg_acumulado": [0.0]*8,
+        "grafica_cargas_hora": [0]*8,
         "ikprod": {
             "pct": 0.0,
             "pct_str": "0.0%",
