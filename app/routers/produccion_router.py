@@ -25,76 +25,6 @@ def check_produccion_permission(current_user: dict = Depends(get_current_user)):
 
 from datetime import datetime, timedelta
 
-def seed_active_shift_cargas(start_iso: str, end_iso: str):
-    """Autogenera cargas para el turno activo desde su hora de inicio o última carga hasta la hora actual si no existen o se interrumpió el reporte."""
-    try:
-        dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
-        dt_end = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
-        now_dt = get_local_now().replace(tzinfo=None)
-        
-        limit_dt = min(now_dt, dt_end)
-        if limit_dt <= dt_start:
-            return
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Verificar última carga dentro del turno activo
-        last_row = cursor.execute("""
-            SELECT MAX(timestamp_iso) FROM tunel_cargas
-            WHERE timestamp_iso >= ? AND timestamp_iso <= ?
-        """, (start_iso, end_iso)).fetchone()
-        
-        last_ts_str = last_row[0] if (last_row and last_row[0]) else None
-        
-        if last_ts_str:
-            try:
-                last_dt = datetime.strptime(last_ts_str, "%Y-%m-%d %H:%M:%S")
-                start_curr_dt = last_dt + timedelta(minutes=2, seconds=15)
-            except Exception:
-                start_curr_dt = dt_start + timedelta(minutes=2)
-        else:
-            start_curr_dt = dt_start + timedelta(minutes=2)
-
-        if start_curr_dt >= limit_dt:
-            conn.close()
-            return
-
-        last_id_row = cursor.execute("SELECT COALESCE(MAX(load_id), 1600) FROM tunel_cargas").fetchone()
-        next_load_id = (last_id_row[0] if last_id_row and last_id_row[0] else 1600) + 1
-
-        curr_dt = start_curr_dt
-        clientes_pool = [120, 150, 210, 305, 412, 518, 851]
-        categorias_pool = [1, 2, 4, 7, 12, 18, 21, 33, 36]
-
-        cargas_inserted = 0
-        while curr_dt <= limit_dt:
-            ts_str = curr_dt.strftime("%d/%m/%Y %H:%M:%S")
-            ts_iso = curr_dt.strftime("%Y-%m-%d %H:%M:%S")
-            
-            peso = round(56.0 + (cargas_inserted % 7) * 1.1, 1)
-            t_seg = 115 + (cargas_inserted % 5) * 6
-            cliente = clientes_pool[cargas_inserted % len(clientes_pool)]
-            categoria = categorias_pool[cargas_inserted % len(categorias_pool)]
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO tunel_cargas 
-                (load_id, site, device, timestamp, timestamp_iso, cliente, categoria, peso_kg, tiempo_entre_cargas_seg, raw_hex)
-                VALUES (?, 'Elis Lavanderia Industrial', 'Lenovo ThinkCentre PLC FX3U (HELMS Protocol)', ?, ?, ?, ?, ?, ?, '32B0 4010')
-            """, (next_load_id, ts_str, ts_iso, cliente, categoria, peso, t_seg))
-
-            next_load_id += 1
-            cargas_inserted += 1
-            curr_dt += timedelta(minutes=2, seconds=15)
-
-        conn.commit()
-        conn.close()
-        if cargas_inserted > 0:
-            print(f"✅ Auto-generadas {cargas_inserted} cargas de respaldo en tramo sin datos ({start_curr_dt.strftime('%H:%M:%S')} a {limit_dt.strftime('%H:%M:%S')})")
-    except Exception as e:
-        print(f"Error auto-generando cargas de turno activo: {e}")
-
-
 def calculate_tunel_metrics(turno_act: dict = None):
     """Calcula indicadores reales agregados filtrando strictly por el turno activo de Jetson Server 1."""
     if not turno_act:
@@ -148,44 +78,6 @@ def calculate_tunel_metrics(turno_act: dict = None):
             FROM tunel_cargas
             WHERE timestamp_iso >= ? AND timestamp_iso <= ?
         """, (start_iso, end_iso)).fetchone()
-        
-        # Verificar si no hay cargas o si han pasado más de 6 minutos desde la última carga SOLO durante el turno activo actual
-        last_carga_row = conn.execute("""
-            SELECT MAX(timestamp_iso) as last_ts
-            FROM tunel_cargas
-            WHERE timestamp_iso >= ? AND timestamp_iso <= ?
-        """, (start_iso, end_iso)).fetchone()
-        
-        last_ts_str = last_carga_row["last_ts"] if (last_carga_row and last_carga_row["last_ts"]) else None
-        
-        should_seed = False
-        dt_end_obj = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
-        if now_dt < dt_end_obj: # Solo para el turno en curso
-            if not row or row["total_cargas"] == 0:
-                should_seed = True
-            elif last_ts_str:
-                try:
-                    last_dt = datetime.strptime(last_ts_str, "%Y-%m-%d %H:%M:%S")
-                    limit_dt = min(now_dt, dt_end_obj)
-                    if (limit_dt - last_dt).total_seconds() > 360 and limit_dt > dt_start:
-                        should_seed = True
-                except Exception:
-                    pass
-
-        if should_seed:
-            seed_active_shift_cargas(start_iso, end_iso)
-            conn = get_db_connection()
-            row = conn.execute("""
-                SELECT 
-                    COUNT(*) as total_cargas,
-                    COALESCE(AVG(peso_kg), 0) as promedio_peso,
-                    COALESCE(AVG(tiempo_entre_cargas_seg), 0) as promedio_tiempo_seg,
-                    COALESCE(SUM(peso_kg), 0) as total_kg,
-                    COUNT(DISTINCT cliente) as clientes_unicos,
-                    COUNT(DISTINCT categoria) as programas_unicos
-                FROM tunel_cargas
-                WHERE timestamp_iso >= ? AND timestamp_iso <= ?
-            """, (start_iso, end_iso)).fetchone()
         
         # Generar desglose horario desde inicio hasta fin del turno activo para la gráfica de avance
         try:
