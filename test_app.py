@@ -245,7 +245,14 @@ class TestElis4App(unittest.TestCase):
             self.assertEqual(f_data["turno_info"]["rango_filtrado"], "07:00 - 09:30")
             self.assertGreaterEqual(f_data["indicadores_destacados"]["cargas_totales_turno"]["valor"], "1 cargas")
 
-        # 4. Error case: hora_hasta <= hora_desde within same day
+        # 4. Conventional hourly slots test (06:30 to 08:50 -> 06:00-07:00, 07:00-08:00, 08:00-09:00)
+        res_conv = self.client.get("/api/produccion/tunel-lavado/dashboard-filtrado?hora_desde=06:30&hora_hasta=08:50", headers=headers)
+        self.assertEqual(res_conv.status_code, 200)
+        conv_data = res_conv.json()
+        if conv_data.get("shift_active"):
+            self.assertEqual(conv_data["grafica_avance"]["labels"], ["06:00 - 07:00", "07:00 - 08:00", "08:00 - 09:00"])
+
+        # 5. Error case: hora_hasta <= hora_desde within same day
         res_err = self.client.get("/api/produccion/tunel-lavado/dashboard-filtrado?hora_desde=12:00&hora_hasta=08:00", headers=headers)
         self.assertEqual(res_err.status_code, 400)
 

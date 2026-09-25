@@ -654,26 +654,34 @@ def get_tunel_lavado_dashboard_filtrado(
         WHERE timestamp_iso >= ? AND timestamp_iso <= ?
     """, (start_iso, end_iso)).fetchone()
 
-    # Generar desglose horario para la gráfica
-    dt_curr = dt_start
+    # Generar desglose horario convencional para la gráfica (bloques de horas completas ej: 06:00 - 07:00)
+    slot_curr = dt_start.replace(minute=0, second=0, microsecond=0)
+    if dt_end.minute == 0 and dt_end.second == 0:
+        slots_end = dt_end
+    else:
+        slots_end = dt_end.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
     grafica_labels = []
     grafica_kg_hora = []
     grafica_kg_acumulado = []
     grafica_cargas_hora = []
     running_kg = 0.0
 
-    while dt_curr < dt_end:
-        dt_next = min(dt_curr + timedelta(hours=1), dt_end)
-        h_start_str = dt_curr.strftime("%Y-%m-%d %H:%M:%S")
-        h_end_str = dt_next.strftime("%Y-%m-%d %H:%M:%S")
-        label_str = f"{dt_curr.strftime('%H:%M')} - {dt_next.strftime('%H:%M')}"
+    while slot_curr < slots_end:
+        slot_next = slot_curr + timedelta(hours=1)
+        label_str = f"{slot_curr.strftime('%H:%M')} - {slot_next.strftime('%H:%M')}"
 
-        if dt_next >= dt_end:
+        q_start = max(dt_start, slot_curr)
+        q_end = min(dt_end, slot_next)
+        q_start_str = q_start.strftime("%Y-%m-%d %H:%M:%S")
+        q_end_str = q_end.strftime("%Y-%m-%d %H:%M:%S")
+
+        if q_end >= dt_end:
             q = "SELECT COUNT(*) as num_cargas, COALESCE(SUM(peso_kg), 0) as kg_hora FROM tunel_cargas WHERE timestamp_iso >= ? AND timestamp_iso <= ?"
         else:
             q = "SELECT COUNT(*) as num_cargas, COALESCE(SUM(peso_kg), 0) as kg_hora FROM tunel_cargas WHERE timestamp_iso >= ? AND timestamp_iso < ?"
 
-        row_h = conn.execute(q, (h_start_str, h_end_str)).fetchone()
+        row_h = conn.execute(q, (q_start_str, q_end_str)).fetchone()
         kg_val = round(row_h["kg_hora"], 1) if row_h else 0.0
         cargas_val = row_h["num_cargas"] if row_h else 0
         running_kg += kg_val
@@ -683,7 +691,7 @@ def get_tunel_lavado_dashboard_filtrado(
         grafica_kg_acumulado.append(round(running_kg, 1))
         grafica_cargas_hora.append(cargas_val)
 
-        dt_curr = dt_next
+        slot_curr = slot_next
 
     # Obtener último programa dentro del rango
     last_load = conn.execute("""
