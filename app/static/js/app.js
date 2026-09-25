@@ -1928,9 +1928,9 @@ async function buscarComparativaTurnos() {
 
     // Estilos de medallas y posiciones del Top 5
     const badgesInfo = {
-      1: { medal: '🥇', label: '#1 ORO', color: '#fbbf24', border: '#f59e0b', bg: 'rgba(251, 191, 36, 0.15)', glow: '0 4px 20px rgba(245, 158, 11, 0.25)' },
-      2: { medal: '🥈', label: '#2 PLATA', color: '#e2e8f0', border: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)', glow: '0 4px 16px rgba(148, 163, 184, 0.2)' },
-      3: { medal: '🥉', label: '#3 BRONCE', color: '#f97316', border: '#d97706', bg: 'rgba(217, 119, 6, 0.15)', glow: '0 4px 16px rgba(217, 119, 6, 0.2)' },
+      1: { medal: '🥇', label: '#1', color: '#fbbf24', border: '#f59e0b', bg: 'rgba(251, 191, 36, 0.15)', glow: '0 4px 20px rgba(245, 158, 11, 0.25)' },
+      2: { medal: '🥈', label: '#2', color: '#e2e8f0', border: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)', glow: '0 4px 16px rgba(148, 163, 184, 0.2)' },
+      3: { medal: '🥉', label: '#3', color: '#f97316', border: '#d97706', bg: 'rgba(217, 119, 6, 0.15)', glow: '0 4px 16px rgba(217, 119, 6, 0.2)' },
       4: { medal: '⭐', label: '#4', color: '#38bdf8', border: '#0284c7', bg: 'rgba(56, 189, 248, 0.12)', glow: 'none' },
       5: { medal: '⭐', label: '#5', color: '#818cf8', border: '#6366f1', bg: 'rgba(129, 140, 248, 0.12)', glow: 'none' }
     };
@@ -1961,8 +1961,8 @@ async function buscarComparativaTurnos() {
           <!-- Columna Izquierda: Posición e Identificación del Turno -->
           <div style="display: flex; align-items: center; gap: 16px; min-width: 240px;">
             <div style="width: 50px; height: 50px; border-radius: 12px; background: ${b.bg}; border: 1.5px solid ${b.border}; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-              <span style="font-size: 1.2rem; line-height: 1;">${b.medal}</span>
-              <span style="font-size: 0.65rem; font-weight: 800; color: ${b.color}; margin-top: 2px;">${b.label}</span>
+              <span style="font-size: 1.25rem; line-height: 1;">${b.medal}</span>
+              <span style="font-size: 0.75rem; font-weight: 800; color: ${b.color}; margin-top: 2px; letter-spacing: 0.5px;">${b.label}</span>
             </div>
             <div>
               <h4 style="font-size: 1.15rem; color: #f8fafc; margin: 0; font-weight: 700;">${item.nombre_turno}</h4>
