@@ -125,6 +125,9 @@
             <p style="color: var(--text-muted); font-size: 0.9rem;">Planta Nájera — Telemetría Avanzada e Indicadores por Turno</p>
           </div>
           <div style="display: flex; gap: 10px; align-items: center;">
+            <button class="btn-header" onclick="switchView('filtros_turno')" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; font-weight: 600;">
+              <i class="fas fa-sliders-h"></i> Filtros
+            </button>
             <button class="btn-header" onclick="switchView('historial_turnos')" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; font-weight: 600;">
               <i class="fas fa-history"></i> Historial
             </button>
@@ -175,6 +178,53 @@
 
         <!-- Contenedor del Dashboard Reconstruido -->
         <div id="historial-dashboard-container" style="display: none;"></div>
+      </section>
+
+      <!-- Vista 2.3: Filtros por Rango Horario de Turno Actual -->
+      <section id="view-filtros_turno" class="view-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <button class="btn-header" onclick="switchView('tunel_lavado')" style="margin-bottom: 10px;">
+              <i class="fas fa-arrow-left"></i> Volver a Túnel de Lavado
+            </button>
+            <h2 style="font-size: 1.8rem; color: #818cf8;"><i class="fas fa-sliders-h" style="margin-right: 8px;"></i> Filtrado por Rango Horario: Turno Actual</h2>
+            <p id="filtros-turno-info" style="color: var(--text-muted); font-size: 0.9rem;">Analiza los indicadores y la gráfica del turno actual en una ventana horaria personalizada</p>
+          </div>
+
+          <!-- Barra de Controles: Selector de Rango Horario -->
+          <div id="filtros-controls-bar" style="display: flex; gap: 16px; align-items: center; background: rgba(30, 41, 59, 0.8); padding: 12px 20px; border-radius: 12px; border: 1px solid rgba(99, 102, 241, 0.3);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="filtros-desde-time" style="color: #cbd5e1; font-weight: 600; font-size: 0.9rem;"><i class="fas fa-clock"></i> Desde:</label>
+              <input type="time" id="filtros-desde-time" class="form-control" style="width: auto; background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px;">
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="filtros-hasta-time" style="color: #cbd5e1; font-weight: 600; font-size: 0.9rem;"><i class="fas fa-clock"></i> Hasta:</label>
+              <input type="time" id="filtros-hasta-time" class="form-control" style="width: auto; background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px;">
+            </div>
+
+            <button class="btn-header" onclick="applyFiltroHorario()" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; font-weight: 600;">
+              <i class="fas fa-filter"></i> Filtrar
+            </button>
+          </div>
+        </div>
+
+        <!-- Placeholder 1: Seleccione rango horario de turno actual (Fondo Oscuro) -->
+        <div id="filtros-placeholder-select" style="text-align: center; padding: 100px 20px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px; border: 1px dashed rgba(99, 102, 241, 0.4); margin-top: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+          <i class="fas fa-sliders-h" style="font-size: 4rem; color: #818cf8; opacity: 0.7; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.4));"></i>
+          <h3 style="font-size: 1.6rem; color: #f8fafc; font-weight: 600;">Seleccione rango horario de turno actual</h3>
+          <p style="color: #94a3b8; font-size: 1rem; max-width: 550px; margin: 10px auto 0 auto;">Indica la hora de inicio (Desde) y fin (Hasta) para reconstruir los indicadores y la producción dentro del intervalo seleccionado.</p>
+        </div>
+
+        <!-- Placeholder 2: No hay turno en ejecución (Fondo Oscuro) -->
+        <div id="filtros-placeholder-noturno" style="display: none; text-align: center; padding: 100px 20px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px; border: 1px dashed rgba(239, 68, 68, 0.4); margin-top: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+          <i class="fas fa-exclamation-circle" style="font-size: 4rem; color: #ef4444; opacity: 0.7; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.4));"></i>
+          <h3 style="font-size: 1.6rem; color: #f8fafc; font-weight: 600;">No hay turno en ejecución</h3>
+          <p style="color: #94a3b8; font-size: 1rem; max-width: 550px; margin: 10px auto 0 auto;">Actualmente la planta se encuentra fuera del horario de los turnos programados.</p>
+        </div>
+
+        <!-- Contenedor del Dashboard Filtrado Reconstruido -->
+        <div id="filtros-dashboard-container" style="display: none;"></div>
       </section>
 
       <!-- Vista 3: Consumos -->

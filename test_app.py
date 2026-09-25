@@ -207,6 +207,48 @@ class TestElis4App(unittest.TestCase):
         self.assertEqual(cal_data["variable"], "caldera1")
         self.assertGreaterEqual(cal_data["total_registros"], 1)
 
+    def test_07_filtered_shift_dashboard(self):
+        res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
+        self.assertEqual(res.status_code, 200)
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Metadata query (sin parámetros)
+        res_meta = self.client.get("/api/produccion/tunel-lavado/dashboard-filtrado", headers=headers)
+        self.assertEqual(res_meta.status_code, 200)
+        meta_data = res_meta.json()
+        self.assertIn("shift_active", meta_data)
+
+        # 2. Ingest test loads in tunel_cargas for today
+        from datetime import datetime
+        from app.database import get_db_connection
+        today_iso = datetime.now().strftime("%Y-%m-%d")
+        conn = get_db_connection()
+        conn.execute("""
+            INSERT OR REPLACE INTO tunel_cargas (load_id, site, device, timestamp, timestamp_iso, cliente, categoria, peso_kg, tiempo_entre_cargas_seg)
+            VALUES 
+                (9901, 'Elis', 'PLC', 'test', ?, 101, 1, 60.0, 120),
+                (9902, 'Elis', 'PLC', 'test', ?, 102, 2, 58.5, 130)
+        """, (f"{today_iso} 07:15:00", f"{today_iso} 08:45:00"))
+        conn.commit()
+        conn.close()
+
+        # 3. Filtered query within range (07:00 to 09:30)
+        res_filt = self.client.get("/api/produccion/tunel-lavado/dashboard-filtrado?hora_desde=07:00&hora_hasta=09:30", headers=headers)
+        self.assertEqual(res_filt.status_code, 200)
+        f_data = res_filt.json()
+
+        if f_data.get("shift_active"):
+            self.assertIn("indicadores_destacados", f_data)
+            self.assertIn("grafica_avance", f_data)
+            self.assertIn("turno_info", f_data)
+            self.assertEqual(f_data["turno_info"]["rango_filtrado"], "07:00 - 09:30")
+            self.assertGreaterEqual(f_data["indicadores_destacados"]["cargas_totales_turno"]["valor"], "1 cargas")
+
+        # 4. Error case: hora_hasta <= hora_desde within same day
+        res_err = self.client.get("/api/produccion/tunel-lavado/dashboard-filtrado?hora_desde=12:00&hora_hasta=08:00", headers=headers)
+        self.assertEqual(res_err.status_code, 400)
+
 if __name__ == "__main__":
     unittest.main()
 

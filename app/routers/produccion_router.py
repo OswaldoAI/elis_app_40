@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, status
+from typing import Optional
 import json
 from app.auth import get_current_user
 from app.database import get_db_connection
@@ -499,6 +500,320 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
         print(f"Error auto-guardando paquete json de turno: {e}")
 
     return dash_response
+
+
+def get_current_active_shift() -> dict:
+    """
+    Retorna el turno activo en el momento actual considerando la hora local.
+    Soporta turnos diurnos y nocturnos que cruzan medianoche.
+    """
+    turnos_cache = get_cached_turnos()
+    now_dt = get_local_now()
+    now_hm = now_dt.strftime("%H:%M")
+    today_str = now_dt.strftime("%Y-%m-%d")
+    yesterday_str = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    shifts = turnos_cache.get("shifts") or [
+        {"name": "Turno 1", "start": "06:00", "end": "14:00", "color": "#10b981"},
+        {"name": "Turno 2", "start": "14:00", "end": "21:00", "color": "#3b82f6"},
+        {"name": "Turno 3", "start": "21:00", "end": "02:00", "color": "#831843"}
+    ]
+
+    for s in shifts:
+        s_name = s.get("name")
+        start = s.get("start")
+        end = s.get("end")
+        if not start or not end:
+            continue
+
+        if start < end:
+            if start <= now_hm < end:
+                return {
+                    "is_active": True,
+                    "nombre": s_name,
+                    "hora_inicio": start,
+                    "hora_fin": end,
+                    "fecha": today_str,
+                    "color": s.get("color")
+                }
+        else:
+            if now_hm >= start:
+                return {
+                    "is_active": True,
+                    "nombre": s_name,
+                    "hora_inicio": start,
+                    "hora_fin": end,
+                    "fecha": today_str,
+                    "color": s.get("color")
+                }
+            elif now_hm < end:
+                return {
+                    "is_active": True,
+                    "nombre": s_name,
+                    "hora_inicio": start,
+                    "hora_fin": end,
+                    "fecha": yesterday_str,
+                    "color": s.get("color")
+                }
+
+    return {
+        "is_active": False,
+        "nombre": "Sin turno activo",
+        "fecha": today_str
+    }
+
+
+@router.get("/tunel-lavado/dashboard-filtrado")
+def get_tunel_lavado_dashboard_filtrado(
+    hora_desde: Optional[str] = None,
+    hora_hasta: Optional[str] = None,
+    user: dict = Depends(check_produccion_permission)
+):
+    shift_info = get_current_active_shift()
+    if not shift_info.get("is_active"):
+        return {
+            "shift_active": False,
+            "detail": "No hay turno en ejecución"
+        }
+
+    # Si no se proporcionan horas de filtro, retornar metadatos del turno activo
+    if not hora_desde or not hora_hasta:
+        try:
+            fecha_fmt = datetime.strptime(shift_info["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y")
+        except Exception:
+            fecha_fmt = shift_info["fecha"]
+        return {
+            "shift_active": True,
+            "turno": {
+                "nombre": shift_info["nombre"],
+                "hora_inicio": shift_info["hora_inicio"],
+                "hora_fin": shift_info["hora_fin"],
+                "fecha": shift_info["fecha"],
+                "fecha_formateada": fecha_fmt
+            }
+        }
+
+    # Validar formato HH:MM
+    try:
+        datetime.strptime(hora_desde, "%H:%M")
+        datetime.strptime(hora_hasta, "%H:%M")
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Formato de hora inválido. Utilice HH:MM (ej. 08:30 o 23:20)."
+        )
+
+    fecha = shift_info["fecha"]
+    hora_inicio = shift_info["hora_inicio"]
+    hora_fin = shift_info["hora_fin"]
+
+    base_date = datetime.strptime(fecha, "%Y-%m-%d")
+    next_date_str = (base_date + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    try:
+        h_start = int(hora_inicio.split(":")[0])
+        h_end = int(hora_fin.split(":")[0])
+    except Exception:
+        h_start, h_end = 6, 14
+
+    crosses_midnight = (h_end < h_start)
+
+    if crosses_midnight:
+        start_date_str = fecha if hora_desde >= hora_inicio else next_date_str
+        end_date_str = fecha if hora_hasta >= hora_inicio else next_date_str
+    else:
+        start_date_str = fecha
+        end_date_str = fecha
+
+    start_iso = f"{start_date_str} {hora_desde}:00"
+    end_iso = f"{end_date_str} {hora_hasta}:00"
+
+    dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+    dt_end = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
+
+    if dt_end <= dt_start:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La hora 'Hasta' debe ser posterior a la hora 'Desde' dentro de la continuidad del turno."
+        )
+
+    duracion_minutos = (dt_end - dt_start).total_seconds() / 60.0
+    horas_trans = max(duracion_minutos / 60.0, 0.1)
+
+    # Consultar datos reales en tunel_cargas
+    conn = get_db_connection()
+    row = conn.execute("""
+        SELECT 
+            COUNT(*) as total_cargas,
+            COALESCE(AVG(peso_kg), 0) as promedio_peso,
+            COALESCE(AVG(tiempo_entre_cargas_seg), 0) as promedio_tiempo_seg,
+            COALESCE(SUM(peso_kg), 0) as total_kg,
+            COUNT(DISTINCT cliente) as clientes_unicos,
+            COUNT(DISTINCT categoria) as programas_unicos
+        FROM tunel_cargas
+        WHERE timestamp_iso >= ? AND timestamp_iso <= ?
+    """, (start_iso, end_iso)).fetchone()
+
+    # Generar desglose horario para la gráfica
+    dt_curr = dt_start
+    grafica_labels = []
+    grafica_kg_hora = []
+    grafica_kg_acumulado = []
+    grafica_cargas_hora = []
+    running_kg = 0.0
+
+    while dt_curr < dt_end:
+        dt_next = min(dt_curr + timedelta(hours=1), dt_end)
+        h_start_str = dt_curr.strftime("%Y-%m-%d %H:%M:%S")
+        h_end_str = dt_next.strftime("%Y-%m-%d %H:%M:%S")
+        label_str = f"{dt_curr.strftime('%H:%M')} - {dt_next.strftime('%H:%M')}"
+
+        if dt_next >= dt_end:
+            q = "SELECT COUNT(*) as num_cargas, COALESCE(SUM(peso_kg), 0) as kg_hora FROM tunel_cargas WHERE timestamp_iso >= ? AND timestamp_iso <= ?"
+        else:
+            q = "SELECT COUNT(*) as num_cargas, COALESCE(SUM(peso_kg), 0) as kg_hora FROM tunel_cargas WHERE timestamp_iso >= ? AND timestamp_iso < ?"
+
+        row_h = conn.execute(q, (h_start_str, h_end_str)).fetchone()
+        kg_val = round(row_h["kg_hora"], 1) if row_h else 0.0
+        cargas_val = row_h["num_cargas"] if row_h else 0
+        running_kg += kg_val
+
+        grafica_labels.append(label_str)
+        grafica_kg_hora.append(kg_val)
+        grafica_kg_acumulado.append(round(running_kg, 1))
+        grafica_cargas_hora.append(cargas_val)
+
+        dt_curr = dt_next
+
+    # Obtener último programa dentro del rango
+    last_load = conn.execute("""
+        SELECT categoria, cliente, timestamp_iso FROM tunel_cargas
+        WHERE timestamp_iso >= ? AND timestamp_iso <= ?
+        ORDER BY timestamp_iso DESC LIMIT 1
+    """, (start_iso, end_iso)).fetchone()
+    conn.close()
+
+    if last_load:
+        hora_c = last_load['timestamp_iso'].split(' ')[1][:5] if ' ' in last_load['timestamp_iso'] else ''
+        last_prog_str = f"Prog {last_load['categoria']:02d} | Cliente {last_load['cliente']} ({hora_c})"
+    else:
+        last_prog_str = "Sin cargas en el rango seleccionado"
+
+    total_cargas = row["total_cargas"] if row else 0
+    total_kg = round(row["total_kg"], 1) if row else 0.0
+    promedio_peso = round(row["promedio_peso"], 1) if row else 0.0
+    promedio_tiempo_seg = round(row["promedio_tiempo_seg"]) if row else 0
+    promedio_tiempo_min = round(promedio_tiempo_seg / 60.0, 2)
+    clientes_unicos = row["clientes_unicos"] if row and row["clientes_unicos"] else 0
+    programas_unicos = row["programas_unicos"] if row and row["programas_unicos"] else 0
+
+    hprod_kgh = int(round(total_kg / horas_trans))
+    hprod_str = f"{hprod_kgh:,} kg/h".replace(",", ".")
+
+    ikprod_neto = round(promedio_peso / max(promedio_tiempo_min, 0.01), 2) if total_cargas > 0 else 0.0
+    ikprod_pct = round((ikprod_neto / 30.0) * 100.0, 1) if total_cargas > 0 else 0.0
+
+    if ikprod_pct < 30.0:
+        color_code = "red"
+        gradient = "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)"
+        subtexto_color = "#f87171"
+        text_color = "#ef4444"
+        border_color = "#ef4444"
+    elif ikprod_pct < 60.0:
+        color_code = "orange"
+        gradient = "linear-gradient(135deg, #d97706 0%, #b45309 100%)"
+        subtexto_color = "#fcd34d"
+        text_color = "#f59e0b"
+        border_color = "#f59e0b"
+    else:
+        color_code = "green"
+        gradient = "linear-gradient(135deg, #059669 0%, #047857 100%)"
+        subtexto_color = "#6ee7b7"
+        text_color = "#10b981"
+        border_color = "#10b981"
+
+    objetivo_kg = (duracion_minutos / 2.0) * 60.0
+    objetivo_kg_str = f"{int(objetivo_kg):,}".replace(",", ".")
+
+    try:
+        fecha_fmt = datetime.strptime(fecha, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha_fmt = fecha
+
+    return {
+        "shift_active": True,
+        "maquina": "TÚNEL DE LAVADO",
+        "planta": "ELIS NÁJERA 4.0",
+        "estado": "Operativa",
+        "oee": 91.2,
+        "turno_info": {
+            "nombre": shift_info["nombre"],
+            "horario_completo": f"{shift_info['hora_inicio']} - {shift_info['hora_fin']}",
+            "fecha": fecha_fmt,
+            "rango_filtrado": f"{hora_desde} - {hora_hasta}",
+            "duracion_minutos": round(duracion_minutos, 1)
+        },
+        "indicadores_destacados": {
+            "kg_totales_turno": {
+                "titulo": "Kg Totales (Rango)",
+                "valor": f"{total_kg:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "subtexto": f"Objetivo Rango: {objetivo_kg_str} kg ({duracion_minutos:.0f} min)",
+                "color_gradiente": "linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)",
+                "icono": "fa-weight-hanging"
+            },
+            "cargas_totales_turno": {
+                "titulo": "Cargas Totales (Rango)",
+                "valor": f"{total_cargas} cargas",
+                "subtexto": f"Promedio: {promedio_peso} kg/carga",
+                "color_gradiente": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                "icono": "fa-boxes"
+            },
+            "hprod": {
+                "titulo": "Productividad hProd",
+                "valor": hprod_str,
+                "subtexto": f"Tiempo prom: {promedio_tiempo_min} min",
+                "color_gradiente": "linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)",
+                "icono": "fa-tachometer-alt"
+            },
+            "ikprod": {
+                "titulo": "Índice de Eficiencia (ikProd)",
+                "valor": f"{ikprod_pct}%",
+                "pct": ikprod_pct,
+                "pct_str": f"{ikprod_pct}%",
+                "neto": ikprod_neto,
+                "neto_str": f"ikProd Neto: {ikprod_neto:.2f}",
+                "tprom_str": f"Tprom: {promedio_tiempo_min} min ({promedio_tiempo_seg}s)",
+                "promedio_carga_str": f"Prom: {promedio_peso} kg/carga",
+                "promedio_tiempo_str": f"Tprom: {promedio_tiempo_min} min",
+                "subtexto": "Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%",
+                "color_gradiente": gradient,
+                "color_codigo": color_code,
+                "subtexto_color": subtexto_color,
+                "text_color": text_color,
+                "border_color": border_color,
+                "icono": "fa-chart-line"
+            },
+            "clientes_unicos": {
+                "titulo": "Clientes Atendidos",
+                "valor": f"{clientes_unicos} clientes",
+                "subtexto": "Códigos únicos de cliente en rango",
+                "icono": "fa-users"
+            },
+            "programas_unicos": {
+                "titulo": "Programas Ejecutados",
+                "valor": f"{programas_unicos} programas",
+                "subtexto": "Categorías/Programas únicos en rango",
+                "icono": "fa-layer-group"
+            }
+        },
+        "grafica_avance": {
+            "labels": grafica_labels,
+            "kg_por_hora": grafica_kg_hora,
+            "kg_acumulado": grafica_kg_acumulado,
+            "cargas_por_hora": grafica_cargas_hora
+        },
+        "programa_actual": last_prog_str
+    }
 
 
 def build_shift_json_package(turno_act: dict = None):

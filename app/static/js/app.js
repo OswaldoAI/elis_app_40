@@ -260,7 +260,7 @@ function switchView(viewName) {
   }
   if (targetBtn) {
     targetBtn.classList.add('active');
-  } else if (viewName === 'tunel_lavado' || viewName === 'historial_turnos') {
+  } else if (viewName === 'tunel_lavado' || viewName === 'historial_turnos' || viewName === 'filtros_turno') {
     const prodBtn = document.querySelector(`.menu-btn[data-view="produccion"]`);
     if (prodBtn) prodBtn.classList.add('active');
   }
@@ -272,6 +272,7 @@ function switchView(viewName) {
   if (viewName === 'produccion') loadProduccionData();
   if (viewName === 'tunel_lavado') loadTunelLavadoDashboard();
   if (viewName === 'historial_turnos') initHistorialTurnosScreen();
+  if (viewName === 'filtros_turno') initFiltrosTurnoScreen();
   if (viewName === 'consumos') loadConsumosData();
   if (viewName === 'usuarios') loadUsersList();
   if (viewName === 'permisos') loadPermissionsMatrix();
@@ -717,6 +718,7 @@ async function loadTunelLavadoDashboard() {
 // Chart.js Manager for Shift Progress Chart
 let avanceChartInstance = null;
 let historialChartInstance = null;
+let filtrosChartInstance = null;
 
 function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
   if (!graficaData || !graficaData.labels) return;
@@ -724,7 +726,8 @@ function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
   if (!canvasEl) return;
 
   const isHistorial = (canvasId === 'chart-historial-turno');
-  let chartInst = isHistorial ? historialChartInstance : avanceChartInstance;
+  const isFiltros = (canvasId === 'chart-filtros-turno');
+  let chartInst = isHistorial ? historialChartInstance : (isFiltros ? filtrosChartInstance : avanceChartInstance);
 
   const rawLabels = [...graficaData.labels];
   const rawKgHora = [...(graficaData.kg_por_hora || [])];
@@ -855,6 +858,8 @@ function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
 
   if (isHistorial) {
     historialChartInstance = newChart;
+  } else if (isFiltros) {
+    filtrosChartInstance = newChart;
   } else {
     avanceChartInstance = newChart;
   }
@@ -1573,6 +1578,221 @@ async function loadReconstructedShiftDashboard(shiftKey) {
     renderAvanceChart(graficaData, 'chart-historial-turno');
   } catch (err) {
     console.error('Error cargando turno reconstruido:', err);
+    dashboardContainer.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
+  }
+}
+
+// ==========================================
+// PANTALLA: FILTRADO POR RANGO HORARIO (TURNO ACTUAL)
+// ==========================================
+let currentActiveShiftForFilters = null;
+
+async function initFiltrosTurnoScreen() {
+  const placeholderSelect = document.getElementById('filtros-placeholder-select');
+  const placeholderNoTurno = document.getElementById('filtros-placeholder-noturno');
+  const controlsBar = document.getElementById('filtros-controls-bar');
+  const dashboardContainer = document.getElementById('filtros-dashboard-container');
+  const turnoInfoEl = document.getElementById('filtros-turno-info');
+
+  if (dashboardContainer) {
+    dashboardContainer.style.display = 'none';
+    dashboardContainer.innerHTML = '';
+  }
+
+  try {
+    const res = await fetch('/api/produccion/tunel-lavado/dashboard-filtrado');
+    const data = await res.json();
+
+    if (!data.shift_active || !data.turno) {
+      if (controlsBar) controlsBar.style.display = 'none';
+      if (placeholderSelect) placeholderSelect.style.display = 'none';
+      if (placeholderNoTurno) placeholderNoTurno.style.display = 'block';
+      if (turnoInfoEl) turnoInfoEl.innerHTML = '<span style="color: #ef4444;"><i class="fas fa-exclamation-triangle"></i> No hay turno en ejecución en este momento</span>';
+      currentActiveShiftForFilters = null;
+      return;
+    }
+
+    currentActiveShiftForFilters = data.turno;
+
+    if (controlsBar) controlsBar.style.display = 'flex';
+    if (placeholderSelect) placeholderSelect.style.display = 'block';
+    if (placeholderNoTurno) placeholderNoTurno.style.display = 'none';
+
+    if (turnoInfoEl) {
+      turnoInfoEl.innerHTML = `Turno en ejecución: <strong style="color: #818cf8;">${data.turno.nombre}</strong> (${data.turno.hora_inicio} - ${data.turno.hora_fin}) | 📅 ${data.turno.fecha_formateada}`;
+    }
+
+    const desdeInput = document.getElementById('filtros-desde-time');
+    const hastaInput = document.getElementById('filtros-hasta-time');
+    if (desdeInput && !desdeInput.value) {
+      desdeInput.value = data.turno.hora_inicio;
+    }
+    if (hastaInput && !hastaInput.value) {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      hastaInput.value = `${hh}:${mm}`;
+    }
+  } catch (err) {
+    console.error('Error inicializando pantalla de filtros:', err);
+  }
+}
+
+async function applyFiltroHorario() {
+  const desdeInput = document.getElementById('filtros-desde-time');
+  const hastaInput = document.getElementById('filtros-hasta-time');
+  const placeholderSelect = document.getElementById('filtros-placeholder-select');
+  const placeholderNoTurno = document.getElementById('filtros-placeholder-noturno');
+  const dashboardContainer = document.getElementById('filtros-dashboard-container');
+
+  const horaDesde = desdeInput ? desdeInput.value : '';
+  const horaHasta = hastaInput ? hastaInput.value : '';
+
+  if (!horaDesde || !horaHasta) {
+    alert('Por favor selecciona la hora "Desde" y la hora "Hasta"');
+    return;
+  }
+
+  try {
+    dashboardContainer.style.display = 'block';
+    dashboardContainer.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">Filtrando telemetría del turno...</p>';
+    if (placeholderSelect) placeholderSelect.style.display = 'none';
+    if (placeholderNoTurno) placeholderNoTurno.style.display = 'none';
+
+    const url = `/api/produccion/tunel-lavado/dashboard-filtrado?hora_desde=${encodeURIComponent(horaDesde)}&hora_hasta=${encodeURIComponent(horaHasta)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Error al filtrar datos');
+    }
+    const data = await res.json();
+
+    if (!data.shift_active) {
+      if (placeholderNoTurno) placeholderNoTurno.style.display = 'block';
+      dashboardContainer.style.display = 'none';
+      return;
+    }
+
+    const kgInfo = data.indicadores_destacados.kg_totales_turno;
+    const cargasInfo = data.indicadores_destacados.cargas_totales_turno;
+    const hprodInfo = data.indicadores_destacados.hprod;
+    const ikprodInfo = data.indicadores_destacados.ikprod;
+    const clientesInfo = data.indicadores_destacados.clientes_unicos;
+    const programasInfo = data.indicadores_destacados.programas_unicos;
+
+    let ikprodTextColor = ikprodInfo.text_color || (ikprodInfo.color_codigo === 'red' ? '#ef4444' : ikprodInfo.color_codigo === 'orange' ? '#f97316' : '#34d399');
+    let ikprodBorderColor = ikprodInfo.border_color || (ikprodInfo.color_codigo === 'red' ? '#ef4444' : ikprodInfo.color_codigo === 'orange' ? '#f97316' : '#10b981');
+
+    dashboardContainer.innerHTML = `
+      <!-- Banner Sincronización del Turno Filtrado -->
+      <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #818cf8; padding: 12px 18px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(99, 102, 241, 0.2); color: #818cf8; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+            <i class="fas fa-sliders-h"></i>
+          </div>
+          <div>
+            <h4 style="color: var(--text-main); font-size: 1rem;">${data.turno_info.nombre} (${data.turno_info.horario_completo}) — <span style="color: #818cf8;">Ventana Filtrada: ${data.turno_info.rango_filtrado} (${data.turno_info.duracion_minutos} min)</span> — <span style="color: #38bdf8;">📅 ${data.turno_info.fecha}</span></h4>
+            <small style="color: var(--text-muted); font-size: 0.78rem;">Filtro de Telemetría Dinámico | Base: Cargas Reales Ingeridas en el Intervalo</small>
+          </div>
+        </div>
+
+        <div style="text-align: right;">
+          <span style="font-size: 0.82rem; color: #818cf8; font-weight: 700; background: rgba(99, 102, 241, 0.15); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.4);">🎛️ FILTRADO ACTIVO</span>
+        </div>
+      </div>
+
+      <!-- Cuadrícula 4 Columnas x 2 Filas del Dashboard -->
+      <div class="dashboard-grid-layout">
+        <!-- Columna 1, Fila 1: Kg Totales Turno -->
+        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 1; grid-row: 1;">
+          <div class="kpi-card-header">
+            <h4>${kgInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${kgInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${kgInfo.valor}</div>
+          <div class="kpi-card-subtext">${kgInfo.subtexto}</div>
+        </div>
+
+        <!-- Columna 1, Fila 2: ikProd (stacked verticalmente) -->
+        <div class="kpi-card-striking" style="grid-column: 1; grid-row: 2; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid ${ikprodBorderColor}; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);">
+          <div class="kpi-card-header">
+            <h4 style="color: #f8fafc;">${ikprodInfo.titulo}</h4>
+            <div class="kpi-icon-circle" style="background: rgba(255, 255, 255, 0.08); color: ${ikprodTextColor};"><i class="fas ${ikprodInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: ${ikprodTextColor}; text-shadow: 0 0 16px ${ikprodTextColor}60;">${ikprodInfo.valor}</div>
+          <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 2px; margin-bottom: 6px; flex-wrap: wrap;">
+            <span style="font-size: 0.72rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);"><i class="fas fa-weight-hanging"></i> ${ikprodInfo.promedio_carga_str || 'Prom: 0.0 kg/carga'}</span>
+            <span style="font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.3);"><i class="fas fa-stopwatch"></i> ${ikprodInfo.promedio_tiempo_str || ikprodInfo.tprom_str || 'Tprom: 0 min'}</span>
+          </div>
+          <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+            <span style="color: #38bdf8;"><i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}</span>
+            <span>${ikprodInfo.neto_str}</span>
+          </div>
+          <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
+            <i class="fas fa-calculator"></i> ${ikprodInfo.subtexto}
+          </div>
+        </div>
+
+        <!-- Columna 2, Fila 1: Cargas Totales Turno -->
+        <div class="kpi-card-striking kpi-card-amber" style="grid-column: 2; grid-row: 1;">
+          <div class="kpi-card-header">
+            <h4>${cargasInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${cargasInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${cargasInfo.valor}</div>
+          <div class="kpi-card-subtext">${cargasInfo.subtexto}</div>
+        </div>
+
+        <!-- Columna 3, Fila 1: Productividad hProd -->
+        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 3; grid-row: 1; background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
+          <div class="kpi-card-header">
+            <h4>${hprodInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${hprodInfo.valor}</div>
+          <div class="kpi-card-subtext">${hprodInfo.subtexto}</div>
+        </div>
+
+        <!-- Columna 4, Fila 1: Clientes y Programas -->
+        <div class="col-secondary-kpis" style="grid-column: 4; grid-row: 1;">
+          <div class="kpi-card-compact">
+            <div class="kpi-compact-info">
+              <h5>${clientesInfo.titulo}</h5>
+              <div class="kpi-compact-value">${clientesInfo.valor}</div>
+              <div class="kpi-compact-sub">${clientesInfo.subtexto}</div>
+            </div>
+            <div class="kpi-compact-icon"><i class="fas ${clientesInfo.icono}"></i></div>
+          </div>
+
+          <div class="kpi-card-compact">
+            <div class="kpi-compact-info">
+              <h5>${programasInfo.titulo}</h5>
+              <div class="kpi-compact-value">${programasInfo.valor}</div>
+              <div class="kpi-compact-sub">${programasInfo.subtexto}</div>
+            </div>
+            <div class="kpi-compact-icon"><i class="fas ${programasInfo.icono}"></i></div>
+          </div>
+        </div>
+
+        <!-- Fila 2, Columnas 2 a 4: Gráfica de Avance Productivo -->
+        <div class="chart-section-card" style="grid-column: 2 / span 3; grid-row: 2;">
+          <div class="chart-header-row">
+            <div class="chart-header-title">
+              <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
+              <h4>Avance Productivo del Turno Filtrado (Kg Acumulados vs Kg Hora vs Cargas/Hora)</h4>
+            </div>
+            <div style="font-size: 0.72rem; color: #94a3b8;">Eje Y Izq 1: Kg/Hora (rosa) | Eje Y Izq 2: Kg Acum (cian) | Eje Y Der: Cargas (oro)</div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="chart-filtros-turno"></canvas>
+          </div>
+        </div>
+      </div>
+    `;
+
+    renderAvanceChart(data.grafica_avance, 'chart-filtros-turno');
+  } catch (err) {
+    console.error('Error aplicando filtro horario:', err);
     dashboardContainer.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
   }
 }
