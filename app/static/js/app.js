@@ -260,7 +260,7 @@ function switchView(viewName) {
   }
   if (targetBtn) {
     targetBtn.classList.add('active');
-  } else if (viewName === 'tunel_lavado' || viewName === 'historial_turnos' || viewName === 'filtros_turno') {
+  } else if (viewName === 'tunel_lavado' || viewName === 'historial_turnos' || viewName === 'filtros_turno' || viewName === 'comparar_turnos') {
     const prodBtn = document.querySelector(`.menu-btn[data-view="produccion"]`);
     if (prodBtn) prodBtn.classList.add('active');
   }
@@ -273,6 +273,7 @@ function switchView(viewName) {
   if (viewName === 'tunel_lavado') loadTunelLavadoDashboard();
   if (viewName === 'historial_turnos') initHistorialTurnosScreen();
   if (viewName === 'filtros_turno') initFiltrosTurnoScreen();
+  if (viewName === 'comparar_turnos') initCompararTurnosScreen();
   if (viewName === 'consumos') loadConsumosData();
   if (viewName === 'usuarios') loadUsersList();
   if (viewName === 'permisos') loadPermissionsMatrix();
@@ -719,6 +720,7 @@ async function loadTunelLavadoDashboard() {
 let avanceChartInstance = null;
 let historialChartInstance = null;
 let filtrosChartInstance = null;
+let compararChartInstance = null;
 
 function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
   if (!graficaData || !graficaData.labels) return;
@@ -727,7 +729,8 @@ function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
 
   const isHistorial = (canvasId === 'chart-historial-turno');
   const isFiltros = (canvasId === 'chart-filtros-turno');
-  let chartInst = isHistorial ? historialChartInstance : (isFiltros ? filtrosChartInstance : avanceChartInstance);
+  const isComparar = (canvasId === 'chart-comparar-turno');
+  let chartInst = isHistorial ? historialChartInstance : (isFiltros ? filtrosChartInstance : (isComparar ? compararChartInstance : avanceChartInstance));
 
   const rawLabels = [...graficaData.labels];
   const rawKgHora = [...(graficaData.kg_por_hora || [])];
@@ -860,6 +863,8 @@ function renderAvanceChart(graficaData, canvasId = 'chart-avance-turno') {
     historialChartInstance = newChart;
   } else if (isFiltros) {
     filtrosChartInstance = newChart;
+  } else if (isComparar) {
+    compararChartInstance = newChart;
   } else {
     avanceChartInstance = newChart;
   }
@@ -1287,9 +1292,18 @@ function fetchAguaTunelData() {
 }
 
 // ==========================================
-// SECCIÓN: HISTORIAL DE TURNOS RECONSTRUIDOS
+// ==========================================
+// SECCIÓN: HISTORIAL DE TURNOS
 // ==========================================
 let chartHistorialTurno = null;
+
+function getLocalJornadaDate() {
+  const now = new Date();
+  if (now.getHours() < 5) {
+    now.setDate(now.getDate() - 1);
+  }
+  return now.toLocaleDateString('sv-SE'); // Formato YYYY-MM-DD
+}
 
 async function initHistorialTurnosScreen() {
   const fechaPicker = document.getElementById('historial-fecha-picker');
@@ -1297,24 +1311,12 @@ async function initHistorialTurnosScreen() {
 
   if (!fechaPicker || !turnoSelect) return;
 
-  // Fijar atributo max a la fecha local actual (YYYY-MM-DD)
-  const todayStr = new Date().toLocaleDateString('sv-SE');
-  fechaPicker.max = todayStr;
+  const currentJornada = getLocalJornadaDate();
+  fechaPicker.max = currentJornada;
 
-  if (!fechaPicker.dataset.initialized) {
-    fechaPicker.dataset.initialized = 'true';
-    try {
-      const res = await fetch('/api/produccion/turnos/fechas-disponibles');
-      if (res.ok) {
-        const data = await res.json();
-        if (!fechaPicker.value) {
-          fechaPicker.value = data.hoy || todayStr;
-          await loadShiftsForHistorialDate(fechaPicker.value);
-        }
-      }
-    } catch (e) {
-      console.error('Error cargando fechas disponibles:', e);
-    }
+  // Registrar listeners de eventos una sola vez
+  if (!fechaPicker.dataset.eventsAttached) {
+    fechaPicker.dataset.eventsAttached = 'true';
 
     // Event Listener al cambiar fecha
     fechaPicker.addEventListener('change', async (e) => {
@@ -1337,6 +1339,29 @@ async function initHistorialTurnosScreen() {
         resetHistorialView();
       }
     });
+  }
+
+  // Al ingresar a la pantalla de Historial, consultar la jornada y cargar turnos inmediatamente
+  try {
+    const res = await fetch('/api/produccion/turnos/fechas-disponibles');
+    let targetFecha = currentJornada;
+    if (res.ok) {
+      const data = await res.json();
+      if (data.hoy) targetFecha = data.hoy;
+    }
+
+    if (!fechaPicker.value || fechaPicker.value > targetFecha) {
+      fechaPicker.value = targetFecha;
+    }
+
+    // Cargar SIEMPRE los turnos disponibles para la jornada en curso o seleccionada
+    await loadShiftsForHistorialDate(fechaPicker.value);
+  } catch (e) {
+    console.error('Error inicializando pantalla de Historial:', e);
+    if (!fechaPicker.value) {
+      fechaPicker.value = currentJornada;
+    }
+    await loadShiftsForHistorialDate(fechaPicker.value);
   }
 }
 
@@ -1372,15 +1397,19 @@ async function loadShiftsForHistorialDate(fechaStr) {
       data.turnos.forEach(t => {
         const opt = document.createElement('option');
         opt.value = t.shift_key;
-        const totalKgStr = typeof t.total_kg === 'number' ? t.total_kg.toLocaleString('es-ES') : t.total_kg;
-        opt.textContent = `${t.nombre_turno} (${t.horario}) — ${totalKgStr} kg`;
+        const totalKgStr = typeof t.total_kg === 'number' ? Math.round(t.total_kg).toLocaleString('es-ES') : t.total_kg;
+        const estadoTag = t.is_in_progress ? ' [En proceso]' : '';
+        opt.textContent = `${t.nombre_turno} (${t.horario}) — ${totalKgStr} kg${estadoTag}`;
+        if (t.is_in_progress) {
+          opt.dataset.inProgress = 'true';
+        }
         turnoSelect.appendChild(opt);
       });
       turnoSelect.disabled = false;
     } else {
       const opt = document.createElement('option');
       opt.value = '';
-      opt.textContent = 'Sin turnos guardados en esta fecha';
+      opt.textContent = 'Sin turnos procesados en esta jornada';
       turnoSelect.appendChild(opt);
       turnoSelect.disabled = true;
     }
@@ -1401,7 +1430,7 @@ async function loadReconstructedShiftDashboard(shiftKey) {
 
   try {
     dashboardContainer.style.display = 'block';
-    dashboardContainer.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">Reconstruyendo dashboard del turno guardado...</p>';
+    dashboardContainer.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">Cargando dashboard del turno...</p>';
 
     const res = await fetch(`/api/produccion/turnos/historial-json/${shiftKey}`);
     if (!res.ok) throw new Error('No se pudo cargar el paquete JSON del turno');
@@ -1462,11 +1491,11 @@ async function loadReconstructedShiftDashboard(shiftKey) {
     let ikprodBorderColor = ikprodInfo.border_color || (ikprodInfo.color_codigo === 'red' ? '#ef4444' : ikprodInfo.color_codigo === 'orange' ? '#f97316' : '#10b981');
 
     dashboardContainer.innerHTML = `
-      <!-- Banner Sincronización del Turno Reconstruido -->
+      <!-- Banner Sincronización del Turno -->
       <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; padding: 12px 18px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
         <div style="display: flex; align-items: center; gap: 12px;">
           <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
-            <i class="fas fa-file-archive"></i>
+            <i class="fas fa-history"></i>
           </div>
           <div>
             <h4 style="color: var(--text-main); font-size: 1rem;">${meta.nombre_turno || 'Turno'} (${meta.hora_inicio || ''} - ${meta.hora_fin || ''}) — <span style="color: #38bdf8;">📅 ${meta.fecha_formateada || meta.fecha}</span></h4>
@@ -1475,7 +1504,10 @@ async function loadReconstructedShiftDashboard(shiftKey) {
         </div>
 
         <div style="text-align: right;">
-          <span style="font-size: 0.82rem; color: #38bdf8; font-weight: 700; background: rgba(56, 189, 248, 0.15); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.4);">📜 TURNO RECONSTRUIDO</span>
+          ${meta.is_in_progress ?
+            `<span style="font-size: 0.82rem; color: #34d399; font-weight: 700; background: rgba(16, 185, 129, 0.15); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.4);"><i class="fas fa-spinner fa-spin" style="margin-right: 5px;"></i> TURNO EN PROCESO</span>` :
+            `<span style="font-size: 0.82rem; color: #38bdf8; font-weight: 700; background: rgba(56, 189, 248, 0.15); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.4);">📜 HISTORIAL DE TURNO</span>`
+          }
         </div>
       </div>
 
@@ -1794,6 +1826,390 @@ async function applyFiltroHorario() {
   } catch (err) {
     console.error('Error aplicando filtro horario:', err);
     dashboardContainer.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
+  }
+}
+
+// ==========================================
+// PANTALLA: COMPARAR TURNOS Y RANKING TOP 5
+// ==========================================
+function initCompararTurnosScreen() {
+  const fechaIniInput = document.getElementById('comparar-fecha-inicio');
+  const fechaFinInput = document.getElementById('comparar-fecha-fin');
+  const placeholder = document.getElementById('comparar-placeholder');
+  const rankingContainer = document.getElementById('comparar-ranking-container');
+  const dashboardContainer = document.getElementById('comparar-dashboard-container');
+
+  if (placeholder) placeholder.style.display = 'block';
+  if (rankingContainer) {
+    rankingContainer.style.display = 'none';
+    rankingContainer.innerHTML = '';
+  }
+  if (dashboardContainer) {
+    dashboardContainer.style.display = 'none';
+    dashboardContainer.innerHTML = '';
+  }
+
+  // Fechas predeterminadas: últimos 7 días hasta hoy
+  const now = new Date();
+  const past7 = new Date();
+  past7.setDate(now.getDate() - 7);
+
+  const formatYMD = (d) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  if (fechaFinInput && !fechaFinInput.value) {
+    fechaFinInput.value = formatYMD(now);
+  }
+  if (fechaIniInput && !fechaIniInput.value) {
+    fechaIniInput.value = formatYMD(past7);
+  }
+}
+
+async function buscarComparativaTurnos() {
+  const fechaIniInput = document.getElementById('comparar-fecha-inicio');
+  const fechaFinInput = document.getElementById('comparar-fecha-fin');
+  const criterioSelect = document.getElementById('comparar-criterio-select');
+  const placeholder = document.getElementById('comparar-placeholder');
+  const rankingContainer = document.getElementById('comparar-ranking-container');
+  const dashboardContainer = document.getElementById('comparar-dashboard-container');
+
+  const fechaInicio = fechaIniInput ? fechaIniInput.value : '';
+  const fechaFin = fechaFinInput ? fechaFinInput.value : '';
+  const criterio = criterioSelect ? criterioSelect.value : 'ikprod';
+
+  if (!fechaInicio || !fechaFin) {
+    alert('Por favor selecciona la Fecha Inicio y la Fecha Fin.');
+    return;
+  }
+  if (fechaFin < fechaInicio) {
+    alert('La Fecha Fin debe ser posterior o igual a la Fecha Inicio.');
+    return;
+  }
+
+  if (placeholder) placeholder.style.display = 'none';
+  if (dashboardContainer) {
+    dashboardContainer.style.display = 'none';
+    dashboardContainer.innerHTML = '';
+  }
+
+  if (rankingContainer) {
+    rankingContainer.style.display = 'block';
+    rankingContainer.innerHTML = `
+      <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+        <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #34d399; margin-bottom: 12px;"></i>
+        <p>Analizando y clasificando los 5 mejores turnos...</p>
+      </div>
+    `;
+  }
+
+  try {
+    const url = `/api/produccion/turnos/ranking?fecha_inicio=${encodeURIComponent(fechaInicio)}&fecha_fin=${encodeURIComponent(fechaFin)}&criterio=${encodeURIComponent(criterio)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Error al obtener comparativa');
+    }
+    const data = await res.json();
+
+    if (!data.ranking || data.ranking.length === 0) {
+      rankingContainer.innerHTML = `
+        <div style="text-align: center; padding: 60px 20px; background: rgba(15, 23, 42, 0.7); border-radius: 14px; border: 1px dashed rgba(239, 68, 68, 0.4);">
+          <i class="fas fa-info-circle" style="font-size: 3rem; color: #ef4444; opacity: 0.8; margin-bottom: 16px;"></i>
+          <h4 style="color: #f8fafc; font-size: 1.3rem;">No se encontraron turnos en este rango</h4>
+          <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 8px;">No hay turnos registrados entre el ${fechaInicio} y el ${fechaFin}. Prueba ampliando el rango de fechas.</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Estilos de medallas y posiciones del Top 5
+    const badgesInfo = {
+      1: { medal: '🥇', label: '#1 ORO', color: '#fbbf24', border: '#f59e0b', bg: 'rgba(251, 191, 36, 0.15)', glow: '0 4px 20px rgba(245, 158, 11, 0.25)' },
+      2: { medal: '🥈', label: '#2 PLATA', color: '#e2e8f0', border: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)', glow: '0 4px 16px rgba(148, 163, 184, 0.2)' },
+      3: { medal: '🥉', label: '#3 BRONCE', color: '#f97316', border: '#d97706', bg: 'rgba(217, 119, 6, 0.15)', glow: '0 4px 16px rgba(217, 119, 6, 0.2)' },
+      4: { medal: '⭐', label: '#4', color: '#38bdf8', border: '#0284c7', bg: 'rgba(56, 189, 248, 0.12)', glow: 'none' },
+      5: { medal: '⭐', label: '#5', color: '#818cf8', border: '#6366f1', bg: 'rgba(129, 140, 248, 0.12)', glow: 'none' }
+    };
+
+    let html = `
+      <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(52, 211, 153, 0.4); border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(52, 211, 153, 0.2); color: #34d399; display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+            <i class="fas fa-trophy"></i>
+          </div>
+          <div>
+            <h4 style="color: var(--text-main); font-size: 1.05rem; margin: 0;">Top 5 de Turnos: <span style="color: #34d399;">${data.criterio_titulo}</span></h4>
+            <small style="color: var(--text-muted); font-size: 0.78rem;">Rango analizado: ${fechaInicio} al ${fechaFin} | Turnos evaluados: <strong>${data.total_turnos_evaluados}</strong></small>
+          </div>
+        </div>
+        <span style="font-size: 0.78rem; color: #34d399; font-weight: 700; background: rgba(52, 211, 153, 0.15); padding: 4px 12px; border-radius: 6px; border: 1px solid rgba(52, 211, 153, 0.3);">
+          ⚡ Haz clic en un turno para abrir su Dashboard
+        </span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+    `;
+
+    data.ranking.forEach(item => {
+      const b = badgesInfo[item.posicion] || badgesInfo[5];
+      html += `
+        <div class="comparar-ranking-card" onclick="mostrarDashboardTurnoComparado('${item.shift_key}')" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%); border: 1.5px solid ${b.border}; border-radius: 14px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.25s ease; box-shadow: ${b.glow}; gap: 16px; flex-wrap: wrap;">
+          <!-- Columna Izquierda: Posición e Identificación del Turno -->
+          <div style="display: flex; align-items: center; gap: 16px; min-width: 240px;">
+            <div style="width: 50px; height: 50px; border-radius: 12px; background: ${b.bg}; border: 1.5px solid ${b.border}; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+              <span style="font-size: 1.2rem; line-height: 1;">${b.medal}</span>
+              <span style="font-size: 0.65rem; font-weight: 800; color: ${b.color}; margin-top: 2px;">${b.label}</span>
+            </div>
+            <div>
+              <h4 style="font-size: 1.15rem; color: #f8fafc; margin: 0; font-weight: 700;">${item.nombre_turno}</h4>
+              <div style="color: #38bdf8; font-size: 0.84rem; font-weight: 600; margin-top: 2px;">
+                <i class="fas fa-calendar-alt"></i> ${item.fecha_formateada} &nbsp;|&nbsp; <i class="fas fa-clock"></i> ${item.rango_horario}
+              </div>
+            </div>
+          </div>
+
+          <!-- Columna Centro: Métricas Secundarias -->
+          <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <span style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 6px 12px; font-size: 0.8rem; color: #cbd5e1;">
+              <i class="fas fa-weight-hanging" style="color: #38bdf8;"></i> <strong>${item.total_kg_str}</strong>
+            </span>
+            <span style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 6px 12px; font-size: 0.8rem; color: #cbd5e1;">
+              <i class="fas fa-boxes" style="color: #fbbf24;"></i> <strong>${item.total_cargas_str}</strong>
+            </span>
+            <span style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 6px 12px; font-size: 0.8rem; color: #cbd5e1;">
+              <i class="fas fa-chart-line" style="color: #34d399;"></i> <strong>${item.ikprod_str}</strong> ikProd
+            </span>
+            <span style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 6px 12px; font-size: 0.8rem; color: #cbd5e1;">
+              <i class="fas fa-tachometer-alt" style="color: #0ea5e9;"></i> <strong>${item.hprod_str}</strong>
+            </span>
+          </div>
+
+          <!-- Columna Derecha: Métrica Destacada y Botón de Acción -->
+          <div style="display: flex; align-items: center; gap: 16px; text-align: right;">
+            <div>
+              <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">${data.criterio_titulo}</div>
+              <div style="font-size: 1.5rem; font-weight: 900; color: ${b.color}; line-height: 1.1; margin-top: 2px;">${item.criterio_label}</div>
+            </div>
+            <div style="width: 38px; height: 38px; border-radius: 50%; background: rgba(52, 211, 153, 0.15); color: #34d399; display: flex; align-items: center; justify-content: center; font-size: 1rem; border: 1px solid rgba(52, 211, 153, 0.4);">
+              <i class="fas fa-chevron-right"></i>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    html += `</div>`;
+    rankingContainer.innerHTML = html;
+  } catch (err) {
+    console.error('Error buscando comparativa de turnos:', err);
+    rankingContainer.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
+  }
+}
+
+async function mostrarDashboardTurnoComparado(shiftKey) {
+  const dashboardContainer = document.getElementById('comparar-dashboard-container');
+  if (!dashboardContainer) return;
+
+  dashboardContainer.style.display = 'block';
+  dashboardContainer.innerHTML = `
+    <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+      <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #34d399; margin-bottom: 12px;"></i>
+      <p>Cargando Dashboard completo del turno seleccionado...</p>
+    </div>
+  `;
+
+  try {
+    const res = await fetch(`/api/produccion/turnos/historial-json/${shiftKey}`);
+    if (!res.ok) throw new Error('No se pudo cargar el paquete completo del turno');
+    const pkg = await res.json();
+
+    const meta = pkg.meta_info || {};
+    const ind = pkg.indicadores_ampliados || {};
+    const tot = pkg.totales_promedios || {};
+    const desglose = pkg.desglose_horario || {};
+
+    const kgInfo = {
+      titulo: 'Kg Totales Turno',
+      valor: ind.kg_totales_turno?.valor_str || '0 kg',
+      subtexto: `Objetivo Turno: ${(tot.objetivo_turno_kg || 0).toLocaleString('es-ES')} kg (${meta.es_datos_reales ? 'Real MQTT' : 'Simulado'})`,
+      icono: 'fa-balance-scale'
+    };
+
+    const cargasInfo = {
+      titulo: 'Cargas Totales Turno',
+      valor: ind.cargas_totales_turno?.valor_str || '0 cargas',
+      subtexto: `Promedio: ${tot.promedio_peso_carga_kg || 0} kg/carga`,
+      icono: 'fa-boxes'
+    };
+
+    const hprodInfo = {
+      titulo: 'Productividad (hProd)',
+      valor: ind.productividad_hprod?.valor_str || '0 kg/h',
+      subtexto: `Tiempo prom: ${tot.promedio_tiempo_entre_cargas_min || 0} min (${tot.promedio_tiempo_entre_cargas_seg || 0}s)`,
+      icono: 'fa-tachometer-alt'
+    };
+
+    const ikprodInfo = ind.indice_eficiencia_ikprod || {
+      pct_str: '0.0%',
+      neto_str: 'ikProd Neto: 0.00',
+      color_codigo: 'red',
+      tprom_str: 'Tprom: 0 min',
+      subtexto: 'Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%'
+    };
+
+    const clientesInfo = {
+      titulo: 'Clientes Atendidos',
+      valor: ind.clientes_unicos?.valor_str || '0 clientes',
+      subtexto: 'Códigos únicos de cliente en turno',
+      icono: 'fa-users'
+    };
+
+    const programasInfo = {
+      titulo: 'Programas Ejecutados',
+      valor: ind.programas_unicos?.valor_str || '0 programas',
+      subtexto: 'Categorías/Programas únicos en turno',
+      icono: 'fa-layer-group'
+    };
+
+    let ikprodTextColor = ikprodInfo.text_color || (ikprodInfo.color_codigo === 'red' ? '#ef4444' : ikprodInfo.color_codigo === 'orange' ? '#f97316' : '#34d399');
+    let ikprodBorderColor = ikprodInfo.border_color || (ikprodInfo.color_codigo === 'red' ? '#ef4444' : ikprodInfo.color_codigo === 'orange' ? '#f97316' : '#10b981');
+
+    dashboardContainer.innerHTML = `
+      <!-- Barra Superior con Botón para Ocultar / Subir al Ranking -->
+      <div style="background: rgba(15, 23, 42, 0.95); border: 1.5px solid #34d399; padding: 14px 20px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(52, 211, 153, 0.2); color: #34d399; display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+            <i class="fas fa-chart-pie"></i>
+          </div>
+          <div>
+            <h4 style="color: var(--text-main); font-size: 1.15rem; margin: 0;">${meta.nombre_turno || 'Turno'} (${meta.hora_inicio || ''} - ${meta.hora_fin || ''}) — <span style="color: #34d399;">📅 ${meta.fecha_formateada || meta.fecha}</span></h4>
+            <small style="color: var(--text-muted); font-size: 0.8rem;">Detalle completo de turno seleccionado en la comparativa</small>
+          </div>
+        </div>
+
+        <button class="btn-header" onclick="ocultarDashboardTurnoComparado()" style="background: rgba(148, 163, 184, 0.15); border: 1px solid #64748b; color: #f8fafc; font-size: 0.85rem;">
+          <i class="fas fa-times"></i> Cerrar Detalle
+        </button>
+      </div>
+
+      <!-- Cuadrícula 4 Columnas x 2 Filas del Dashboard -->
+      <div class="dashboard-grid-layout">
+        <!-- Columna 1, Fila 1: Kg Totales Turno -->
+        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 1; grid-row: 1;">
+          <div class="kpi-card-header">
+            <h4>${kgInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${kgInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${kgInfo.valor}</div>
+          <div class="kpi-card-subtext">${kgInfo.subtexto}</div>
+        </div>
+
+        <!-- Columna 1, Fila 2: ikProd (stacked verticalmente) -->
+        <div class="kpi-card-striking" style="grid-column: 1; grid-row: 2; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid ${ikprodBorderColor}; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);">
+          <div class="kpi-card-header">
+            <h4 style="color: #f8fafc;">ÍNDICE DE EFICIENCIA (IKPROD)</h4>
+            <div class="kpi-icon-circle" style="background: rgba(255, 255, 255, 0.08); color: ${ikprodTextColor};"><i class="fas fa-chart-line"></i></div>
+          </div>
+          <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: ${ikprodTextColor}; text-shadow: 0 0 16px ${ikprodTextColor}60;">${ikprodInfo.pct_str}</div>
+          <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 2px; margin-bottom: 6px; flex-wrap: wrap;">
+            <span style="font-size: 0.72rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);"><i class="fas fa-weight-hanging"></i> Prom: ${tot.promedio_peso_carga_kg || 0} kg/carga</span>
+            <span style="font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.3);"><i class="fas fa-stopwatch"></i> ${ikprodInfo.tprom_str || 'Tprom: 0 min'}</span>
+          </div>
+          <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+            <span style="color: #38bdf8;"><i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}</span>
+            <span>${ikprodInfo.neto_str}</span>
+          </div>
+          <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
+            <i class="fas fa-calculator"></i> ${ikprodInfo.formula || 'Fórmula: (Kg Prom. / Tprom min) | Ideal: 30 = 100%'}
+          </div>
+        </div>
+
+        <!-- Columna 2, Fila 1: Cargas Totales Turno -->
+        <div class="kpi-card-striking kpi-card-amber" style="grid-column: 2; grid-row: 1;">
+          <div class="kpi-card-header">
+            <h4>${cargasInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${cargasInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${cargasInfo.valor}</div>
+          <div class="kpi-card-subtext">${cargasInfo.subtexto}</div>
+        </div>
+
+        <!-- Columna 3, Fila 1: Productividad hProd -->
+        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 3; grid-row: 1; background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
+          <div class="kpi-card-header">
+            <h4>${hprodInfo.titulo}</h4>
+            <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
+          </div>
+          <div class="kpi-big-number">${hprodInfo.valor}</div>
+          <div class="kpi-card-subtext">${hprodInfo.subtexto}</div>
+        </div>
+
+        <!-- Columna 4, Fila 1: Clientes y Programas -->
+        <div class="col-secondary-kpis" style="grid-column: 4; grid-row: 1;">
+          <div class="kpi-card-compact">
+            <div class="kpi-compact-info">
+              <h5>${clientesInfo.titulo}</h5>
+              <div class="kpi-compact-value">${clientesInfo.valor}</div>
+              <div class="kpi-compact-sub">${clientesInfo.subtexto}</div>
+            </div>
+            <div class="kpi-compact-icon"><i class="fas ${clientesInfo.icono}"></i></div>
+          </div>
+
+          <div class="kpi-card-compact">
+            <div class="kpi-compact-info">
+              <h5>${programasInfo.titulo}</h5>
+              <div class="kpi-compact-value">${programasInfo.valor}</div>
+              <div class="kpi-compact-sub">${programasInfo.subtexto}</div>
+            </div>
+            <div class="kpi-compact-icon"><i class="fas ${programasInfo.icono}"></i></div>
+          </div>
+        </div>
+
+        <!-- Fila 2, Columnas 2 a 4: Gráfica de Avance Productivo -->
+        <div class="chart-section-card" style="grid-column: 2 / span 3; grid-row: 2;">
+          <div class="chart-header-row">
+            <div class="chart-header-title">
+              <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
+              <h4>Avance Productivo del Turno (Kg Acumulados vs Kg Hora vs Cargas/Hora)</h4>
+            </div>
+            <div style="font-size: 0.72rem; color: #94a3b8;">Eje Y Izq 1: Kg/Hora (rosa) | Eje Y Izq 2: Kg Acum (cian) | Eje Y Der: Cargas (oro)</div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="chart-comparar-turno"></canvas>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const graficaData = {
+      labels: desglose.labels || [],
+      kg_por_hora: desglose.kg_por_hora || [],
+      cargas_por_hora: desglose.cargas_por_hora || [],
+      kg_acumulado: desglose.kg_acumulado_por_hora || desglose.kg_acumulado || []
+    };
+    renderAvanceChart(graficaData, 'chart-comparar-turno');
+
+    // Desplazamiento suave hacia el dashboard del turno
+    dashboardContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    console.error('Error cargando detalle del turno seleccionado:', err);
+    dashboardContainer.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
+  }
+}
+
+function ocultarDashboardTurnoComparado() {
+  const dashboardContainer = document.getElementById('comparar-dashboard-container');
+  if (dashboardContainer) {
+    dashboardContainer.style.display = 'none';
+    dashboardContainer.innerHTML = '';
+  }
+  const rankingContainer = document.getElementById('comparar-ranking-container');
+  if (rankingContainer) {
+    rankingContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 }
 

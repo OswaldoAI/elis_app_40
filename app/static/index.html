@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ELIS NÁJERA 4.0 - Sistema de Supervisión Industrial</title>
-  <link rel="stylesheet" href="/static/css/styles.css?v=4.0.19">
+  <link rel="stylesheet" href="/static/css/styles.css?v=4.0.30">
 
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -125,6 +125,9 @@
             <p style="color: var(--text-muted); font-size: 0.9rem;">Planta Nájera — Telemetría Avanzada e Indicadores por Turno</p>
           </div>
           <div style="display: flex; gap: 10px; align-items: center;">
+            <button class="btn-header" onclick="switchView('comparar_turnos')" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; font-weight: 600;">
+              <i class="fas fa-balance-scale"></i> Comparar
+            </button>
             <button class="btn-header" onclick="switchView('filtros_turno')" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; font-weight: 600;">
               <i class="fas fa-sliders-h"></i> Filtros
             </button>
@@ -142,14 +145,14 @@
         </div>
       </section>
 
-      <!-- Vista 2.2: Historial de Turnos Reconstruidos -->
+      <!-- Vista 2.2: Historial de Turnos -->
       <section id="view-historial_turnos" class="view-section">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 16px;">
           <div>
             <button class="btn-header" onclick="switchView('tunel_lavado')" style="margin-bottom: 10px;">
               <i class="fas fa-arrow-left"></i> Volver a Túnel de Lavado
             </button>
-            <h2 style="font-size: 1.8rem; color: #38bdf8;">📜 Historial de Turnos Reconstruidos</h2>
+            <h2 style="font-size: 1.8rem; color: #38bdf8;">📜 Historial de Turnos</h2>
             <p style="color: var(--text-muted); font-size: 0.9rem;">Consulta la producción, indicadores y gráficas persistidas por fecha y turno</p>
           </div>
 
@@ -173,10 +176,10 @@
         <div id="historial-placeholder" style="text-align: center; padding: 100px 20px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px; border: 1px dashed rgba(56, 189, 248, 0.3); margin-top: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
           <i class="fas fa-calendar-alt" style="font-size: 4rem; color: #38bdf8; opacity: 0.7; margin-bottom: 20px; filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.4));"></i>
           <h3 style="font-size: 1.6rem; color: #f8fafc; font-weight: 600;">Seleccionar fecha y turno</h3>
-          <p style="color: #94a3b8; font-size: 1rem; max-width: 550px; margin: 10px auto 0 auto;">Elige una fecha y un turno en los controles superiores para reconstruir los indicadores y el gráfico del turno.</p>
+          <p style="color: #94a3b8; font-size: 1rem; max-width: 550px; margin: 10px auto 0 auto;">Elige una fecha y un turno en los controles superiores para consultar los indicadores y el gráfico del turno.</p>
         </div>
 
-        <!-- Contenedor del Dashboard Reconstruido -->
+        <!-- Contenedor del Dashboard de Historial -->
         <div id="historial-dashboard-container" style="display: none;"></div>
       </section>
 
@@ -225,6 +228,59 @@
 
         <!-- Contenedor del Dashboard Filtrado Reconstruido -->
         <div id="filtros-dashboard-container" style="display: none;"></div>
+      </section>
+
+      <!-- Vista 2.4: Comparativa y Ranking Top 5 de Turnos -->
+      <section id="view-comparar_turnos" class="view-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <button class="btn-header" onclick="switchView('tunel_lavado')" style="margin-bottom: 10px;">
+              <i class="fas fa-arrow-left"></i> Volver a Túnel de Lavado
+            </button>
+            <h2 style="font-size: 1.8rem; color: #34d399;"><i class="fas fa-balance-scale" style="margin-right: 8px;"></i> Comparativa y Ranking Top 5 de Turnos</h2>
+            <p id="comparar-header-info" style="color: var(--text-muted); font-size: 0.9rem;">Busca y clasifica los mejores turnos de producción según diferentes criterios y analiza su detalle completo</p>
+          </div>
+
+          <!-- Barra de Controles: Fecha Inicio, Fecha Fin, Criterio y Buscar -->
+          <div style="display: flex; gap: 14px; align-items: center; background: rgba(30, 41, 59, 0.85); padding: 12px 20px; border-radius: 12px; border: 1px solid rgba(52, 211, 153, 0.3); flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="comparar-fecha-inicio" style="color: #cbd5e1; font-weight: 600; font-size: 0.88rem;"><i class="fas fa-calendar-alt"></i> Desde:</label>
+              <input type="date" id="comparar-fecha-inicio" class="form-control" style="width: auto; background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; font-size: 0.88rem;">
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="comparar-fecha-fin" style="color: #cbd5e1; font-weight: 600; font-size: 0.88rem;"><i class="fas fa-calendar-alt"></i> Hasta:</label>
+              <input type="date" id="comparar-fecha-fin" class="form-control" style="width: auto; background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; font-size: 0.88rem;">
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label for="comparar-criterio-select" style="color: #cbd5e1; font-weight: 600; font-size: 0.88rem;"><i class="fas fa-sort-amount-down"></i> Criterio:</label>
+              <select id="comparar-criterio-select" class="form-control" style="width: auto; background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; font-size: 0.88rem;">
+                <option value="ikprod">ikProd (%) - Eficiencia</option>
+                <option value="total_kg">Kg Totales</option>
+                <option value="total_cargas">Cargas Totales</option>
+                <option value="kg_hora">Kg / Hora (hProd)</option>
+              </select>
+            </div>
+
+            <button class="btn-header" onclick="buscarComparativaTurnos()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; font-weight: 600;">
+              <i class="fas fa-search"></i> Comparar
+            </button>
+          </div>
+        </div>
+
+        <!-- Placeholder Inicial (Fondo Oscuro) -->
+        <div id="comparar-placeholder" style="text-align: center; padding: 90px 20px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px; border: 1px dashed rgba(52, 211, 153, 0.4); margin-top: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+          <i class="fas fa-trophy" style="font-size: 4rem; color: #34d399; opacity: 0.8; margin-bottom: 20px; filter: drop-shadow(0 0 12px rgba(52, 211, 153, 0.4));"></i>
+          <h3 style="font-size: 1.6rem; color: #f8fafc; font-weight: 600;">Seleccione rango de fechas y criterio de comparación</h3>
+          <p style="color: #94a3b8; font-size: 1rem; max-width: 580px; margin: 10px auto 0 auto;">Escoge la fecha de inicio, la fecha fin y el indicador por el cual deseas clasificar de mayor a menor los 5 mejores turnos de producción.</p>
+        </div>
+
+        <!-- Contenedor del Ranking Top 5 (Lista Interactiva) -->
+        <div id="comparar-ranking-container" style="display: none; margin-top: 20px;"></div>
+
+        <!-- Contenedor del Dashboard Completo del Turno Seleccionado -->
+        <div id="comparar-dashboard-container" style="display: none; margin-top: 30px;"></div>
       </section>
 
       <!-- Vista 3: Consumos -->
@@ -335,7 +391,7 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=4.0.27"></script>
+  <script src="/static/js/app.js?v=4.0.30"></script>
 
 
 

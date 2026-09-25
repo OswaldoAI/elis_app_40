@@ -67,12 +67,25 @@ class TestElis4App(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        today_str = datetime.now().strftime("%d/%m/%Y")
+        from datetime import datetime, timedelta
+        from app.turnos_sync import get_cached_turnos
+        from app.routers.produccion_router import get_current_jornada_date, get_shift_start_end_iso
+
+        turnos_cache = get_cached_turnos()
+        turno_act = turnos_cache.get("turno_actual", {})
+        jornada_fecha = turno_act.get("fecha") or get_current_jornada_date()
+        hora_inicio = turno_act.get("hora_inicio", "06:00")
+        hora_fin = turno_act.get("hora_fin", "14:00")
+        start_iso, end_iso = get_shift_start_end_iso(jornada_fecha, hora_inicio, hora_fin)
+        dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+        carga_dt = dt_start + timedelta(minutes=30)
+        carga_ts_str = carga_dt.strftime("%d/%m/%Y %H:%M:%S")
+
         sample_payload = {
             "site": "Elis Lavanderia Industrial",
             "device": "Lenovo ThinkCentre PLC FX3U (HELMS Protocol)",
             "load_id": 703,
-            "timestamp": f"{today_str} 09:30:00",
+            "timestamp": carga_ts_str,
             "cliente": 150,
             "categoria": 4,
             "peso_kg": 59,
@@ -255,6 +268,52 @@ class TestElis4App(unittest.TestCase):
         # 5. Error case: hora_hasta <= hora_desde within same day
         res_err = self.client.get("/api/produccion/tunel-lavado/dashboard-filtrado?hora_desde=12:00&hora_hasta=08:00", headers=headers)
         self.assertEqual(res_err.status_code, 400)
+
+    def test_08_comparar_turnos_ranking(self):
+        res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
+        self.assertEqual(res.status_code, 200)
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Ranking por total_kg
+        res_rank = self.client.get(
+            "/api/produccion/turnos/ranking?fecha_inicio=2026-09-20&fecha_fin=2026-09-26&criterio=total_kg",
+            headers=headers
+        )
+        self.assertEqual(res_rank.status_code, 200)
+        rank_data = res_rank.json()
+        self.assertEqual(rank_data["status"], "success")
+        self.assertIn("ranking", rank_data)
+        self.assertLessEqual(len(rank_data["ranking"]), 5)
+
+        # Verificar orden descendente
+        if len(rank_data["ranking"]) > 1:
+            for i in range(len(rank_data["ranking"]) - 1):
+                self.assertGreaterEqual(
+                    rank_data["ranking"][i]["criterio_valor"],
+                    rank_data["ranking"][i + 1]["criterio_valor"]
+                )
+
+        # 2. Ranking por ikprod
+        res_ik = self.client.get(
+            "/api/produccion/turnos/ranking?fecha_inicio=2026-09-20&fecha_fin=2026-09-26&criterio=ikprod",
+            headers=headers
+        )
+        self.assertEqual(res_ik.status_code, 200)
+
+        # 3. Error case: criterio inválido
+        res_bad_crit = self.client.get(
+            "/api/produccion/turnos/ranking?fecha_inicio=2026-09-20&fecha_fin=2026-09-26&criterio=invalido",
+            headers=headers
+        )
+        self.assertEqual(res_bad_crit.status_code, 400)
+
+        # 4. Error case: fecha_fin < fecha_inicio
+        res_bad_dates = self.client.get(
+            "/api/produccion/turnos/ranking?fecha_inicio=2026-09-25&fecha_fin=2026-09-20&criterio=total_kg",
+            headers=headers
+        )
+        self.assertEqual(res_bad_dates.status_code, 400)
 
 if __name__ == "__main__":
     unittest.main()

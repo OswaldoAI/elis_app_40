@@ -25,30 +25,89 @@ def check_produccion_permission(current_user: dict = Depends(get_current_user)):
     return current_user
 
 from datetime import datetime, timedelta
+from app.utils import get_local_now_str, get_local_now
+
+def get_current_jornada_date(dt=None) -> str:
+    """
+    Calcula la fecha de la jornada industrial.
+    Cronológicamente la jornada abarca desde las 05:00 AM de un día hasta las 05:00 AM del día siguiente.
+    Si la hora actual es antes de las 05:00 AM, pertenece a la jornada de ayer.
+    """
+    if dt is None:
+        dt = get_local_now().replace(tzinfo=None)
+    if dt.hour < 5:
+        return (dt - timedelta(days=1)).strftime("%Y-%m-%d")
+    return dt.strftime("%Y-%m-%d")
+
+def get_shift_start_end_iso(fecha: str, hora_inicio: str, hora_fin: str) -> tuple[str, str]:
+    """
+    Calcula start_iso y end_iso de un turno dentro de la jornada definida (05:00 a 05:00+1).
+    Permite hasta 4 turnos por jornada, manejando cruces de medianoche y turnos de madrugada.
+    """
+    base_dt = datetime.strptime(fecha, "%Y-%m-%d")
+    next_date_str = (base_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    try:
+        h_start = int(hora_inicio.split(":")[0])
+        h_end = int(hora_fin.split(":")[0])
+    except Exception:
+        h_start, h_end = 6, 14
+
+    # Si la hora de inicio es menor que las 05:00, pertenece a la madrugada del día siguiente dentro de la misma jornada
+    if h_start < 5:
+        start_date_str = next_date_str
+    else:
+        start_date_str = fecha
+
+    # Si la hora de fin es menor o igual que la de inicio, o si el inicio ya era de madrugada
+    if h_end <= h_start or h_start < 5:
+        end_date_str = next_date_str
+    else:
+        end_date_str = fecha
+
+    start_iso = f"{start_date_str} {hora_inicio}:00"
+    end_iso = f"{end_date_str} {hora_fin}:00"
+    return start_iso, end_iso
+
+def get_jornada_shifts_template() -> list[dict]:
+    """Retorna los 4 posibles turnos de una jornada completa."""
+    turnos_cache = get_cached_turnos()
+    cached_shifts = turnos_cache.get("shifts") or []
+    
+    # Plantilla base de los 4 turnos posibles por jornada
+    default_shifts = [
+        {"nombre": "Turno 1", "hora_inicio": "06:00", "hora_fin": "14:00"},
+        {"nombre": "Turno 2", "hora_inicio": "14:00", "hora_fin": "21:00"},
+        {"nombre": "Turno 3", "hora_inicio": "21:00", "hora_fin": "02:00"},
+        {"nombre": "Turno 4", "hora_inicio": "02:00", "hora_fin": "06:00"}
+    ]
+    
+    if cached_shifts:
+        merged = []
+        for s in cached_shifts:
+            merged.append({
+                "nombre": s.get("name") or s.get("nombre"),
+                "hora_inicio": s.get("start") or s.get("hora_inicio"),
+                "hora_fin": s.get("end") or s.get("hora_fin")
+            })
+        for ds in default_shifts:
+            if not any(m["nombre"] == ds["nombre"] for m in merged):
+                merged.append(ds)
+        return merged[:4]
+    
+    return default_shifts
 
 def calculate_tunel_metrics(turno_act: dict = None):
-    """Calcula indicadores reales agregados filtrando strictly por el turno activo de Jetson Server 1."""
+    """Calcula indicadores reales agregados filtrando strictly por el turno activo o especificado."""
     if not turno_act:
         turnos_cache = get_cached_turnos()
         turno_act = turnos_cache.get("turno_actual", {})
 
-    fecha = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    fecha = turno_act.get("fecha") or get_current_jornada_date()
     hora_inicio = turno_act.get("hora_inicio", "06:00")
     hora_fin = turno_act.get("hora_fin", "14:00")
     
-    start_iso = f"{fecha} {hora_inicio}:00"
-    
-    # Manejo de turnos que cruzan medianoche (ej. 21:00 a 02:00)
-    try:
-        h_start = int(hora_inicio.split(":")[0])
-        h_end = int(hora_fin.split(":")[0])
-        if h_end < h_start:
-            end_date = (datetime.strptime(fecha, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-            end_iso = f"{end_date} {hora_fin}:00"
-        else:
-            end_iso = f"{fecha} {hora_fin}:00"
-    except Exception:
-        end_iso = f"{fecha} {hora_fin}:00"
+    start_iso, end_iso = get_shift_start_end_iso(fecha, hora_inicio, hora_fin)
 
     now_dt = get_local_now().replace(tzinfo=None)
     try:
@@ -1043,7 +1102,7 @@ def force_turnos_sync(admin: dict = Depends(check_produccion_permission)):
 
 @router.get("/turnos/fechas-disponibles")
 def get_available_shift_dates(user: dict = Depends(check_produccion_permission)):
-    """Obtiene la lista de fechas únicas registradas en la persistencia de turnos."""
+    """Obtiene la lista de fechas únicas de jornadas registradas en la persistencia de turnos."""
     conn = get_db_connection()
     rows = conn.execute("""
         SELECT DISTINCT fecha FROM turnos_persistencia
@@ -1052,27 +1111,92 @@ def get_available_shift_dates(user: dict = Depends(check_produccion_permission))
     conn.close()
     
     dates = [r["fecha"] for r in rows if r["fecha"]]
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    if today_str not in dates:
-        dates.insert(0, today_str)
+    jornada_hoy = get_current_jornada_date()
+    if jornada_hoy not in dates:
+        dates.insert(0, jornada_hoy)
         
-    return {"fechas": dates, "hoy": today_str}
+    return {"fechas": dates, "hoy": jornada_hoy}
 
 
 @router.get("/turnos/por-fecha/{fecha}")
 def get_shifts_by_date(fecha: str, user: dict = Depends(check_produccion_permission)):
-    """Obtiene la lista de turnos generados o disponibles para una fecha específica."""
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    
-    if fecha == today_str:
-        try:
-            pkg = build_shift_json_package()
-            save_shift_json_package(pkg)
-        except Exception as e:
-            print(f"Error asegurando turno activo para hoy: {e}")
+    """
+    Obtiene la lista de turnos de la jornada especificada.
+    Carga en el selector de turnos los turnos que ya se hayan procesado y/o estén en proceso.
+    """
+    current_jornada = get_current_jornada_date()
+    is_current_jornada = (fecha == current_jornada)
+    now_dt = get_local_now().replace(tzinfo=None)
+
+    shifts_template = get_jornada_shifts_template()
+    result = []
+    seen_keys = set()
 
     conn = get_db_connection()
-    rows = conn.execute("""
+
+    for s_info in shifts_template:
+        nombre = s_info["nombre"]
+        h_start = s_info["hora_inicio"]
+        h_end = s_info["hora_fin"]
+        shift_key = f"{fecha}_{nombre.replace(' ', '_')}"
+
+        start_iso, end_iso = get_shift_start_end_iso(fecha, h_start, h_end)
+        try:
+            dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+            dt_end = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            continue
+
+        # Determinar si el turno está en proceso actualmente
+        is_in_process = (dt_start <= now_dt < dt_end) and is_current_jornada
+
+        # Contar cargas en la BD para el intervalo del turno
+        row_cargas = conn.execute("""
+            SELECT COUNT(*), COALESCE(SUM(peso_kg), 0)
+            FROM tunel_cargas
+            WHERE timestamp_iso >= ? AND timestamp_iso < ?
+        """, (start_iso, end_iso)).fetchone()
+        
+        num_cargas = row_cargas[0] if row_cargas else 0
+        total_kg_db = row_cargas[1] if row_cargas else 0.0
+
+        # Criterio: Se incluye si ya se ha procesado (tiene cargas registradas) o está en proceso
+        should_include = (num_cargas > 0) or is_in_process
+
+        if should_include:
+            turno_dict = {
+                "nombre": nombre,
+                "fecha": fecha,
+                "hora_inicio": h_start,
+                "hora_fin": h_end
+            }
+            # Auto-construir y persistir/actualizar paquete de turno
+            pkg = build_shift_json_package(turno_dict)
+            save_shift_json_package(pkg)
+
+            ind = pkg.get("indicadores_ampliados", {})
+            kg_totales = ind.get("kg_totales_turno", {}).get("valor_num", total_kg_db)
+            cargas_totales = ind.get("cargas_totales_turno", {}).get("valor_num", num_cargas)
+            ikprod_pct = ind.get("indice_eficiencia_ikprod", {}).get("pct_num", 0.0)
+
+            estado_label = "En proceso" if is_in_process else "Procesado"
+
+            result.append({
+                "shift_key": shift_key,
+                "fecha": fecha,
+                "nombre_turno": nombre,
+                "horario": f"{h_start} - {h_end}",
+                "total_kg": kg_totales,
+                "total_cargas": cargas_totales,
+                "ikprod_pct": ikprod_pct,
+                "is_in_progress": is_in_process,
+                "estado": estado_label,
+                "updated_at": pkg.get("meta_info", {}).get("timestamp_actualizacion")
+            })
+            seen_keys.add(shift_key)
+
+    # Revisar si hay otros registros persistidos previamente para esa fecha
+    persisted_rows = conn.execute("""
         SELECT shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, updated_at
         FROM turnos_persistencia
         WHERE fecha = ?
@@ -1080,18 +1204,25 @@ def get_shifts_by_date(fecha: str, user: dict = Depends(check_produccion_permiss
     """, (fecha,)).fetchall()
     conn.close()
 
-    result = []
-    for r in rows:
-        result.append({
-            "shift_key": r["shift_key"],
-            "fecha": r["fecha"],
-            "nombre_turno": r["nombre_turno"],
-            "horario": f"{r['hora_inicio']} - {r['hora_fin']}",
-            "total_kg": r["total_kg"],
-            "total_cargas": r["total_cargas"],
-            "ikprod_pct": r["ikprod_pct"],
-            "updated_at": r["updated_at"]
-        })
+    for r in persisted_rows:
+        if r["shift_key"] not in seen_keys:
+            result.append({
+                "shift_key": r["shift_key"],
+                "fecha": r["fecha"],
+                "nombre_turno": r["nombre_turno"],
+                "horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+                "total_kg": r["total_kg"],
+                "total_cargas": r["total_cargas"],
+                "ikprod_pct": r["ikprod_pct"],
+                "is_in_progress": False,
+                "estado": "Procesado",
+                "updated_at": r["updated_at"]
+            })
+            seen_keys.add(r["shift_key"])
+
+    # Ordenar cronológicamente por horario de inicio
+    result.sort(key=lambda x: x["horario"])
+
     return {"fecha": fecha, "total": len(result), "turnos": result}
 
 
@@ -1166,7 +1297,8 @@ def sync_all_historical_shifts():
     turnos_plantilla = [
         {"nombre": "Turno 1", "hora_inicio": "06:00", "hora_fin": "14:00"},
         {"nombre": "Turno 2", "hora_inicio": "14:00", "hora_fin": "21:00"},
-        {"nombre": "Turno 3", "hora_inicio": "21:00", "hora_fin": "02:00"}
+        {"nombre": "Turno 3", "hora_inicio": "21:00", "hora_fin": "02:00"},
+        {"nombre": "Turno 4", "hora_inicio": "02:00", "hora_fin": "06:00"}
     ]
 
     total_synced = 0
@@ -1181,12 +1313,7 @@ def sync_all_historical_shifts():
             h_start = t_info["hora_inicio"]
             h_end = t_info["hora_fin"]
             
-            start_iso = f"{fecha} {h_start}:00"
-            if int(h_end.split(":")[0]) < int(h_start.split(":")[0]):
-                end_date = (dt_f + timedelta(days=1)).strftime("%Y-%m-%d")
-                end_iso = f"{end_date} {h_end}:00"
-            else:
-                end_iso = f"{fecha} {h_end}:00"
+            start_iso, end_iso = get_shift_start_end_iso(fecha, h_start, h_end)
 
             # Verificar si hay al menos 1 carga en el intervalo
             conn_check = get_db_connection()
@@ -1218,6 +1345,143 @@ def trigger_historical_sync(user: dict = Depends(check_produccion_permission)):
         "status": "success",
         "turnos_sincronizados": synced_count
     }
+
+
+@router.get("/turnos/ranking")
+def get_shifts_ranking(
+    fecha_inicio: str,
+    fecha_fin: str,
+    criterio: str,
+    user: dict = Depends(check_produccion_permission)
+):
+    """
+    Busca y clasifica de mayor a menor los mejores 5 turnos según el criterio seleccionado 
+    (ikprod, total_kg, total_cargas, kg_hora) dentro del rango [fecha_inicio, fecha_fin].
+    """
+    valid_criterios = {"ikprod", "total_kg", "total_cargas", "kg_hora"}
+    if criterio not in valid_criterios:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Criterio inválido '{criterio}'. Criterios válidos: {list(valid_criterios)}"
+        )
+
+    try:
+        dt_ini = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+        dt_fin = datetime.strptime(fecha_fin, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Formato de fechas inválido. Utilice YYYY-MM-DD."
+        )
+
+    if dt_fin < dt_ini:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha fin debe ser posterior o igual a la fecha inicio."
+        )
+
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, data_json, updated_at
+        FROM turnos_persistencia
+        WHERE fecha >= ? AND fecha <= ?
+    """, (fecha_inicio, fecha_fin)).fetchall()
+    conn.close()
+
+    turnos_evaluados = []
+    for r in rows:
+        data_pkg = {}
+        if r["data_json"]:
+            try:
+                data_pkg = json.loads(r["data_json"])
+            except Exception:
+                pass
+
+        ind = data_pkg.get("indicadores_ampliados", {})
+        hprod_val = ind.get("productividad_hprod", {}).get("valor_num", 0)
+        hprod_str = ind.get("productividad_hprod", {}).get("valor_str", "0 kg/h")
+
+        total_kg = float(r["total_kg"] or 0.0)
+        total_cargas = int(r["total_cargas"] or 0)
+        ikprod = float(r["ikprod_pct"] or 0.0)
+
+        # Si hprod no vino en el paquete, calcularlo como fallback
+        if not hprod_val and total_kg > 0:
+            h_start_s, h_end_s = r["hora_inicio"], r["hora_fin"]
+            try:
+                hs = int(h_start_s.split(":")[0])
+                he = int(h_end_s.split(":")[0])
+                dur = (he - hs) if he >= hs else (he + 24 - hs)
+                hprod_val = int(round(total_kg / max(dur, 1.0)))
+                hprod_str = f"{hprod_val:,} kg/h".replace(",", ".")
+            except Exception:
+                hprod_val = 0
+                hprod_str = "0 kg/h"
+
+        fecha_str = r["fecha"]
+        try:
+            fecha_fmt = datetime.strptime(fecha_str, "%Y-%m-%d").strftime("%d/%m/%Y")
+        except Exception:
+            fecha_fmt = fecha_str
+
+        # Determinar valor numérico de ordenamiento según criterio
+        if criterio == "ikprod":
+            criterio_val = ikprod
+            criterio_label = f"{ikprod:.1f}%"
+        elif criterio == "total_kg":
+            criterio_val = total_kg
+            criterio_label = f"{total_kg:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", ".")
+        elif criterio == "total_cargas":
+            criterio_val = total_cargas
+            criterio_label = f"{total_cargas} cargas"
+        elif criterio == "kg_hora":
+            criterio_val = hprod_val
+            criterio_label = hprod_str
+
+        turnos_evaluados.append({
+            "shift_key": r["shift_key"],
+            "fecha": fecha_str,
+            "fecha_formateada": fecha_fmt,
+            "nombre_turno": r["nombre_turno"],
+            "rango_horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+            "criterio_seleccionado": criterio,
+            "criterio_valor": criterio_val,
+            "criterio_label": criterio_label,
+            "total_kg": total_kg,
+            "total_kg_str": f"{total_kg:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "total_cargas": total_cargas,
+            "total_cargas_str": f"{total_cargas} cargas",
+            "ikprod": ikprod,
+            "ikprod_str": f"{ikprod:.1f}%",
+            "hprod": hprod_val,
+            "hprod_str": hprod_str,
+            "updated_at": r["updated_at"]
+        })
+
+    # Ordenar de mayor a menor y tomar el Top 5
+    turnos_evaluados.sort(key=lambda x: x["criterio_valor"], reverse=True)
+    top_5 = turnos_evaluados[:5]
+
+    for idx, item in enumerate(top_5, 1):
+        item["posicion"] = idx
+
+    criterio_titulos = {
+        "ikprod": "Índice de Eficiencia (ikProd)",
+        "total_kg": "Kg Totales Procesados",
+        "total_cargas": "Cargas Totales",
+        "kg_hora": "Productividad (Kg / Hora)"
+    }
+
+    return {
+        "status": "success",
+        "criterio": criterio,
+        "criterio_titulo": criterio_titulos.get(criterio, criterio),
+        "fecha_inicio": fecha_inicio,
+        "fecha_fin": fecha_fin,
+        "total_turnos_evaluados": len(turnos_evaluados),
+        "ranking": top_5
+    }
+
 
 
 
