@@ -376,12 +376,72 @@ def build_pdf():
         story.append(img_admin)
         story.append(Spacer(1, 8))
 
-    # Section 8: Despliegue y Repositorio Git
-    story.append(Paragraph("8. Guía de Despliegue y Acceso a la Plataforma", h1_style))
-    story.append(Paragraph("<b>URL en Red Local de Planta:</b> http://192.168.0.116:8084/inicio#tunel_lavado", body_style))
-    story.append(Paragraph("<b>URL Remota Segura (Tailscale):</b> https://elisnajera-desktop.tail2f2130.ts.net/inicio#tunel_lavado", body_style))
+    # Section 8: Despliegue, Rutas de Acceso y Repositorio Git
+    story.append(Paragraph("8. Guía de Conexión, Rutas de Acceso y Despliegue", h1_style))
+    story.append(Paragraph(
+        "A continuación se detallan las rutas y métodos de acceso disponibles para ingresar a la plataforma "
+        "ELIS NÁJERA 4.0 según la ubicación física del usuario y el tipo de dispositivo:", body_style
+    ))
+
+    routes_data = [
+        [
+            Paragraph("<b>Tipo de Red / Acceso</b>", body_style),
+            Paragraph("<b>Host / URL Base</b>", body_style),
+            Paragraph("<b>Acceso Directo al Túnel</b>", body_style),
+            Paragraph("<b>Requisitos de Conexión</b>", body_style)
+        ],
+        [
+            Paragraph("<b>Red Local (LAN Planta)</b>", body_style),
+            Paragraph("<code>http://192.168.0.116:8084</code>", body_style),
+            Paragraph("<code>http://192.168.0.116:8084/inicio#tunel_lavado</code>", body_style),
+            Paragraph("Conexión directa por cable Ethernet o red Wi-Fi interna de la planta ELIS Nájera.", body_style)
+        ],
+        [
+            Paragraph("<b>VPN Tailscale (IP Malla)</b>", body_style),
+            Paragraph("<code>http://100.121.212.67:8084</code>", body_style),
+            Paragraph("<code>http://100.121.212.67:8084/inicio#tunel_lavado</code>", body_style),
+            Paragraph("Dispositivos corporativos con cliente Tailscale VPN conectado a la red privada.", body_style)
+        ],
+        [
+            Paragraph("<b>URL Pública / Internet (SSL)</b>", body_style),
+            Paragraph("<code>https://elisnajera-desktop.tail2f2130.ts.net</code>", body_style),
+            Paragraph("<code>https://elisnajera-desktop.tail2f2130.ts.net/inicio#tunel_lavado</code>", body_style),
+            Paragraph("Acceso remoto seguro cifrado HTTPS desde cualquier navegador (PC o smartphone) sin software adicional.", body_style)
+        ]
+    ]
+
+    t_routes = Table(routes_data, colWidths=[95, 125, 160, 124])
+    t_routes.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    story.append(t_routes)
+    story.append(Spacer(1, 8))
+
+    story.append(Paragraph("<b>Principales Rutas y Submódulos de la Aplicación:</b>", h2_style))
+    subroutes_data = [
+        [Paragraph("<b>Ruta Hash / Endpoint</b>", body_style), Paragraph("<b>Módulo / Pantalla</b>", body_style), Paragraph("<b>Descripción Funcional</b>", body_style)],
+        [Paragraph("<code>/inicio</code>", body_style), Paragraph("Inicio / General", body_style), Paragraph("Panel global con tarjetas OEE, estado de planta y accesos rápidos.", body_style)],
+        [Paragraph("<code>/inicio#produccion</code>", body_style), Paragraph("Módulo Producción", body_style), Paragraph("Visión global de máquinas de producción y tarjetas operativas.", body_style)],
+        [Paragraph("<code>/inicio#tunel_lavado</code>", body_style), Paragraph("Dashboard Túnel", body_style), Paragraph("Dashboard ampliado 4x2, métricas reales en vivo y gráfica dual.", body_style)],
+        [Paragraph("<code>/inicio#filtros_turno</code>", body_style), Paragraph("Filtros de Turno", body_style), Paragraph("Auditoría y análisis por sub-intervalo horario (Desde / Hasta).", body_style)],
+        [Paragraph("<code>/inicio#comparar_turnos</code>", body_style), Paragraph("Comparar / Top 5", body_style), Paragraph("Búsqueda, ranking #1 a #5 y reconstrucción de turnos históricos.", body_style)],
+        [Paragraph("<code>/inicio#consumos</code>", body_style), Paragraph("Módulo Consumos", body_style), Paragraph("Telemetría de agua de lavadoras, calderas, gas y electricidad.", body_style)],
+        [Paragraph("<code>/docs</code>", body_style), Paragraph("Swagger OpenAPI", body_style), Paragraph("Documentación interactiva de todas las APIs REST del sistema.", body_style)]
+    ]
+    t_subroutes = Table(subroutes_data, colWidths=[130, 110, 264])
+    t_subroutes.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    story.append(t_subroutes)
+    story.append(Spacer(1, 8))
+
     story.append(Paragraph("<b>Repositorio GitHub Oficial:</b> https://github.com/OswaldoAI/elis_app_40.git", body_style))
-    
     story.append(Paragraph("<b>Comandos de Construcción y Despliegue en Jetson Server A:</b>", body_style))
     story.append(Paragraph(
         "cd /home/elisnajera/elis_4.0_v1<br/>"
