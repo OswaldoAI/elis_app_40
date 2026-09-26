@@ -82,21 +82,21 @@ def build_pdf():
         'DocSubtitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11,
-        leading=15,
+        fontSize=10.5,
+        leading=14,
         textColor=colors.HexColor("#64748b"),
-        spaceAfter=12
+        spaceAfter=10
     )
 
     h1_style = ParagraphStyle(
         'Heading1_Custom',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=14,
-        leading=17,
+        fontSize=13,
+        leading=16,
         textColor=primary_color,
-        spaceBefore=14,
-        spaceAfter=6,
+        spaceBefore=12,
+        spaceAfter=5,
         keepWithNext=True
     )
 
@@ -104,10 +104,10 @@ def build_pdf():
         'Heading2_Custom',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=10.5,
+        fontSize=10,
         leading=13,
         textColor=secondary_color,
-        spaceBefore=10,
+        spaceBefore=8,
         spaceAfter=4,
         keepWithNext=True
     )
@@ -116,38 +116,38 @@ def build_pdf():
         'Body_Custom',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9,
-        leading=13,
+        fontSize=8.5,
+        leading=12,
         textColor=text_color,
-        spaceAfter=6
+        spaceAfter=5
     )
 
     code_style = ParagraphStyle(
         'Code_Custom',
         parent=styles['Normal'],
         fontName='Courier',
-        fontSize=8,
-        leading=11,
+        fontSize=7.5,
+        leading=10,
         textColor=colors.HexColor("#0f172a"),
         backColor=colors.HexColor("#f1f5f9"),
         borderColor=colors.HexColor("#cbd5e1"),
         borderWidth=0.5,
-        borderPadding=5,
-        spaceAfter=6
+        borderPadding=4,
+        spaceAfter=5
     )
 
     callout_style = ParagraphStyle(
         'Callout',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=8.5,
-        leading=12,
+        fontSize=8,
+        leading=11.5,
         textColor=colors.HexColor("#0369a1"),
         backColor=colors.HexColor("#f0f9ff"),
         borderColor=colors.HexColor("#bae6fd"),
         borderWidth=0.5,
-        borderPadding=6,
-        spaceAfter=8
+        borderPadding=5,
+        spaceAfter=6
     )
 
     story = []
@@ -155,225 +155,239 @@ def build_pdf():
     # Header with Logo
     logo_path = "app/static/images/elis_logo.png"
     if os.path.exists(logo_path):
-        logo_img = RLImage(logo_path, width=130, height=42)
+        logo_img = RLImage(logo_path, width=120, height=38)
         story.append(logo_img)
-        story.append(Spacer(1, 8))
+        story.append(Spacer(1, 6))
 
     story.append(Paragraph("ELIS NÁJERA 4.0 — Documentación Técnica y Funcional", title_style))
-    story.append(Paragraph("Sistema de Supervisión e Indicadores Operativos de Planta Industrial en Tiempo Real", subtitle_style))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=primary_color, spaceAfter=10))
+    story.append(Paragraph("Manual de Arquitectura, Métricas de Producción y Módulos del Túnel de Lavado", subtitle_style))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=primary_color, spaceAfter=8))
 
     # Section 1: Resumen Ejecutivo
     story.append(Paragraph("1. Resumen Ejecutivo y Objetivos del Sistema", h1_style))
     story.append(Paragraph(
-        "El sistema <b>ELIS NÁJERA 4.0</b> constituye la plataforma centralizada de supervisión e inteligencia operativa de la planta "
-        "de lavandería industrial ELIS Nájera. Permite la integración continua de telemetría de maquinaria, cálculo de indicadores de eficiencia de turno (OEE, hProd, ikProd), "
-        "y monitoreo de consumos energéticos (electricidad, agua, gas y vapor).", body_style
+        "El sistema <b>ELIS NÁJERA 4.0</b> constituye la plataforma integral de supervisión, analítica e inteligencia operativa de la planta "
+        "de lavandería industrial ELIS Nájera. Su objetivo primordial es digitalizar en tiempo real el proceso productivo, centralizar "
+        "la telemetría de pesaje y ciclos de lavado del <b>Túnel de Lavado</b>, controlar la eficiencia energética y dotar a la dirección "
+        "y supervisión de herramientas de análisis histórico, ranking y filtrado de turnos.", body_style
     ))
     story.append(Paragraph(
-        "Las características sobresalientes de esta versión incluyen la conexión en tiempo real al <b>Broker MQTT Mosquitto</b> para la captura automatizada de cargas "
-        "del Túnel de Lavado, la sincronización dinámica con el sistema de <b>Programación de Turnos</b> (para acotar los promedios e indicadores únicamente al turno activo), "
-        "la adición de la fecha de turno en tarjetas e interfaz, la meta objetivo de <b>14.400 kg por turno</b> y un Dashboard Ampliado sin menú lateral enfocado en la operabilidad.", body_style
+        "Esta entrega incorpora la suite avanzada del Túnel de Lavado: captura de cargas en tiempo real por MQTT, persistencia estructurada "
+        "de turnos con desglose horario, el indicador de cadencia y saturación <b>ikProd</b>, la productividad horaria <b>hProd</b>, "
+        "el módulo de <b>Filtrado por Rango Horario</b> con preservación de cuadrícula convencional y la pantalla interactiva de "
+        "<b>Comparación y Ranking Top 5 de Turnos</b> con reconstrucción completa de dashboards.", body_style
     ))
 
     # Section 2: Arquitectura
-    story.append(Paragraph("2. Arquitectura de Software, Infraestructura e Integraciones", h1_style))
+    story.append(Paragraph("2. Arquitectura de Software, Infraestructura y Flujo de Datos", h1_style))
     arch_data = [
-        [Paragraph("<b>Componente</b>", body_style), Paragraph("<b>Tecnología</b>", body_style), Paragraph("<b>Descripción / Rol</b>", body_style)],
-        [Paragraph("Backend Core", body_style), Paragraph("Python 3.10 / FastAPI", body_style), Paragraph("API REST modular, middleware de autenticación JWT y WebSocket/polling.", body_style)],
-        [Paragraph("Broker MQTT", body_style), Paragraph("Mosquitto (192.168.0.116:1883)", body_style), Paragraph("Recepción en tiempo real de eventos de carga en tópico <code>elis/lavanderia/tunel/carga</code>.", body_style)],
-        [Paragraph("Base de Datos", body_style), Paragraph("SQLite (elis_40.db)", body_style), Paragraph("Tabla <code>tunel_cargas</code> con <code>load_id UNIQUE</code> e indexación por <code>timestamp_iso</code>.", body_style)],
-        [Paragraph("Sincronización Turnos", body_style), Paragraph("API Turnos (192.168.0.137:5001)", body_style), Paragraph("Sincronización automatizada con la app de turnos de planta para filtrado temporal.", body_style)],
-        [Paragraph("Frontend UI", body_style), Paragraph("HTML5 / CSS3 / JavaScript", body_style), Paragraph("Tema oscuro industrial, tarjetas dinámicas, indicador ikProd multicolor y cache busting (v=4.0.4).", body_style)],
-        [Paragraph("Servidor Edge", body_style), Paragraph("Jetson Server A (100.121.212.67)", body_style), Paragraph("Despliegue sobre Docker (puerto 8084) en plataforma ARM64 NVIDIA Tegra.", body_style)],
-        [Paragraph("Repositorio Git", body_style), Paragraph("GitHub (OswaldoAI/elis_app_40)", body_style), Paragraph("Sincronización continua de código y versión de producción en rama <code>main</code>.", body_style)]
+        [Paragraph("<b>Componente</b>", body_style), Paragraph("<b>Tecnología</b>", body_style), Paragraph("<b>Descripción / Rol en Planta</b>", body_style)],
+        [Paragraph("Autómata Túnel", body_style), Paragraph("PLC Mitsubishi FX3U", body_style), Paragraph("Control de pesaje de tolvas, tiempos de transferencia y descarga.", body_style)],
+        [Paragraph("Decodificador IoT", body_style), Paragraph("HELMS Protocol (100.105.75.39:8080)", body_style), Paragraph("Lectura de tramas RS485 del PLC y conversión a HTTP / MQTT.", body_style)],
+        [Paragraph("Broker MQTT", body_style), Paragraph("Mosquitto (192.168.0.116:1883)", body_style), Paragraph("Publicación de eventos de carga en <code>elis/lavanderia/tunel/carga</code>.", body_style)],
+        [Paragraph("Backend Core", body_style), Paragraph("Python 3.10 / FastAPI / Uvicorn", body_style), Paragraph("API REST, cálculo de KPIs, motor de filtrado y subagente MQTT.", body_style)],
+        [Paragraph("Base de Datos", body_style), Paragraph("SQLite (elis_40.db)", body_style), Paragraph("Tablas <code>tunel_cargas</code>, <code>turnos_persistencia</code> y <code>resultados_turnos</code>.", body_style)],
+        [Paragraph("Sincronizador Turnos", body_style), Paragraph("Jetson Server 1 (192.168.0.137:5001)", body_style), Paragraph("Sincronización horaria periódica de jornada industrial y pausas.", body_style)],
+        [Paragraph("Frontend UI", body_style), Paragraph("HTML5 / CSS3 / Vanilla JS / Chart.js", body_style), Paragraph("Interfaz industrial oscura, técnica Zero-Flicker y gráficos con doble eje Y.", body_style)],
+        [Paragraph("Servidor Edge", body_style), Paragraph("Jetson Server A (100.121.212.67:8084)", body_style), Paragraph("Contenedor Docker <code>elis_industry4_app</code> sobre NVIDIA Jetson ARM64.", body_style)]
     ]
-    t_arch = Table(arch_data, colWidths=[105, 135, 264])
+    t_arch = Table(arch_data, colWidths=[100, 140, 264])
     t_arch.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    story.append(t_arch)
+    story.append(Spacer(1, 6))
+
+    story.append(Paragraph("2.1 Estructura de Tablas en Base de Datos", h2_style))
+    story.append(Paragraph(
+        "• <b><code>tunel_cargas</code></b>: Registro atómico de cada descarga (<code>load_id</code>, <code>peso_kg</code>, <code>tiempo_entre_cargas_seg</code>, <code>cliente</code>, <code>categoria</code>, <code>timestamp_iso</code>).<br/>"
+        "• <b><code>turnos_persistencia</code></b>: Guarda el paquete JSON exhaustivo de cada turno (<code>shift_key</code>, <code>data_json</code>, <code>total_kg</code>, <code>total_cargas</code>, <code>ikprod_pct</code>), incluyendo el desglose hora a hora para reconstrucción idéntica de dashboards.<br/>"
+        "• <b><code>resultados_turnos</code></b>: Vista agregada y liviana optimizada para consultas de alto rendimiento y listados históricos.<br/>"
+        "• <b><code>shift_cache</code></b>: Cache local de la jornada actual y turnos configurados procedentes de Jetson Server 1.", body_style
+    ))
+
+    # Page Break
+    story.append(PageBreak())
+
+    # Section 3: Lógica de Jornada Industrial y Turnos
+    story.append(Paragraph("3. Lógica de Jornada Industrial y Turnos Operativos", h1_style))
+    story.append(Paragraph(
+        "La planta opera bajo el concepto de <b>Jornada Industrial Continua</b>, la cual comprende cronológicamente desde las "
+        "<b>05:00 AM</b> de un día hasta las <b>05:00 AM del día siguiente</b>. Cualquier registro anterior a las 05:00 AM pertenece "
+        "a la jornada operativa del día previo.", body_style
+    ))
+    story.append(Paragraph(
+        "<b>Distribución de Turnos:</b><br/>"
+        "• <b>Turno 1 (Mañana):</b> 06:00 a 14:00.<br/>"
+        "• <b>Turno 2 (Tarde):</b> 14:00 a 21:00.<br/>"
+        "• <b>Turno 3 (Noche):</b> 21:00 a 02:00 (o hasta 06:00 de la madrugada).", body_style
+    ))
+    story.append(Paragraph(
+        "<b>Continuidad Matemática de Medianoche:</b> En los turnos nocturnos que cruzan las 00:00 (Turno 3), las horas ≥ 21:00 "
+        "corresponden a la fecha de inicio del turno, mientras que las horas menores a las 05:00 AM toman la fecha del día siguiente. "
+        "Esta lógica asegura que tanto las consultas SQL como los gráficos de avance horológico mantengan una secuencia continua sin cortes.", callout_style
+    ))
+
+    # Section 4: KPIs
+    story.append(Paragraph("4. Fórmulas y Métricas de Rendimiento (KPIs)", h1_style))
+    kpi_table_data = [
+        [Paragraph("<b>Indicador</b>", body_style), Paragraph("<b>Fórmula / Definición</b>", body_style), Paragraph("<b>Criterio / Ponderación</b>", body_style)],
+        [
+            Paragraph("<b>Kg Totales Turno</b>", body_style),
+            Paragraph("Sumatoria acumulada de <code>peso_kg</code> de cargas en el turno activo.", body_style),
+            Paragraph("<b>Meta: 14.400 kg</b> por turno completo. Barra de progreso visual.", body_style)
+        ],
+        [
+            Paragraph("<b>Cargas Totales</b>", body_style),
+            Paragraph("Conteo total de cargas reales ingresadas al túnel.", body_style),
+            Paragraph("Medición de volumen físico de carga procesado.", body_style)
+        ],
+        [
+            Paragraph("<b>hProd (Kg/Hora)</b>", body_style),
+            Paragraph("<code>hProd = (Kg Totales) / (Horas Transcurridas de Turno)</code>", body_style),
+            Paragraph("Velocidad de producción horaria efectiva en <b>kg/h</b>.", body_style)
+        ],
+        [
+            Paragraph("<b>ikProd (Eficiencia)</b>", body_style),
+            Paragraph("<code>ikProd_Neto = (Peso Prom. kg) / (Tiempo Prom. min)</code><br/><code>ikProd% = (ikProd_Neto / 30.0) * 100%</code>", body_style),
+            Paragraph("<b>Ideal: 30 = 100%</b>.<br/>🔴 Rojo: &lt;30%<br/>🟠 Naranja: 30% - 60%<br/>🟢 Verde: &gt;60%", body_style)
+        ],
+        [
+            Paragraph("<b>Tprom (Tiempo Medio)</b>", body_style),
+            Paragraph("<code>Tprom = (Sumatoria seg / # cargas) / 60</code>", body_style),
+            Paragraph("Tiempo medio de cadencia de prensa/lavado expresado en min y seg.", body_style)
+        ],
+        [
+            Paragraph("<b>Clientes / Programas</b>", body_style),
+            Paragraph("<code>COUNT(DISTINCT cliente)</code> y <code>COUNT(DISTINCT categoria)</code>", body_style),
+            Paragraph("Diversidad de clientes y programas procesados en el turno.", body_style)
+        ]
+    ]
+    t_kpis = Table(kpi_table_data, colWidths=[110, 230, 164])
+    t_kpis.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
-    story.append(t_arch)
-    story.append(Spacer(1, 8))
+    story.append(t_kpis)
+    story.append(Spacer(1, 6))
 
-    # Sub-section 2.1 MQTT
-    story.append(Paragraph("2.1 Integración MQTT Mosquitto (Túnel de Lavado)", h2_style))
-    story.append(Paragraph(
-        "El backend mantiene una conexión permanente con el Broker MQTT Mosquitto mediante la librería <code>paho-mqtt</code> en un hilo secundario asíncrono. "
-        "Cada vez que el autómata PLC FX3U del Túnel de Lavado procesa una carga, publica un paquete JSON en el tópico <code>elis/lavanderia/tunel/carga</code>:", body_style
-    ))
-    json_example = (
-        '{\n'
-        '  "site": "Elis Lavanderia Industrial",\n'
-        '  "device": "Lenovo ThinkCentre PLC FX3U (HELMS Protocol)",\n'
-        '  "load_id": 703,\n'
-        '  "timestamp": "20/09/2026 22:00:50",\n'
-        '  "cliente": 150,\n'
-        '  "categoria": 4,\n'
-        '  "peso_kg": 59,\n'
-        '  "tiempo_entre_cargas_seg": 185,\n'
-        '  "raw_hex": "1A40 10DC"\n'
-        '}'
-    )
-    story.append(Paragraph(json_example.replace("\n", "<br/>").replace(" ", "&nbsp;"), code_style))
-
-    story.append(Paragraph(
-        "El subscriptor almacena la carga de forma atómica en SQLite, convirtiendo el timestamp al formato ISO (<code>YYYY-MM-DD HH:MM:SS</code>) "
-        "para garantizar consultas ordenadas por fecha y hora exactas en el turno actual.", body_style
-    ))
-
-    # Page Break for clean presentation
+    # Page Break
     story.append(PageBreak())
 
-    # Section 3: KPIs e Indicadores Clave
-    story.append(Paragraph("3. Indicadores Clave de Rendimiento (KPIs) de Turno", h1_style))
-    story.append(Paragraph(
-        "Con el objetivo de maximizar la eficiencia en la lavandería industrial, el sistema calcula de manera dinámica los siguientes indicadores acotados al turno activo:", body_style
-    ))
+    # Section 5: Pantallas y Funcionalidades
+    story.append(Paragraph("5. Pantallas y Funcionalidades del Módulo Túnel de Lavado", h1_style))
 
-    kpi_table_data = [
-        [Paragraph("<b>Indicador</b>", body_style), Paragraph("<b>Fórmula / Definición</b>", body_style), Paragraph("<b>Valor Referencia / Criterio</b>", body_style)],
-        [
-            Paragraph("<b>Kg Totales Turno</b>", body_style),
-            Paragraph("Sumatoria acumulada de <code>peso_kg</code> de cargas recibidas en el turno activo.", body_style),
-            Paragraph("<b>Meta Objetivo: 14.400 kg</b> por turno.", body_style)
-        ],
-        [
-            Paragraph("<b>Cargas Totales Turno</b>", body_style),
-            Paragraph("Conteo total de eventos de carga registrados durante el turno en curso.", body_style),
-            Paragraph("Medición de volumen de producción acumulado.", body_style)
-        ],
-        [
-            Paragraph("<b>hProd (Productividad/Hora)</b>", body_style),
-            Paragraph("<code>hProd = (Suma Kg Turno) / (Horas Transcurridas de Turno)</code>", body_style),
-            Paragraph("Expresado en <b>kg/h</b>. Evalúa el ritmo horario del turno.", body_style)
-        ],
-        [
-            Paragraph("<b>ikProd (Indicador Clave)</b>", body_style),
-            Paragraph("<code>ikProd = (Peso Promedio Kg) * [1 / (Tiempo Promedio Cargas Min)]</code><br/><code>ikProd% = (ikProd_Neto / 30) * 100%</code>", body_style),
-            Paragraph("<b>Ideal: 30 = 100%</b>.<br/>🔴 Rojo: &lt;30%<br/>🟠 Naranja: 30% - 60%<br/>🟢 Verde: &gt;60%", body_style)
-        ],
-        [
-            Paragraph("<b>Tprom (Tiempo Promedio)</b>", body_style),
-            Paragraph("<code>Tprom = (Sumatoria tiempo_entre_cargas_seg / # cargas) / 60</code>", body_style),
-            Paragraph("Expresado en minutos. Mostrado en texto mediano junto al ikProd.", body_style)
-        ],
-        [
-            Paragraph("<b>Clientes Atendidos</b>", body_style),
-            Paragraph("<code>COUNT(DISTINCT cliente)</code> durante el turno activo.", body_style),
-            Paragraph("Conteo de códigos únicos de cliente procesados.", body_style)
-        ],
-        [
-            Paragraph("<b>Programas Ejecutados</b>", body_style),
-            Paragraph("<code>COUNT(DISTINCT categoria)</code> durante el turno activo.", body_style),
-            Paragraph("Conteo de categorías/programas únicos ejecutados.", body_style)
-        ],
-        [
-            Paragraph("<b>Gráfica Avance Productivo</b>", body_style),
-            Paragraph("Gráfica combinada dual-axis (Chart.js) por horas completas de turno.", body_style),
-            Paragraph("<b>Línea Azul</b>: Kg/h<br/><b>Barras Ámbar</b>: Tiempo acumulado (min).", body_style)
-        ]
+    # 5.1 Dashboard Ampliado
+    story.append(Paragraph("5.1 Dashboard Ampliado del Túnel de Lavado (#view-tunel_lavado)", h2_style))
+    story.append(Paragraph(
+        "Diseñado específicamente para pantallas operativas de planta. Elimina el menú lateral para maximizar el área útil y presenta "
+        "una <b>cuadrícula 4x2 de alta visibilidad</b>. Integra en la parte inferior la <b>Gráfica de Avance Productivo con Doble Eje Y</b> "
+        "(barras rosa de kg/h, línea cian de kg acumulados y barras amarillas de cargas por franja horaria convencional). "
+        "El refresco en vivo emplea la técnica <i>Zero-Flicker</i>, actualizando canvas y DOM in-place sin parpadeos.", body_style
+    ))
+    img_tunel = "pdf_assets/screenshot_tunel_ampliado.png" if os.path.exists("pdf_assets/screenshot_tunel_ampliado.png") else "pdf_assets/screenshot_expanded.png"
+    if os.path.exists(img_tunel):
+        story.append(RLImage(img_tunel, width=500, height=230))
+        story.append(Spacer(1, 6))
+
+    # 5.2 Filtros
+    story.append(Paragraph("5.2 Pantalla de Filtros por Rango Horario (#view-filtros_turno)", h2_style))
+    story.append(Paragraph(
+        "Accesible mediante el botón <b>'Filtros'</b> (icono ecualizadores). Permite a los supervisores auditar cualquier ventana temporal "
+        "del turno actual ingresando los campos <b>Desde</b> (HH:MM) y <b>Hasta</b> (HH:MM). Soporta cruce de medianoche en el turno nocturno. "
+        "El eje X de la gráfica mantiene las franjas horarias convencionales (ej: <code>06:00 - 07:00</code>), calculando las cargas y kilogramos "
+        "proporcionales de los minutos correspondientes. Si no se han escogido datos, muestra un fondo oscuro con mensaje de guía.", body_style
+    ))
+    if os.path.exists("pdf_assets/screenshot_filtros.png"):
+        story.append(RLImage("pdf_assets/screenshot_filtros.png", width=500, height=230))
+        story.append(Spacer(1, 6))
+
+    # Page Break
+    story.append(PageBreak())
+
+    # 5.3 Comparar y Top 5
+    story.append(Paragraph("5.3 Pantalla de Comparación y Ranking Top 5 (#view-comparar_turnos)", h2_style))
+    story.append(Paragraph(
+        "Accesible mediante el botón <b>'Comparar'</b> (icono balanza). Permite clasificar y ranquear los 5 mejores turnos dentro de un rango "
+        "de fechas personalizado (<code>Fecha Inicio</code> y <code>Fecha Fin</code>) evaluando cualquiera de los 4 criterios fundamentales: "
+        "<b>ikProd (%)</b>, <b>Kg Totales</b>, <b>Cargas Totales</b> o <b>Kg / Hora (Productividad)</b>.", body_style
+    ))
+    story.append(Paragraph(
+        "<b>Características del Ranking:</b><br/>"
+        "• <b>Insignias Numéricas:</b> Cada turno muestra su posición destacada (<b>#1</b> dorado, <b>#2</b> plateado, <b>#3</b> bronce, <b>#4</b> cian y <b>#5</b> índigo).<br/>"
+        "• <b>Pastillas de Indicadores:</b> Resumen visual de kilos, cargas, % ikProd y tasa hProd.<br/>"
+        "• <b>Zona Activa Interactiva:</b> Al hacer clic sobre cualquier turno de la lista, se abre de inmediato un dashboard completo con la misma apariencia 4x2 del dashboard ampliado, reconstruyendo las 8 tarjetas de KPIs y la gráfica hora a hora con los datos completos almacenados en <code>turnos_persistencia</code>.", body_style
+    ))
+    if os.path.exists("pdf_assets/screenshot_comparar.png"):
+        story.append(RLImage("pdf_assets/screenshot_comparar.png", width=500, height=220))
+        story.append(Spacer(1, 6))
+
+    # Section 6: Catálogo Endpoints
+    story.append(Paragraph("6. Catálogo de Endpoints de la API Backend (FastAPI)", h1_style))
+    api_data = [
+        [Paragraph("<b>Método</b>", body_style), Paragraph("<b>Endpoint</b>", body_style), Paragraph("<b>Parámetros / Payload</b>", body_style), Paragraph("<b>Descripción / Respuesta</b>", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/tunel-lavado/dashboard</code>", body_style), Paragraph("Ninguno", body_style), Paragraph("KPIs agregados, ikProd y desglose horario del turno activo en curso.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/tunel-lavado/dashboard-filtrado</code>", body_style), Paragraph("<code>hora_desde</code>, <code>hora_hasta</code>", body_style), Paragraph("Métricas y gráfica recalculadas para el intervalo horario especificado.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/turnos/ranking</code>", body_style), Paragraph("<code>fecha_inicio</code>, <code>fecha_fin</code>, <code>criterio</code>", body_style), Paragraph("Clasificación descendente de los mejores 5 turnos del periodo.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/turnos/historial-json/{key}</code>", body_style), Paragraph("<code>shift_key</code> (path)", body_style), Paragraph("Paquete JSON completo con desglose para reconstrucción de dashboard.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/turnos/fechas-disponibles</code>", body_style), Paragraph("Ninguno", body_style), Paragraph("Listado de fechas con registros de turnos históricos.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/turnos/resultados</code>", body_style), Paragraph("<code>fecha</code> (opcional)", body_style), Paragraph("Consulta a la tabla liviana de resultados para resúmenes tabulares.", body_style)],
+        [Paragraph("<code>POST</code>", body_style), Paragraph("<code>/api/produccion/turnos/guardar-json</code>", body_style), Paragraph("JSON con turno completo", body_style), Paragraph("Persistencia atómica de paquete de turno en <code>turnos_persistencia</code>.", body_style)]
     ]
-    t_kpis = Table(kpi_table_data, colWidths=[120, 220, 164])
-    t_kpis.setStyle(TableStyle([
+    t_api = Table(api_data, colWidths=[45, 175, 120, 164])
+    t_api.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
     ]))
-    story.append(t_kpis)
-    story.append(Spacer(1, 10))
+    story.append(t_api)
+    story.append(Spacer(1, 6))
 
-    story.append(Paragraph(
-        "<b>Explicación del Indicador ikProd:</b> Multiplica el peso medio de las cargas por el inverso del tiempo medio entre cargas. "
-        "Un ikProd igual o superior a 30 representa el 100% de la eficiencia teórica deseada de la línea. "
-        "El porcentaje se destaca en fuente de mayor tamaño y cambia dinámicamente de color según el rendimiento operativo del turno.", callout_style
-    ))
-
-    # Section 4: Capturas de Pantalla y Vistas
-    story.append(Paragraph("4. Capturas de Pantalla y Explicación de Vistas", h1_style))
-
-    # 4.1 Vista Inicio
-    story.append(Paragraph("4.1 Vista de Inicio (/inicio)", h2_style))
-    story.append(Paragraph(
-        "Panel principal con encabezado blanco institucional, logo oficial ELIS, banner 4.0 y tarjetas globales de estado de planta "
-        "(100% Operativa, Disponibilidad OEE 98.4% y Rendimiento 14.2 Tn/Día).", body_style
-    ))
-    if os.path.exists("pdf_assets/screenshot_inicio.png"):
-        img_inicio = RLImage("pdf_assets/screenshot_inicio.png", width=500, height=270)
-        story.append(img_inicio)
-        story.append(Spacer(1, 8))
-
-    # 4.2 Módulo Producción
-    story.append(Paragraph("4.2 Módulo de Producción (/produccion)", h2_style))
-    story.append(Paragraph(
-        "Muestra la tarjeta integrada de <b>Túnel de Lavado</b> con telemetría MQTT en vivo, delimitación de datos al turno activo, "
-        "fecha actual del turno, tarjeta ikProd con distintivo Tprom, indicador hProd y meta de 14.400 kg.", body_style
-    ))
-    if os.path.exists("pdf_assets/screenshot_produccion.png"):
-        img_prod = RLImage("pdf_assets/screenshot_produccion.png", width=500, height=310)
-        story.append(img_prod)
-        story.append(Spacer(1, 8))
-
-    # Page Break for clean presentation
+    # Page Break
     story.append(PageBreak())
 
-    # 4.3 Dashboard Ampliado
-    story.append(Paragraph("4.3 Dashboard Ampliado del Túnel de Lavado", h2_style))
-    story.append(Paragraph(
-        "Vista simplificada de alta visibilidad para monitores de planta. Se ha eliminado el menú lateral de la izquierda "
-        "y se han reorganizado los elementos incorporando las tarjetas compactas de <b>Clientes Atendidos</b> y <b>Programas Ejecutados</b>, "
-        "así como la <b>Gráfica de Avance Productivo del Turno (Dual-Axis)</b> en la sección inferior, dibujando hora a hora los Kg producidos en línea azul "
-        "y los minutos acumulados entre cargas en barras ámbar.", body_style
-    ))
-    if os.path.exists("pdf_assets/screenshot_expanded.png"):
-        img_exp = RLImage("pdf_assets/screenshot_expanded.png", width=500, height=310)
-        story.append(img_exp)
-        story.append(Spacer(1, 8))
-
-    # 4.4 Admin y Permisos
-    story.append(Paragraph("4.4 Panel de Administración y Matriz de Permisos (RBAC)", h2_style))
-    story.append(Paragraph(
-        "Permite al usuario <b>Admin</b> crear cuentas de usuario y definir la matriz de visibilidad de módulos. "
-        "Los usuarios sin permiso visualizan los elementos restringidos en el menú lateral con estilo <b>degradado y candado (🔒)</b>.", body_style
-    ))
-    if os.path.exists("pdf_assets/screenshot_admin.png"):
-        img_admin = RLImage("pdf_assets/screenshot_admin.png", width=500, height=250)
-        story.append(img_admin)
-        story.append(Spacer(1, 8))
-
-    # Section 5: Modelo de Seguridad y Usuarios
-    story.append(Paragraph("5. Modelo de Seguridad, Usuarios y RBAC", h1_style))
+    # Section 7: Seguridad y Roles
+    story.append(Paragraph("7. Modelo de Seguridad, Autenticación y Permisos (RBAC)", h1_style))
     user_data = [
-        [Paragraph("<b>Usuario</b>", body_style), Paragraph("<b>Rol</b>", body_style), Paragraph("<b>Contraseña Defecto</b>", body_style), Paragraph("<b>Permisos de Módulos</b>", body_style)],
-        [Paragraph("<b>Admin</b>", body_style), Paragraph("Admin", body_style), Paragraph("<code>admin1</code>", body_style), Paragraph("Acceso Total + Panel Admin Usuarios y Permisos", body_style)],
-        [Paragraph("<b>Dirección</b>", body_style), Paragraph("Dirección", body_style), Paragraph("<code>admin</code>", body_style), Paragraph("Acceso Total a Módulos Producción y Consumos", body_style)],
-        [Paragraph("<b>producción</b>", body_style), Paragraph("producción", body_style), Paragraph("<code>admin</code>", body_style), Paragraph("Acceso a Producción. Consumos BLOQUEADO (🔒)", body_style)],
-        [Paragraph("<b>mtto</b>", body_style), Paragraph("mtto", body_style), Paragraph("<code>admin</code>", body_style), Paragraph("Acceso a Consumos. Producción BLOQUEADO (🔒)", body_style)]
+        [Paragraph("<b>Usuario</b>", body_style), Paragraph("<b>Rol</b>", body_style), Paragraph("<b>Contraseña</b>", body_style), Paragraph("<b>Permisos Asignados</b>", body_style)],
+        [Paragraph("<b>Admin</b>", body_style), Paragraph("Admin", body_style), Paragraph("<code>admin1</code>", body_style), Paragraph("Control total del sistema, gestión de usuarios y matriz de permisos.", body_style)],
+        [Paragraph("<b>Dirección</b>", body_style), Paragraph("Dirección", body_style), Paragraph("<code>admin</code>", body_style), Paragraph("Acceso completo a Producción (Túnel, Filtros, Comparar) y Consumos.", body_style)],
+        [Paragraph("<b>producción</b>", body_style), Paragraph("producción", body_style), Paragraph("<code>admin</code>", body_style), Paragraph("Acceso exclusivo a Producción. Consumos bloqueado con candado (🔒).", body_style)],
+        [Paragraph("<b>mtto</b>", body_style), Paragraph("mtto", body_style), Paragraph("<code>admin</code>", body_style), Paragraph("Acceso a telemetría de Consumos energéticos. Producción bloqueado (🔒).", body_style)]
     ]
-    t_users = Table(user_data, colWidths=[80, 80, 110, 234])
+    t_users = Table(user_data, colWidths=[75, 75, 75, 279])
     t_users.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(t_users)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
-    # Section 6: Despliegue y Repositorio
-    story.append(Paragraph("6. Guía de Despliegue, Servidores y Repositorio Git", h1_style))
-    story.append(Paragraph("<b>URL de Producción (Planta Nájera):</b> http://100.121.212.67:8084/inicio", body_style))
+    if os.path.exists("pdf_assets/screenshot_admin.png"):
+        img_admin = RLImage("pdf_assets/screenshot_admin.png", width=500, height=210)
+        story.append(img_admin)
+        story.append(Spacer(1, 8))
+
+    # Section 8: Despliegue y Repositorio Git
+    story.append(Paragraph("8. Guía de Despliegue y Acceso a la Plataforma", h1_style))
+    story.append(Paragraph("<b>URL en Red Local de Planta:</b> http://192.168.0.116:8084/inicio#tunel_lavado", body_style))
+    story.append(Paragraph("<b>URL Remota Segura (Tailscale):</b> https://elisnajera-desktop.tail2f2130.ts.net/inicio#tunel_lavado", body_style))
     story.append(Paragraph("<b>Repositorio GitHub Oficial:</b> https://github.com/OswaldoAI/elis_app_40.git", body_style))
     
-    story.append(Paragraph("Comandos para construcción y despliegue del contenedor Docker en Jetson Server A:", body_style))
+    story.append(Paragraph("<b>Comandos de Construcción y Despliegue en Jetson Server A:</b>", body_style))
     story.append(Paragraph(
         "cd /home/elisnajera/elis_4.0_v1<br/>"
         "git pull origin main<br/>"
         "sudo DOCKER_BUILDKIT=0 docker build -t elis_industry4_img .<br/>"
-        "sudo docker stop elis_industry4_app && sudo docker rm elis_industry4_app<br/>"
+        "sudo docker stop elis_industry4_app &amp;&amp; sudo docker rm elis_industry4_app<br/>"
         "sudo docker run -d --name elis_industry4_app -p 8084:8000 --restart always -v elis_data:/app/data elis_industry4_img",
         code_style
     ))
