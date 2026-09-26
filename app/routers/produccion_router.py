@@ -1482,6 +1482,197 @@ def get_shifts_ranking(
         "ranking": top_5
     }
 
+@router.get("/turnos/totales-periodo")
+def get_totales_periodo(
+    fecha_inicio: str,
+    hora_inicio: str = "06:00",
+    fecha_fin: str = None,
+    hora_fin: str = "22:00",
+    current_user: dict = Depends(check_produccion_permission)
+):
+    """
+    Calcula los totales consolidados de un período concatenando los turnos comprendidos en la ventana seleccionada.
+    No se toman en cuenta baches de tiempo intermedios (ej: fines de semana o noches sin producción).
+    Los turnos incluidos se asumen contiguos para el cálculo de horas efectivas y kg/hora.
+    """
+    if not fecha_fin:
+        fecha_fin = fecha_inicio
+
+    try:
+        dt_start = datetime.strptime(f"{fecha_inicio} {hora_inicio}:00", "%Y-%m-%d %H:%M:%S")
+        dt_end = datetime.strptime(f"{fecha_fin} {hora_fin}:00", "%Y-%m-%d %H:%M:%S")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Formato de fecha u hora inválido: {e}"
+        )
+
+    if dt_end <= dt_start:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha y hora de fin debe ser posterior a la fecha y hora de inicio."
+        )
+
+    window_start_str = dt_start.strftime("%Y-%m-%d %H:%M:%S")
+    window_end_str = dt_end.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Consultar turnos_persistencia con margen de 1 día antes y 1 día después para cubrir turnos nocturnos
+    q_start_date = (dt_start - timedelta(days=1)).strftime("%Y-%m-%d")
+    q_end_date = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, data_json, updated_at
+        FROM turnos_persistencia
+        WHERE fecha >= ? AND fecha <= ?
+        ORDER BY fecha ASC, hora_inicio ASC
+    """, (q_start_date, q_end_date)).fetchall()
+    conn.close()
+
+    turnos_concatenados = []
+    total_kg_acum = 0.0
+    total_cargas_acum = 0
+    total_segundos_efectivos = 0.0
+
+    for r in rows:
+        shift_start_iso, shift_end_iso = get_shift_start_end_iso(r["fecha"], r["hora_inicio"], r["hora_fin"])
+        
+        # Verificar si el turno cae dentro de la ventana de tiempo escogida (intersección)
+        if shift_end_iso > window_start_str and shift_start_iso < window_end_str:
+            t_kg = float(r["total_kg"] or 0.0)
+            t_cargas = int(r["total_cargas"] or 0)
+            ikprod = float(r["ikprod_pct"] or 0.0)
+
+            # Duración del turno sin considerar baches entre turnos
+            try:
+                dt_s = datetime.strptime(shift_start_iso, "%Y-%m-%d %H:%M:%S")
+                dt_e = datetime.strptime(shift_end_iso, "%Y-%m-%d %H:%M:%S")
+                dur_seg = max((dt_e - dt_s).total_seconds(), 60.0)
+            except Exception:
+                dur_seg = 8 * 3600.0
+
+            dur_horas = dur_seg / 3600.0
+            
+            # Obtener hprod del turno
+            data_pkg = {}
+            if r["data_json"]:
+                try:
+                    data_pkg = json.loads(r["data_json"])
+                except Exception:
+                    pass
+            ind = data_pkg.get("indicadores_ampliados", {})
+            hprod_val = ind.get("productividad_hprod", {}).get("valor_num")
+            if not hprod_val and t_kg > 0 and dur_horas > 0:
+                hprod_val = int(round(t_kg / dur_horas))
+
+            total_kg_acum += t_kg
+            total_cargas_acum += t_cargas
+            total_segundos_efectivos += dur_seg
+
+            turnos_concatenados.append({
+                "shift_key": r["shift_key"],
+                "fecha": r["fecha"],
+                "fecha_formateada": datetime.strptime(r["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y") if "-" in r["fecha"] else r["fecha"],
+                "nombre_turno": r["nombre_turno"],
+                "hora_inicio": r["hora_inicio"],
+                "hora_fin": r["hora_fin"],
+                "rango_horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+                "duracion_horas": round(dur_horas, 1),
+                "total_kg": t_kg,
+                "total_kg_str": f"{t_kg:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "total_cargas": t_cargas,
+                "total_cargas_str": f"{t_cargas} cargas",
+                "ikprod": ikprod,
+                "ikprod_str": f"{ikprod:.1f}%",
+                "hprod": hprod_val or 0,
+                "hprod_str": f"{(hprod_val or 0):,} kg/h".replace(",", ".")
+            })
+
+    total_horas_efectivas = total_segundos_efectivos / 3600.0
+    total_minutos_efectivos = total_segundos_efectivos / 60.0
+
+    # Kg/Hora del período (kilos totales / horas efectivas de turnos concatenados)
+    if total_horas_efectivas > 0 and total_kg_acum > 0:
+        kg_hora_periodo = int(round(total_kg_acum / total_horas_efectivas))
+    else:
+        kg_hora_periodo = 0
+
+    # ikProd General del período
+    if total_cargas_acum > 0:
+        promedio_peso_periodo = round(total_kg_acum / total_cargas_acum, 1)
+        promedio_tiempo_min_periodo = round(total_minutos_efectivos / total_cargas_acum, 2)
+        ikprod_neto_periodo = round(promedio_peso_periodo / max(promedio_tiempo_min_periodo, 0.01), 2)
+        ikprod_general_pct = round((ikprod_neto_periodo / 30.0) * 100.0, 1)
+    else:
+        promedio_peso_periodo = 0.0
+        promedio_tiempo_min_periodo = 0.0
+        ikprod_neto_periodo = 0.0
+        ikprod_general_pct = 0.0
+
+    # Semáforo ikProd
+    if ikprod_general_pct < 30.0:
+        color_code = "red"
+        gradient = "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)"
+        subtexto_color = "#f87171"
+        text_color = "#ef4444"
+        border_color = "#ef4444"
+    elif 30.0 <= ikprod_general_pct <= 60.0:
+        color_code = "orange"
+        gradient = "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)"
+        subtexto_color = "#fb923c"
+        text_color = "#f97316"
+        border_color = "#f97316"
+    else:
+        color_code = "green"
+        gradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+        subtexto_color = "#6ee7b7"
+        text_color = "#34d399"
+        border_color = "#10b981"
+
+    horas_int = int(total_horas_efectivas)
+    minutos_rem = int(round((total_horas_efectivas - horas_int) * 60))
+
+    return {
+        "status": "success",
+        "ventana_solicitada": {
+            "fecha_inicio": fecha_inicio,
+            "hora_inicio": hora_inicio,
+            "fecha_fin": fecha_fin,
+            "hora_fin": hora_fin,
+            "inicio_iso": window_start_str,
+            "fin_iso": window_end_str,
+            "inicio_formateado": f"{datetime.strptime(fecha_inicio, '%Y-%m-%d').strftime('%d/%m/%Y')} {hora_inicio}",
+            "fin_formateado": f"{datetime.strptime(fecha_fin, '%Y-%m-%d').strftime('%d/%m/%Y')} {hora_fin}"
+        },
+        "totales": {
+            "total_turnos": len(turnos_concatenados),
+            "total_kg": round(total_kg_acum, 1),
+            "total_kg_str": f"{total_kg_acum:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "total_cargas": total_cargas_acum,
+            "total_cargas_str": f"{total_cargas_acum} cargas",
+            "kg_hora": kg_hora_periodo,
+            "kg_hora_str": f"{kg_hora_periodo:,} kg/h".replace(",", "."),
+            "horas_efectivas": round(total_horas_efectivas, 1),
+            "horas_efectivas_str": f"{horas_int}h {minutos_rem}m ({round(total_horas_efectivas, 1)}h)",
+            "promedio_peso": promedio_peso_periodo,
+            "promedio_peso_str": f"{promedio_peso_periodo} kg/carga",
+            "promedio_tiempo_min": promedio_tiempo_min_periodo,
+            "promedio_tiempo_str": f"{promedio_tiempo_min_periodo} min/carga ({int(round(promedio_tiempo_min_periodo * 60))}s)",
+            "ikprod": {
+                "pct": ikprod_general_pct,
+                "pct_str": f"{ikprod_general_pct:.1f}%",
+                "neto": ikprod_neto_periodo,
+                "neto_str": f"ikProd Neto: {ikprod_neto_periodo:.2f}",
+                "color_code": color_code,
+                "gradient": gradient,
+                "subtexto_color": subtexto_color,
+                "text_color": text_color,
+                "border_color": border_color
+            }
+        },
+        "turnos_concatenados": turnos_concatenados
+    }
+
 
 
 

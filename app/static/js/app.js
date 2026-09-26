@@ -1617,215 +1617,264 @@ async function loadReconstructedShiftDashboard(shiftKey) {
 // ==========================================
 // PANTALLA: FILTRADO POR RANGO HORARIO (TURNO ACTUAL)
 // ==========================================
-let currentActiveShiftForFilters = null;
-
-async function initFiltrosTurnoScreen() {
+// ==========================================
+// PANTALLA: FILTROS Y TOTALES POR PERÍODO
+// ==========================================
+function initFiltrosTurnoScreen() {
   const placeholderSelect = document.getElementById('filtros-placeholder-select');
-  const placeholderNoTurno = document.getElementById('filtros-placeholder-noturno');
-  const controlsBar = document.getElementById('filtros-controls-bar');
   const dashboardContainer = document.getElementById('filtros-dashboard-container');
-  const turnoInfoEl = document.getElementById('filtros-turno-info');
+  const desdeFechaInput = document.getElementById('filtros-fecha-desde');
+  const hastaFechaInput = document.getElementById('filtros-fecha-hasta');
+  const desdeHoraInput = document.getElementById('filtros-hora-desde');
+  const hastaHoraInput = document.getElementById('filtros-hora-hasta');
 
+  if (placeholderSelect) placeholderSelect.style.display = 'block';
   if (dashboardContainer) {
     dashboardContainer.style.display = 'none';
     dashboardContainer.innerHTML = '';
   }
 
-  try {
-    const res = await fetch('/api/produccion/tunel-lavado/dashboard-filtrado');
-    const data = await res.json();
+  // Pre-llenar fechas si están vacías: últimos 7 días hasta hoy
+  const today = new Date();
+  const pastWeek = new Date();
+  pastWeek.setDate(today.getDate() - 7);
 
-    if (!data.shift_active || !data.turno) {
-      if (controlsBar) controlsBar.style.display = 'none';
-      if (placeholderSelect) placeholderSelect.style.display = 'none';
-      if (placeholderNoTurno) placeholderNoTurno.style.display = 'block';
-      if (turnoInfoEl) turnoInfoEl.innerHTML = '<span style="color: #ef4444;"><i class="fas fa-exclamation-triangle"></i> No hay turno en ejecución en este momento</span>';
-      currentActiveShiftForFilters = null;
-      return;
-    }
+  const fmtDate = (d) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
 
-    currentActiveShiftForFilters = data.turno;
-
-    if (controlsBar) controlsBar.style.display = 'flex';
-    if (placeholderSelect) placeholderSelect.style.display = 'block';
-    if (placeholderNoTurno) placeholderNoTurno.style.display = 'none';
-
-    if (turnoInfoEl) {
-      turnoInfoEl.innerHTML = `Turno en ejecución: <strong style="color: #818cf8;">${data.turno.nombre}</strong> (${data.turno.hora_inicio} - ${data.turno.hora_fin}) | 📅 ${data.turno.fecha_formateada}`;
-    }
-
-    const desdeInput = document.getElementById('filtros-desde-time');
-    const hastaInput = document.getElementById('filtros-hasta-time');
-    if (desdeInput && !desdeInput.value) {
-      desdeInput.value = data.turno.hora_inicio;
-    }
-    if (hastaInput && !hastaInput.value) {
-      const now = new Date();
-      const hh = String(now.getHours()).padStart(2, '0');
-      const mm = String(now.getMinutes()).padStart(2, '0');
-      hastaInput.value = `${hh}:${mm}`;
-    }
-  } catch (err) {
-    console.error('Error inicializando pantalla de filtros:', err);
+  if (desdeFechaInput && !desdeFechaInput.value) {
+    desdeFechaInput.value = fmtDate(pastWeek);
+  }
+  if (hastaFechaInput && !hastaFechaInput.value) {
+    hastaFechaInput.value = fmtDate(today);
+  }
+  if (desdeHoraInput && !desdeHoraInput.value) {
+    desdeHoraInput.value = '06:00';
+  }
+  if (hastaHoraInput && !hastaHoraInput.value) {
+    hastaHoraInput.value = '22:00';
   }
 }
 
-async function applyFiltroHorario() {
-  const desdeInput = document.getElementById('filtros-desde-time');
-  const hastaInput = document.getElementById('filtros-hasta-time');
+async function applyFiltroPeriodo() {
+  const desdeFechaInput = document.getElementById('filtros-fecha-desde');
+  const hastaFechaInput = document.getElementById('filtros-fecha-hasta');
+  const desdeHoraInput = document.getElementById('filtros-hora-desde');
+  const hastaHoraInput = document.getElementById('filtros-hora-hasta');
   const placeholderSelect = document.getElementById('filtros-placeholder-select');
-  const placeholderNoTurno = document.getElementById('filtros-placeholder-noturno');
   const dashboardContainer = document.getElementById('filtros-dashboard-container');
 
-  const horaDesde = desdeInput ? desdeInput.value : '';
-  const horaHasta = hastaInput ? hastaInput.value : '';
+  const fechaDesde = desdeFechaInput ? desdeFechaInput.value : '';
+  const horaDesde = desdeHoraInput ? desdeHoraInput.value : '06:00';
+  const fechaHasta = hastaFechaInput ? hastaFechaInput.value : '';
+  const horaHasta = hastaHoraInput ? hastaHoraInput.value : '22:00';
 
-  if (!horaDesde || !horaHasta) {
-    alert('Por favor selecciona la hora "Desde" y la hora "Hasta"');
+  if (!fechaDesde || !fechaHasta) {
+    alert('Por favor selecciona las fechas "Desde" y "Hasta".');
     return;
   }
 
   try {
     dashboardContainer.style.display = 'block';
-    dashboardContainer.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">Filtrando telemetría del turno...</p>';
+    dashboardContainer.innerHTML = `
+      <div style="text-align: center; padding: 60px 20px; color: var(--text-muted);">
+        <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #818cf8; margin-bottom: 16px;"></i>
+        <h4 style="color: #f8fafc; font-size: 1.15rem;">Calculando totales del período...</h4>
+        <p style="font-size: 0.88rem; margin-top: 6px;">Concatenando turnos de producción en la ventana seleccionada</p>
+      </div>
+    `;
     if (placeholderSelect) placeholderSelect.style.display = 'none';
-    if (placeholderNoTurno) placeholderNoTurno.style.display = 'none';
 
-    const url = `/api/produccion/tunel-lavado/dashboard-filtrado?hora_desde=${encodeURIComponent(horaDesde)}&hora_hasta=${encodeURIComponent(horaHasta)}`;
+    const url = `/api/produccion/turnos/totales-periodo?fecha_inicio=${encodeURIComponent(fechaDesde)}&hora_inicio=${encodeURIComponent(horaDesde)}&fecha_fin=${encodeURIComponent(fechaHasta)}&hora_fin=${encodeURIComponent(horaHasta)}`;
     const res = await fetch(url);
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.detail || 'Error al filtrar datos');
+      throw new Error(err.detail || 'Error al calcular totales del período');
     }
     const data = await res.json();
 
-    if (!data.shift_active) {
-      if (placeholderNoTurno) placeholderNoTurno.style.display = 'block';
-      dashboardContainer.style.display = 'none';
+    if (!data.totales || data.totales.total_turnos === 0) {
+      dashboardContainer.innerHTML = `
+        <div style="text-align: center; padding: 60px 20px; background: rgba(15, 23, 42, 0.7); border-radius: 14px; border: 1px dashed rgba(239, 68, 68, 0.4);">
+          <i class="fas fa-info-circle" style="font-size: 3rem; color: #ef4444; opacity: 0.8; margin-bottom: 16px;"></i>
+          <h4 style="color: #f8fafc; font-size: 1.3rem;">No se encontraron turnos en este período</h4>
+          <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 8px;">No hay turnos registrados entre el ${data.ventana_solicitada.inicio_formateado} y el ${data.ventana_solicitada.fin_formateado}. Prueba ampliando el rango de fechas u horarios.</p>
+        </div>
+      `;
       return;
     }
 
-    const kgInfo = data.indicadores_destacados.kg_totales_turno;
-    const cargasInfo = data.indicadores_destacados.cargas_totales_turno;
-    const hprodInfo = data.indicadores_destacados.hprod;
-    const ikprodInfo = data.indicadores_destacados.ikprod;
-    const clientesInfo = data.indicadores_destacados.clientes_unicos;
-    const programasInfo = data.indicadores_destacados.programas_unicos;
+    const t = data.totales;
+    const v = data.ventana_solicitada;
 
-    let ikprodTextColor = ikprodInfo.text_color || (ikprodInfo.color_codigo === 'red' ? '#ef4444' : ikprodInfo.color_codigo === 'orange' ? '#f97316' : '#34d399');
-    let ikprodBorderColor = ikprodInfo.border_color || (ikprodInfo.color_codigo === 'red' ? '#ef4444' : ikprodInfo.color_codigo === 'orange' ? '#f97316' : '#10b981');
-
+    // Renderizar Dashboard de Tarjetas de Totales
     dashboardContainer.innerHTML = `
-      <!-- Banner Sincronización del Turno Filtrado -->
-      <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #818cf8; padding: 12px 18px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(99, 102, 241, 0.2); color: #818cf8; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
-            <i class="fas fa-sliders-h"></i>
+      <!-- Banner Superior Informativo -->
+      <div style="background: rgba(15, 23, 42, 0.9); border: 1.5px solid #818cf8; padding: 14px 20px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(99, 102, 241, 0.2); color: #818cf8; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+            <i class="fas fa-calendar-check"></i>
           </div>
           <div>
-            <h4 style="color: var(--text-main); font-size: 1rem;">${data.turno_info.nombre} (${data.turno_info.horario_completo}) — <span style="color: #818cf8;">Ventana Filtrada: ${data.turno_info.rango_filtrado} (${data.turno_info.duracion_minutos} min)</span> — <span style="color: #38bdf8;">📅 ${data.turno_info.fecha}</span></h4>
-            <small style="color: var(--text-muted); font-size: 0.78rem;">Filtro de Telemetría Dinámico | Base: Cargas Reales Ingeridas en el Intervalo</small>
+            <h4 style="color: var(--text-main); font-size: 1.1rem; margin: 0;">Totales Consolidados del Período</h4>
+            <div style="color: #38bdf8; font-size: 0.86rem; font-weight: 600; margin-top: 3px;">
+              <i class="fas fa-clock"></i> ${v.inicio_formateado} &nbsp;➔&nbsp; ${v.fin_formateado}
+            </div>
           </div>
         </div>
 
-        <div style="text-align: right;">
-          <span style="font-size: 0.82rem; color: #818cf8; font-weight: 700; background: rgba(99, 102, 241, 0.15); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.4);">🎛️ FILTRADO ACTIVO</span>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <span style="font-size: 0.82rem; color: #34d399; font-weight: 700; background: rgba(52, 211, 153, 0.15); padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(52, 211, 153, 0.4);">
+            <i class="fas fa-layer-group"></i> ${t.total_turnos} Turnos Concatenados
+          </span>
+          <span style="font-size: 0.82rem; color: #818cf8; font-weight: 700; background: rgba(99, 102, 241, 0.15); padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.4);">
+            <i class="fas fa-hourglass-half"></i> ${t.horas_efectivas_str} Efectivas
+          </span>
+          <span style="font-size: 0.82rem; color: #fbbf24; font-weight: 700; background: rgba(251, 191, 36, 0.15); padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(251, 191, 36, 0.4);">
+            <i class="fas fa-link"></i> Sin Baches Intermedios
+          </span>
         </div>
       </div>
 
-      <!-- Cuadrícula 4 Columnas x 2 Filas del Dashboard -->
-      <div class="dashboard-grid-layout">
-        <!-- Columna 1, Fila 1: Kg Totales Turno -->
-        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 1; grid-row: 1;">
+      <!-- Fila 1: 4 Tarjetas de Indicadores Principales -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px;">
+        <!-- 1. Kg Totales -->
+        <div class="kpi-card-striking kpi-card-cyan" style="margin: 0;">
           <div class="kpi-card-header">
-            <h4>${kgInfo.titulo}</h4>
-            <div class="kpi-icon-circle"><i class="fas ${kgInfo.icono}"></i></div>
+            <h4>Kg Totales del Período</h4>
+            <div class="kpi-icon-circle"><i class="fas fa-weight-hanging"></i></div>
           </div>
-          <div class="kpi-big-number">${kgInfo.valor}</div>
-          <div class="kpi-card-subtext">${kgInfo.subtexto}</div>
+          <div class="kpi-big-number">${t.total_kg_str}</div>
+          <div class="kpi-card-subtext">Kilos totales procesados en los ${t.total_turnos} turnos</div>
         </div>
 
-        <!-- Columna 1, Fila 2: ikProd (stacked verticalmente) -->
-        <div class="kpi-card-striking" style="grid-column: 1; grid-row: 2; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid ${ikprodBorderColor}; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);">
+        <!-- 2. Cargas Totales -->
+        <div class="kpi-card-striking kpi-card-amber" style="margin: 0;">
           <div class="kpi-card-header">
-            <h4 style="color: #f8fafc;">${ikprodInfo.titulo}</h4>
-            <div class="kpi-icon-circle" style="background: rgba(255, 255, 255, 0.08); color: ${ikprodTextColor};"><i class="fas ${ikprodInfo.icono}"></i></div>
+            <h4>Cargas Totales del Período</h4>
+            <div class="kpi-icon-circle"><i class="fas fa-layer-group"></i></div>
           </div>
-          <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: ${ikprodTextColor}; text-shadow: 0 0 16px ${ikprodTextColor}60;">${ikprodInfo.valor}</div>
+          <div class="kpi-big-number">${t.total_cargas_str}</div>
+          <div class="kpi-card-subtext">Cargas efectivas descargadas en el período</div>
+        </div>
+
+        <!-- 3. ikProd General del Período -->
+        <div class="kpi-card-striking" style="margin: 0; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid ${t.ikprod.border_color}; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);">
+          <div class="kpi-card-header">
+            <h4 style="color: #f8fafc;">ikProd General del Período</h4>
+            <div class="kpi-icon-circle" style="background: rgba(255, 255, 255, 0.08); color: ${t.ikprod.text_color};"><i class="fas fa-chart-line"></i></div>
+          </div>
+          <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: ${t.ikprod.text_color}; text-shadow: 0 0 16px ${t.ikprod.text_color}60;">${t.ikprod.pct_str}</div>
           <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 2px; margin-bottom: 6px; flex-wrap: wrap;">
-            <span style="font-size: 0.72rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);"><i class="fas fa-weight-hanging"></i> ${ikprodInfo.promedio_carga_str || 'Prom: 0.0 kg/carga'}</span>
-            <span style="font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.3);"><i class="fas fa-stopwatch"></i> ${ikprodInfo.promedio_tiempo_str || ikprodInfo.tprom_str || 'Tprom: 0 min'}</span>
+            <span style="font-size: 0.72rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);"><i class="fas fa-weight-hanging"></i> ${t.promedio_peso_str}</span>
+            <span style="font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.3);"><i class="fas fa-stopwatch"></i> ${t.promedio_tiempo_str}</span>
           </div>
-          <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; margin-top: 2px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-            <span style="color: #38bdf8;"><i class="fas fa-clock"></i> ${ikprodInfo.tprom_str || ''}</span>
-            <span>${ikprodInfo.neto_str}</span>
-          </div>
-          <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
-            <i class="fas fa-calculator"></i> ${ikprodInfo.subtexto}
+          <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-align: center;">
+            <i class="fas fa-calculator"></i> ${t.ikprod.neto_str} | Ideal: 30 = 100%
           </div>
         </div>
 
-        <!-- Columna 2, Fila 1: Cargas Totales Turno -->
-        <div class="kpi-card-striking kpi-card-amber" style="grid-column: 2; grid-row: 1;">
+        <!-- 4. Kg / Hora General -->
+        <div class="kpi-card-striking kpi-card-cyan" style="margin: 0; background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
           <div class="kpi-card-header">
-            <h4>${cargasInfo.titulo}</h4>
-            <div class="kpi-icon-circle"><i class="fas ${cargasInfo.icono}"></i></div>
+            <h4>Kg / Hora General</h4>
+            <div class="kpi-icon-circle"><i class="fas fa-tachometer-alt"></i></div>
           </div>
-          <div class="kpi-big-number">${cargasInfo.valor}</div>
-          <div class="kpi-card-subtext">${cargasInfo.subtexto}</div>
+          <div class="kpi-big-number">${t.kg_hora_str}</div>
+          <div class="kpi-card-subtext">Productividad real sobre ${t.horas_efectivas_str}</div>
+        </div>
+      </div>
+
+      <!-- Fila 2: 4 Tarjetas Métricas Complementarias -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 24px;">
+        <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 14px 18px;">
+          <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 600;"><i class="fas fa-clock" style="color: #38bdf8;"></i> Horas Efectivas Totales</div>
+          <div style="font-size: 1.4rem; font-weight: 800; color: #f8fafc; margin-top: 4px;">${t.horas_efectivas_str}</div>
+          <div style="font-size: 0.74rem; color: #64748b; margin-top: 2px;">Suma neta de los turnos concatenados</div>
         </div>
 
-        <!-- Columna 3, Fila 1: Productividad hProd -->
-        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 3; grid-row: 1; background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
-          <div class="kpi-card-header">
-            <h4>${hprodInfo.titulo}</h4>
-            <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
-          </div>
-          <div class="kpi-big-number">${hprodInfo.valor}</div>
-          <div class="kpi-card-subtext">${hprodInfo.subtexto}</div>
+        <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 14px 18px;">
+          <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 600;"><i class="fas fa-weight-hanging" style="color: #fbbf24;"></i> Peso Promedio por Carga</div>
+          <div style="font-size: 1.4rem; font-weight: 800; color: #f8fafc; margin-top: 4px;">${t.promedio_peso_str}</div>
+          <div style="font-size: 0.74rem; color: #64748b; margin-top: 2px;">Relación Kg Totales / Cargas Totales</div>
         </div>
 
-        <!-- Columna 4, Fila 1: Clientes y Programas -->
-        <div class="col-secondary-kpis" style="grid-column: 4; grid-row: 1;">
-          <div class="kpi-card-compact">
-            <div class="kpi-compact-info">
-              <h5>${clientesInfo.titulo}</h5>
-              <div class="kpi-compact-value">${clientesInfo.valor}</div>
-              <div class="kpi-compact-sub">${clientesInfo.subtexto}</div>
-            </div>
-            <div class="kpi-compact-icon"><i class="fas ${clientesInfo.icono}"></i></div>
-          </div>
-
-          <div class="kpi-card-compact">
-            <div class="kpi-compact-info">
-              <h5>${programasInfo.titulo}</h5>
-              <div class="kpi-compact-value">${programasInfo.valor}</div>
-              <div class="kpi-compact-sub">${programasInfo.subtexto}</div>
-            </div>
-            <div class="kpi-compact-icon"><i class="fas ${programasInfo.icono}"></i></div>
-          </div>
+        <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 14px 18px;">
+          <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 600;"><i class="fas fa-stopwatch" style="color: #34d399;"></i> Cadencia Promedio (Tprom)</div>
+          <div style="font-size: 1.4rem; font-weight: 800; color: #f8fafc; margin-top: 4px;">${t.promedio_tiempo_str}</div>
+          <div style="font-size: 0.74rem; color: #64748b; margin-top: 2px;">Tiempo medio entre descargas sucesivas</div>
         </div>
 
-        <!-- Fila 2, Columnas 2 a 4: Gráfica de Avance Productivo -->
-        <div class="chart-section-card" style="grid-column: 2 / span 3; grid-row: 2;">
-          <div class="chart-header-row">
-            <div class="chart-header-title">
-              <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
-              <h4>Avance Productivo del Turno Filtrado (Kg Acumulados vs Kg Hora vs Cargas/Hora)</h4>
-            </div>
-            <div style="font-size: 0.72rem; color: #94a3b8;">Eje Y Izq 1: Kg/Hora (rosa) | Eje Y Izq 2: Kg Acum (cian) | Eje Y Der: Cargas (oro)</div>
+        <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 14px 18px;">
+          <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 600;"><i class="fas fa-industry" style="color: #818cf8;"></i> Promedio Kg por Turno</div>
+          <div style="font-size: 1.4rem; font-weight: 800; color: #f8fafc; margin-top: 4px;">${((t.total_kg / Math.max(t.total_turnos, 1)).toFixed(1)).replace('.', ',')} kg</div>
+          <div style="font-size: 0.74rem; color: #64748b; margin-top: 2px;">Media de producción por turno analizado</div>
+        </div>
+      </div>
+
+      <!-- Fila 3: Tabla Detallada de Turnos Concatenados -->
+      <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <h4 style="color: #f8fafc; font-size: 1.1rem; margin: 0;"><i class="fas fa-list-check" style="color: #818cf8; margin-right: 8px;"></i> Turnos de Producción Concatenados (${t.total_turnos})</h4>
+            <small style="color: #94a3b8; font-size: 0.8rem;">Detalle cronológico de los turnos sumados contiguamente en la ventana seleccionada</small>
           </div>
-          <div class="chart-wrapper">
-            <canvas id="chart-filtros-turno"></canvas>
-          </div>
+          <span style="font-size: 0.78rem; color: #94a3b8; background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px;">
+            Fuente: Tabla de Persistencia de Turnos
+          </span>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
+            <thead>
+              <tr style="border-bottom: 1.5px solid rgba(255, 255, 255, 0.12); color: #94a3b8; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                <th style="padding: 10px 14px;">#</th>
+                <th style="padding: 10px 14px;">Fecha</th>
+                <th style="padding: 10px 14px;">Turno</th>
+                <th style="padding: 10px 14px;">Horario</th>
+                <th style="padding: 10px 14px;">Duración</th>
+                <th style="padding: 10px 14px; text-align: right;">Kg Totales</th>
+                <th style="padding: 10px 14px; text-align: right;">Cargas</th>
+                <th style="padding: 10px 14px; text-align: right;">ikProd</th>
+                <th style="padding: 10px 14px; text-align: right;">Kg / Hora</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.turnos_concatenados.map((item, idx) => `
+                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.06); transition: background 0.2s ease;">
+                  <td style="padding: 12px 14px; color: #818cf8; font-weight: 700;">#${idx + 1}</td>
+                  <td style="padding: 12px 14px; color: #f8fafc; font-weight: 600;">${item.fecha_formateada}</td>
+                  <td style="padding: 12px 14px; color: #38bdf8; font-weight: 700;">${item.nombre_turno}</td>
+                  <td style="padding: 12px 14px; color: #cbd5e1;">${item.rango_horario}</td>
+                  <td style="padding: 12px 14px; color: #94a3b8;">${item.duracion_horas}h</td>
+                  <td style="padding: 12px 14px; text-align: right; color: #38bdf8; font-weight: 700;">${item.total_kg_str}</td>
+                  <td style="padding: 12px 14px; text-align: right; color: #fbbf24; font-weight: 700;">${item.total_cargas_str}</td>
+                  <td style="padding: 12px 14px; text-align: right; color: #34d399; font-weight: 700;">${item.ikprod_str}</td>
+                  <td style="padding: 12px 14px; text-align: right; color: #f8fafc; font-weight: 700;">${item.hprod_str}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="border-top: 2px solid rgba(129, 140, 248, 0.4); background: rgba(99, 102, 241, 0.08); font-weight: 800;">
+                <td colspan="4" style="padding: 14px; color: #818cf8;">TOTALES CONSOLIDADOS (${t.total_turnos} turnos)</td>
+                <td style="padding: 14px; color: #f8fafc;">${t.horas_efectivas_str}</td>
+                <td style="padding: 14px; text-align: right; color: #38bdf8; font-size: 1rem;">${t.total_kg_str}</td>
+                <td style="padding: 14px; text-align: right; color: #fbbf24; font-size: 1rem;">${t.total_cargas_str}</td>
+                <td style="padding: 14px; text-align: right; color: #34d399; font-size: 1rem;">${t.ikprod.pct_str}</td>
+                <td style="padding: 14px; text-align: right; color: #f8fafc; font-size: 1rem;">${t.kg_hora_str}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       </div>
     `;
-
-    renderAvanceChart(data.grafica_avance, 'chart-filtros-turno');
   } catch (err) {
-    console.error('Error aplicando filtro horario:', err);
-    dashboardContainer.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
+    console.error('Error calculando totales del período:', err);
+    dashboardContainer.innerHTML = `<div style="color: var(--accent-red); padding: 20px; background: rgba(239,68,68,0.1); border-radius: 8px; border: 1px solid rgba(239,68,68,0.3);">⚠️ ${err.message}</div>`;
   }
 }
 

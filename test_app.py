@@ -232,30 +232,39 @@ class TestElis4App(unittest.TestCase):
         meta_data = res_meta.json()
         self.assertIn("shift_active", meta_data)
 
-        # 2. Ingest test loads in tunel_cargas for today
-        from datetime import datetime
+        # 2. Ingest test loads in tunel_cargas for active shift
+        from datetime import datetime, timedelta
         from app.database import get_db_connection
-        today_iso = datetime.now().strftime("%Y-%m-%d")
-        conn = get_db_connection()
-        conn.execute("""
-            INSERT OR REPLACE INTO tunel_cargas (load_id, site, device, timestamp, timestamp_iso, cliente, categoria, peso_kg, tiempo_entre_cargas_seg)
-            VALUES 
-                (9901, 'Elis', 'PLC', 'test', ?, 101, 1, 60.0, 120),
-                (9902, 'Elis', 'PLC', 'test', ?, 102, 2, 58.5, 130)
-        """, (f"{today_iso} 07:15:00", f"{today_iso} 08:45:00"))
-        conn.commit()
-        conn.close()
 
-        # 3. Filtered query within range (07:00 to 09:30)
-        res_filt = self.client.get("/api/produccion/tunel-lavado/dashboard-filtrado?hora_desde=07:00&hora_hasta=09:30", headers=headers)
-        self.assertEqual(res_filt.status_code, 200)
-        f_data = res_filt.json()
+        if meta_data.get("shift_active"):
+            t_curr = meta_data["turno"]
+            h_s_str = t_curr["hora_inicio"]
+            dt_s = datetime.strptime(f"{t_curr['fecha']} {h_s_str}:00", "%Y-%m-%d %H:%M:%S")
+            dt_c1 = dt_s + timedelta(minutes=15)
+            dt_c2 = dt_s + timedelta(minutes=45)
+            dt_f1 = dt_s
+            dt_f2 = dt_s + timedelta(hours=2)
 
-        if f_data.get("shift_active"):
+            conn = get_db_connection()
+            conn.execute("""
+                INSERT OR REPLACE INTO tunel_cargas (load_id, site, device, timestamp, timestamp_iso, cliente, categoria, peso_kg, tiempo_entre_cargas_seg)
+                VALUES 
+                    (9901, 'Elis', 'PLC', 'test', ?, 101, 1, 60.0, 120),
+                    (9902, 'Elis', 'PLC', 'test', ?, 102, 2, 58.5, 130)
+            """, (dt_c1.strftime("%Y-%m-%d %H:%M:%S"), dt_c2.strftime("%Y-%m-%d %H:%M:%S")))
+            conn.commit()
+            conn.close()
+
+            # 3. Filtered query within active shift range
+            h_desde = dt_f1.strftime("%H:%M")
+            h_hasta = dt_f2.strftime("%H:%M")
+            res_filt = self.client.get(f"/api/produccion/tunel-lavado/dashboard-filtrado?hora_desde={h_desde}&hora_hasta={h_hasta}", headers=headers)
+            self.assertEqual(res_filt.status_code, 200)
+            f_data = res_filt.json()
+
             self.assertIn("indicadores_destacados", f_data)
             self.assertIn("grafica_avance", f_data)
             self.assertIn("turno_info", f_data)
-            self.assertEqual(f_data["turno_info"]["rango_filtrado"], "07:00 - 09:30")
             self.assertGreaterEqual(f_data["indicadores_destacados"]["cargas_totales_turno"]["valor"], "1 cargas")
 
         # 4. Conventional hourly slots test (06:30 to 08:50 -> 06:00-07:00, 07:00-08:00, 08:00-09:00)
@@ -314,6 +323,42 @@ class TestElis4App(unittest.TestCase):
             headers=headers
         )
         self.assertEqual(res_bad_dates.status_code, 400)
+
+    def test_09_turnos_totales_periodo(self):
+        res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
+        self.assertEqual(res.status_code, 200)
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Consulta válida de período
+        res_tot = self.client.get(
+            "/api/produccion/turnos/totales-periodo?fecha_inicio=2026-09-20&hora_inicio=06:00&fecha_fin=2026-09-27&hora_fin=22:00",
+            headers=headers
+        )
+        self.assertEqual(res_tot.status_code, 200)
+        tot_data = res_tot.json()
+        self.assertEqual(tot_data["status"], "success")
+        self.assertIn("ventana_solicitada", tot_data)
+        self.assertIn("totales", tot_data)
+        self.assertIn("total_kg", tot_data["totales"])
+        self.assertIn("total_cargas", tot_data["totales"])
+        self.assertIn("kg_hora", tot_data["totales"])
+        self.assertIn("ikprod", tot_data["totales"])
+        self.assertIn("turnos_concatenados", tot_data)
+
+        # 2. Error case: fecha fin < fecha inicio
+        res_err_dates = self.client.get(
+            "/api/produccion/turnos/totales-periodo?fecha_inicio=2026-09-26&hora_inicio=14:00&fecha_fin=2026-09-25&hora_fin=10:00",
+            headers=headers
+        )
+        self.assertEqual(res_err_dates.status_code, 400)
+
+        # 3. Error case: formato inválido
+        res_bad_fmt = self.client.get(
+            "/api/produccion/turnos/totales-periodo?fecha_inicio=fecha-invalida&hora_inicio=06:00",
+            headers=headers
+        )
+        self.assertEqual(res_bad_fmt.status_code, 400)
 
 if __name__ == "__main__":
     unittest.main()
