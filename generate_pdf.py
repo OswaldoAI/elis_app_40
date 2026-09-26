@@ -295,16 +295,24 @@ def build_pdf():
         story.append(RLImage(img_tunel, width=500, height=230))
         story.append(Spacer(1, 6))
 
-    # 5.2 Filtros
-    story.append(Paragraph("5.2 Pantalla de Filtros por Rango Horario (#view-filtros_turno)", h2_style))
+    # 5.2 Filtros y Totales de Período
+    story.append(Paragraph("5.2 Pantalla de Filtros y Totales de Período Concatenado (#view-filtros_turno)", h2_style))
     story.append(Paragraph(
-        "Accesible mediante el botón <b>'Filtros'</b> (icono ecualizadores). Permite a los supervisores auditar cualquier ventana temporal "
-        "del turno actual ingresando los campos <b>Desde</b> (HH:MM) y <b>Hasta</b> (HH:MM). Soporta cruce de medianoche en el turno nocturno. "
-        "El eje X de la gráfica mantiene las franjas horarias convencionales (ej: <code>06:00 - 07:00</code>), calculando las cargas y kilogramos "
-        "proporcionales de los minutos correspondientes. Si no se han escogido datos, muestra un fondo oscuro con mensaje de guía.", body_style
+        "Accesible mediante el botón <b>'Filtros'</b> (icono ecualizadores). Permite al usuario seleccionar un rango temporal extendido "
+        "definiendo <b>Fecha de Inicio con Hora/Minuto</b> y <b>Fecha de Fin con Hora/Minuto</b>. La pantalla despliega un "
+        "<b>dashboard de tarjetas de totales consolidados</b> calculados directamente desde la tabla <code>turnos_persistencia</code>.", body_style
+    ))
+    story.append(Paragraph(
+        "<b>Lógica de Concatenación Sin Baches:</b> Todos los turnos comprendidos en la ventana temporal se concatenan de forma contigua, "
+        "<b>omitiendo por completo tiempos muertos, fines de semana o baches no productivos intermedios</b>. Esto garantiza que las "
+        "horas efectivas sumadas, la tasa hProd (kg/h) y el índice ikProd general reflejen fielmente el desempeño operativo.<br/>"
+        "<b>Métricas Clave Desplegadas:</b><br/>"
+        "• <b>4 Tarjetas Principales:</b> Kg Totales, Cargas Totales, ikProd General del Período (con semáforo y gradiente) y Kg/Hora General.<br/>"
+        "• <b>4 Métricas Secundarias:</b> Horas Efectivas Totales, Peso Promedio por Carga, Cadencia Media (Tprom) y Promedio Kg por Turno.<br/>"
+        "• <b>Tabla Detallada de Turnos:</b> Desglose de cada turno concatenado con sus indicadores individuales y fila final de totales.", body_style
     ))
     if os.path.exists("pdf_assets/screenshot_filtros.png"):
-        story.append(RLImage("pdf_assets/screenshot_filtros.png", width=500, height=230))
+        story.append(RLImage("pdf_assets/screenshot_filtros.png", width=500, height=210))
         story.append(Spacer(1, 6))
 
     # Page Break
@@ -333,6 +341,7 @@ def build_pdf():
         [Paragraph("<b>Método</b>", body_style), Paragraph("<b>Endpoint</b>", body_style), Paragraph("<b>Parámetros / Payload</b>", body_style), Paragraph("<b>Descripción / Respuesta</b>", body_style)],
         [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/tunel-lavado/dashboard</code>", body_style), Paragraph("Ninguno", body_style), Paragraph("KPIs agregados, ikProd y desglose horario del turno activo en curso.", body_style)],
         [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/tunel-lavado/dashboard-filtrado</code>", body_style), Paragraph("<code>hora_desde</code>, <code>hora_hasta</code>", body_style), Paragraph("Métricas y gráfica recalculadas para el intervalo horario especificado.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/turnos/totales-periodo</code>", body_style), Paragraph("<code>fecha_ini</code>, <code>hora_ini</code>, <code>fecha_fin</code>, <code>hora_fin</code>", body_style), Paragraph("Totales consolidados y turnos concatenados omitiendo baches muertos.", body_style)],
         [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/turnos/ranking</code>", body_style), Paragraph("<code>fecha_inicio</code>, <code>fecha_fin</code>, <code>criterio</code>", body_style), Paragraph("Clasificación descendente de los mejores 5 turnos del periodo.", body_style)],
         [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/turnos/historial-json/{key}</code>", body_style), Paragraph("<code>shift_key</code> (path)", body_style), Paragraph("Paquete JSON completo con desglose para reconstrucción de dashboard.", body_style)],
         [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/produccion/turnos/fechas-disponibles</code>", body_style), Paragraph("Ninguno", body_style), Paragraph("Listado de fechas con registros de turnos históricos.", body_style)],
