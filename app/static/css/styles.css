@@ -606,6 +606,27 @@ body {
   border-color: #34d399;
 }
 
+.kpi-card-purple {
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 50%, #0f172a 100%);
+  border-color: #a78bfa;
+}
+
+.kpi-card-indigo {
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 50%, #0f172a 100%);
+  border-color: #818cf8;
+}
+
+.status-inactivo {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.status-inactivo .status-dot {
+  background-color: #94a3b8;
+  box-shadow: 0 0 6px #94a3b8;
+}
+
 .kpi-card-header {
   display: flex;
   align-items: center;

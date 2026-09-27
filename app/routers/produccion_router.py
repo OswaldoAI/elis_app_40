@@ -375,38 +375,68 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "id": "CALANDRA_2",
                 "nombre": "CALANDRA 2",
                 "tipo": "Planchado y Plegado Automático",
-                "estado": "En Tiempo Valle" if cal2_data["en_valle"] else "Operativa",
+                "estado": ("En Tiempo Valle" if cal2_data["en_valle"] else "Operativa") if cal2_data.get("is_turno_activo") else "Sin Turno Activo",
                 "icono": "fa-scroll",
                 "oee": 86.4,
-                "clickable": False,
+                "clickable": True,
+                "dashboard_url": "#calandra_2",
                 "turno_info": {
-                    "nombre": nombre_turno,
-                    "horario": horario_con_fecha,
-                    "fecha": fecha_formateada
+                    "nombre": nombre_turno if cal2_data.get("is_turno_activo") else "Sin Turno Activo",
+                    "horario": horario_con_fecha if cal2_data.get("is_turno_activo") else f"Fuera de Turno | {fecha_formateada}",
+                    "fecha": fecha_formateada,
+                    "is_active": cal2_data.get("is_turno_activo", False)
                 },
                 "produccion_calandra": cal2_data,
                 "progreso_carga": 90,
-                "programa_actual": "Plegado Automático 3 Pliegues"
+                "programa_actual": "Plegado Automático 3 Pliegues" if cal2_data.get("is_turno_activo") else "Sin Turno en Proceso"
             },
             {
                 "id": "CALANDRA_3",
                 "nombre": "CALANDRA 3",
                 "tipo": "Planchado & Inspección Óptica IA",
-                "estado": "En Tiempo Valle" if cal3_data["en_valle"] else "Operativa",
+                "estado": ("En Tiempo Valle" if cal3_data["en_valle"] else "Operativa") if cal3_data.get("is_turno_activo") else "Sin Turno Activo",
                 "icono": "fa-eye",
                 "oee": 93.1,
-                "clickable": False,
+                "clickable": True,
+                "dashboard_url": "#calandra_3",
                 "turno_info": {
-                    "nombre": nombre_turno,
-                    "horario": horario_con_fecha,
-                    "fecha": fecha_formateada
+                    "nombre": nombre_turno if cal3_data.get("is_turno_activo") else "Sin Turno Activo",
+                    "horario": horario_con_fecha if cal3_data.get("is_turno_activo") else f"Fuera de Turno | {fecha_formateada}",
+                    "fecha": fecha_formateada,
+                    "is_active": cal3_data.get("is_turno_activo", False)
                 },
                 "produccion_calandra": cal3_data,
                 "progreso_carga": 94,
-                "programa_actual": "Control Calidad Óptico Calandra 3 (Port 5000)"
+                "programa_actual": "Control Calidad Óptico Calandra 3 (Port 5000)" if cal3_data.get("is_turno_activo") else "Sin Turno en Proceso"
             }
         ]
     }
+
+def is_shift_active(turno_act: dict = None) -> bool:
+    """Verifica si actualmente hay un turno en proceso en planta."""
+    if not turno_act:
+        turnos_cache = get_cached_turnos()
+        turno_act = turnos_cache.get("turno_actual", {})
+    if not turno_act:
+        return False
+    if turno_act.get("is_active") is False:
+        return False
+    nombre = str(turno_act.get("nombre") or "").upper()
+    if "FUERA DE TURNO" in nombre or "SIN TURNO" in nombre or "INACTIVO" in nombre:
+        return False
+
+    fecha = turno_act.get("fecha")
+    hora_inicio = turno_act.get("hora_inicio")
+    hora_fin = turno_act.get("hora_fin")
+    if not fecha or not hora_inicio or not hora_fin:
+        return False
+
+    try:
+        start_iso, end_iso = get_shift_start_end_iso(fecha, hora_inicio, hora_fin)
+        now_str = get_local_now_str()
+        return start_iso <= now_str <= end_iso
+    except Exception:
+        return False
 
 @router.get("/calandras/live")
 def get_calandras_live_data(user: dict = Depends(check_produccion_permission)):
@@ -420,11 +450,52 @@ def get_calandras_live_data(user: dict = Depends(check_produccion_permission)):
         "calandra_3": get_calandra_production("CALANDRA_3", turno_act)
     }
 
+@router.get("/calandras/{maquina_id}/dashboard")
+def get_calandra_dashboard(maquina_id: str, user: dict = Depends(check_produccion_permission)):
+    """Retorna los datos completos para el Dashboard Ampliado de Calandra 2 o Calandra 3."""
+    m_id = maquina_id.upper()
+    if m_id not in ["CALANDRA_2", "CALANDRA_3"]:
+        raise HTTPException(status_code=404, detail="Máquina no encontrada")
+
+    turnos_cache = get_cached_turnos()
+    turno_act = turnos_cache.get("turno_actual", {})
+    shift_active = is_shift_active(turno_act)
+
+    nombre_turno = turno_act.get("nombre") or "Turno Activo"
+    fecha_raw = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        fecha_formateada = datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha_formateada = datetime.now().strftime("%d/%m/%Y")
+
+    horario_base = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
+    horario_con_fecha = f"{horario_base} | {fecha_formateada}"
+
+    prod = get_calandra_production(m_id, turno_act)
+
+    return {
+        "status": "success",
+        "maquina_id": m_id,
+        "nombre": "CALANDRA 2" if m_id == "CALANDRA_2" else "CALANDRA 3",
+        "tipo": "Planchado y Plegado Automático" if m_id == "CALANDRA_2" else "Planchado & Inspección Óptica IA",
+        "icono": "fa-scroll" if m_id == "CALANDRA_2" else "fa-eye",
+        "is_turno_activo": shift_active,
+        "turno_info": {
+            "nombre": nombre_turno if shift_active else "Sin Turno Activo",
+            "horario": horario_con_fecha if shift_active else f"Fuera de Turno | {fecha_formateada}",
+            "fecha": fecha_formateada,
+            "is_active": shift_active
+        },
+        "indicadores": prod,
+        "grafica_hora_a_hora": prod.get("grafica_hora_a_hora", {})
+    }
+
 def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
     """
     Calcula los indicadores y la matriz hora a hora para Calandra 2 o Calandra 3
     a partir de los mensajes MQTT (elis/calandra2/produccion o elis/calandra3/produccion),
     la base de datos SQLite calandras_produccion y la sincronización con el servicio de producción.
+    Si no hay turno activo en curso, todos los valores se devuelven en cero.
     """
     from app.mqtt_subscriber import get_calandras_live_cache
     import urllib.request
@@ -439,13 +510,61 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
         turnos_cache = get_cached_turnos()
         turno_act = turnos_cache.get("turno_actual", {})
 
+    shift_active = is_shift_active(turno_act)
+
+    # Franjas horarias estándar de turno (para cuando no hay turno activo o fallback)
+    default_labels = ["06:00 - 07:00", "07:00 - 08:00", "08:00 - 09:00", "09:00 - 10:00", "10:00 - 11:00", "11:00 - 12:00", "12:00 - 13:00", "13:00 - 14:00"]
+
+    if not shift_active:
+        n_lbl = len(default_labels)
+        return {
+            "maquina": maquina_id,
+            "is_turno_activo": False,
+            "en_valle": False,
+            "prendas_totales": 0,
+            "prendas_totales_str": "0 prendas",
+            "kgs_totales": 0.0,
+            "kgs_totales_str": "0,0 kg",
+            "tiempo_valle_min": 0.0,
+            "tiempo_valle_str": "0,0 min",
+            "prendas_hora": 0,
+            "prendas_hora_str": "0 prendas/h",
+            "kg_hora": 0.0,
+            "kg_hora_str": "0,0 kg/h",
+            "desglose_calandra2": {
+                "prendas_grandes": 0,
+                "prendas_grandes_str": "0 grandes",
+                "prendas_pequenas": 0,
+                "prendas_pequenas_str": "0 pequeñas",
+                "kg_grandes": 0.0,
+                "kg_grandes_str": "0,0 kg",
+                "kg_pequenas": 0.0,
+                "kg_pequenas_str": "0,0 kg",
+                "tiempo_valle_grandes": 0.0,
+                "tiempo_valle_grandes_str": "0.0 min",
+                "tiempo_valle_pequenas": 0.0,
+                "tiempo_valle_pequenas_str": "0.0 min",
+                "prendas_grandes_hora": 0,
+                "prendas_grandes_hora_str": "0 g/h",
+                "prendas_pequenas_hora": 0,
+                "prendas_pequenas_hora_str": "0 p/h"
+            } if maquina_id == "CALANDRA_2" else None,
+            "grafica_hora_a_hora": {
+                "labels": default_labels,
+                "prendas": [0] * n_lbl,
+                "tiempo_valle": [0.0] * n_lbl,
+                "grandes": [0] * n_lbl if maquina_id == "CALANDRA_2" else None,
+                "pequenas": [0] * n_lbl if maquina_id == "CALANDRA_2" else None
+            }
+        }
+
     labels = []
     prendas = []
     valle = []
     grandes = []
     pequenas = []
 
-    # 1. Intentar consultar la matriz horaria procesada del día actual
+    # 1. Intentar consultar la matriz horaria procesada del día y turno actual
     try:
         url = f"http://100.127.85.111:5002/api/tabla-horaria?maquina={maq_param}"
         req = urllib.request.urlopen(url, timeout=3)
@@ -468,7 +587,6 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             pequenas.append(p)
             valle.append(v)
     except Exception:
-        # Franjas horarias por defecto del turno
         h_ini = str(turno_act.get("hora_inicio", "06:00"))[:2]
         h_fin = str(turno_act.get("hora_fin", "14:00"))[:2]
         try:
@@ -488,51 +606,36 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             grandes.append(0)
             pequenas.append(0)
 
-    # 2. Consultar registros recientes en SQLite local calandras_produccion
-    conn = get_db_connection()
-    c_row = conn.execute("""
-        SELECT * FROM calandras_produccion
-        WHERE maquina = ?
-        ORDER BY id DESC LIMIT 1
-    """, (maquina_id,)).fetchone()
-    conn.close()
-
-    last_p = live_cache if live_cache else (dict(c_row) if c_row else {})
-
     tot_prendas_remotas = sum(prendas)
     tot_grandes_remotas = sum(grandes)
     tot_pequenas_remotas = sum(pequenas)
     tot_valle_remoto = round(sum(valle), 1)
 
     if maquina_id == "CALANDRA_2":
-        p_grandes = int(last_p.get("count_grandes") or tot_grandes_remotas)
-        p_pequenas = int(last_p.get("count_pequenas") or tot_pequenas_remotas)
-        p_totales = int(last_p.get("count_total") or (p_grandes + p_pequenas))
-        if p_totales == 0 and tot_prendas_remotas > 0:
-            p_totales = tot_prendas_remotas
-            p_grandes = tot_grandes_remotas
-            p_pequenas = tot_pequenas_remotas
+        p_grandes = tot_grandes_remotas
+        p_pequenas = tot_pequenas_remotas
+        p_totales = tot_prendas_remotas or (p_grandes + p_pequenas)
 
-        w_grandes = float(last_p.get("weight_grandes_kg") or round(p_grandes * 0.45, 1))
-        w_pequenas = float(last_p.get("weight_pequenas_kg") or round(p_pequenas * 0.15, 1))
-        w_totales = float(last_p.get("total_weight_kg") or round(w_grandes + w_pequenas, 1))
+        w_grandes = round(p_grandes * 0.45, 1)
+        w_pequenas = round(p_pequenas * 0.15, 1)
+        w_totales = round(w_grandes + w_pequenas, 1)
 
-        v_grandes = float(last_p.get("idle_min_grandes") or tot_valle_remoto)
-        v_pequenas = float(last_p.get("idle_min_pequenas") or tot_valle_remoto)
-        v_total = round(max(v_grandes, v_pequenas, tot_valle_remoto), 1)
-        in_idle = bool(last_p.get("in_idle_grandes") or last_p.get("in_idle_pequenas") or last_p.get("in_idle"))
+        v_total = tot_valle_remoto
+        v_grandes = v_total
+        v_pequenas = v_total
+        in_idle = bool(live_cache.get("in_idle_grandes") or live_cache.get("in_idle_pequenas") or live_cache.get("in_idle"))
     else:
         # CALANDRA_3
-        p_totales = int(last_p.get("count") or tot_prendas_remotas)
+        p_totales = tot_prendas_remotas
         p_grandes = p_totales
         p_pequenas = 0
-        w_totales = float(last_p.get("total_weight_kg") or round(p_totales * 0.25, 1))
+        w_totales = round(p_totales * 0.25, 1)
         w_grandes = w_totales
         w_pequenas = 0.0
-        v_total = float(last_p.get("idle_min") or tot_valle_remoto)
+        v_total = tot_valle_remoto
         v_grandes = v_total
         v_pequenas = 0.0
-        in_idle = bool(last_p.get("in_idle"))
+        in_idle = bool(live_cache.get("in_idle"))
 
     # Calcular horas transcurridas de turno
     dur_min = float(turno_act.get("minutos_transcurridos") or 60)
@@ -549,6 +652,7 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
 
     return {
         "maquina": maquina_id,
+        "is_turno_activo": True,
         "en_valle": in_idle,
         "prendas_totales": p_totales,
         "prendas_totales_str": prendas_totales_str,

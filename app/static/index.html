@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ELIS NÁJERA 4.0 - Sistema de Supervisión Industrial</title>
-  <link rel="stylesheet" href="/static/css/styles.css?v=4.0.31">
+  <link rel="stylesheet" href="/static/css/styles.css?v=4.0.32">
 
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -280,6 +280,50 @@
         <div id="comparar-dashboard-container" style="display: none; margin-top: 30px;"></div>
       </section>
 
+      <!-- Vista 2.5: Dashboard Ampliado Calandra 2 -->
+      <section id="view-calandra_2" class="view-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <button class="btn-header" onclick="switchView('produccion')" style="margin-bottom: 10px;">
+              <i class="fas fa-arrow-left"></i> Volver a Producción
+            </button>
+            <h2 style="font-size: 1.8rem; color: #38bdf8;"><i class="fas fa-scroll"></i> Dashboard Ampliado: Calandra 2</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">Planta Nájera — Planchado y Plegado Automático — Indicadores del Turno Actual</p>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <button class="btn-header" onclick="loadCalandraDashboard('CALANDRA_2')" title="Actualizar datos">
+              <i class="fas fa-sync-alt"></i> Actualizar
+            </button>
+          </div>
+        </div>
+
+        <div id="calandra-2-dashboard-content">
+          <p style="color: var(--text-muted)">Cargando Dashboard de Calandra 2...</p>
+        </div>
+      </section>
+
+      <!-- Vista 2.6: Dashboard Ampliado Calandra 3 -->
+      <section id="view-calandra_3" class="view-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <button class="btn-header" onclick="switchView('produccion')" style="margin-bottom: 10px;">
+              <i class="fas fa-arrow-left"></i> Volver a Producción
+            </button>
+            <h2 style="font-size: 1.8rem; color: #38bdf8;"><i class="fas fa-eye"></i> Dashboard Ampliado: Calandra 3</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">Planta Nájera — Planchado & Inspección Óptica IA — Indicadores del Turno Actual</p>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <button class="btn-header" onclick="loadCalandraDashboard('CALANDRA_3')" title="Actualizar datos">
+              <i class="fas fa-sync-alt"></i> Actualizar
+            </button>
+          </div>
+        </div>
+
+        <div id="calandra-3-dashboard-content">
+          <p style="color: var(--text-muted)">Cargando Dashboard de Calandra 3...</p>
+        </div>
+      </section>
+
       <!-- Vista 3: Consumos -->
       <section id="view-consumos" class="view-section">
         <h2 style="font-size: 1.6rem; color: #fbbf24; margin-bottom: 20px;">⚡ Módulo de Consumos</h2>
@@ -388,7 +432,7 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=4.0.31"></script>
+  <script src="/static/js/app.js?v=4.0.32"></script>
 
 
 

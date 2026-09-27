@@ -408,6 +408,35 @@ class TestElis4App(unittest.TestCase):
         self.assertIn("calandra_2", live_data)
         self.assertIn("calandra_3", live_data)
 
+        # 3. Verificar que las tarjetas son clicables para acceder al dashboard ampliado
+        self.assertTrue(cal2["clickable"])
+        self.assertTrue(cal3["clickable"])
+        self.assertEqual(cal2["dashboard_url"], "#calandra_2")
+        self.assertEqual(cal3["dashboard_url"], "#calandra_3")
+
+        # 4. Verificar endpoints de Dashboard Ampliado para Calandra 2 y Calandra 3
+        res_dash2 = self.client.get("/api/produccion/calandras/CALANDRA_2/dashboard", headers=headers)
+        self.assertEqual(res_dash2.status_code, 200)
+        dash2 = res_dash2.json()
+        self.assertEqual(dash2["status"], "success")
+        self.assertEqual(dash2["maquina_id"], "CALANDRA_2")
+        self.assertIn("indicadores", dash2)
+        self.assertIn("grafica_hora_a_hora", dash2)
+
+        res_dash3 = self.client.get("/api/produccion/calandras/CALANDRA_3/dashboard", headers=headers)
+        self.assertEqual(res_dash3.status_code, 200)
+        dash3 = res_dash3.json()
+        self.assertEqual(dash3["status"], "success")
+        self.assertEqual(dash3["maquina_id"], "CALANDRA_3")
+        self.assertIn("indicadores", dash3)
+        self.assertIn("grafica_hora_a_hora", dash3)
+
+        # 5. Si no hay turno activo, verificar que las métricas sean 0
+        if not dash2.get("is_turno_activo"):
+            self.assertEqual(dash2["indicadores"]["prendas_totales"], 0)
+            self.assertEqual(dash2["indicadores"]["kgs_totales"], 0.0)
+            self.assertEqual(dash2["indicadores"]["tiempo_valle_min"], 0.0)
+
 if __name__ == "__main__":
     unittest.main()
 

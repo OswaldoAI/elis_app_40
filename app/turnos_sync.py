@@ -7,37 +7,46 @@ from datetime import datetime
 from app.database import get_db_connection
 from app.utils import get_local_now_str, get_local_now
 
-JETSON_SERVER_1_URL = "http://192.168.0.137:5001"
+JETSON_SERVER_1_URLS = [
+    "http://192.168.0.137:5001",
+    "http://100.127.85.111:5001"
+]
 SYNC_INTERVAL_SECONDS = 1800  # 30 minutos
 
 logger = logging.getLogger("turnos_sync")
 
 def sync_turnos_from_server_1():
     """Consulta la API de turnos de Jetson Server 1 y actualiza la cache en SQLite."""
-    logger.info("Sincronizando turnos desde Jetson Server 1 (192.168.0.137:5001)...")
-    try:
-        url_jornada = f"{JETSON_SERVER_1_URL}/api/turnos/jornada"
-        req = urllib.request.urlopen(url_jornada, timeout=4)
-        jornada_data = json.loads(req.read().decode('utf-8'))
+    jornada_data = None
+    for base_url in JETSON_SERVER_1_URLS:
+        try:
+            url_jornada = f"{base_url}/api/turnos/jornada"
+            req = urllib.request.urlopen(url_jornada, timeout=3)
+            jornada_data = json.loads(req.read().decode('utf-8'))
+            if jornada_data:
+                break
+        except Exception:
+            pass
 
-        now_local = get_local_now_str()
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO shift_cache (key_name, data_json, updated_at)
-            VALUES ('jornada_actual', ?, ?)
-            ON CONFLICT(key_name) DO UPDATE SET
-                data_json = excluded.data_json,
-                updated_at = excluded.updated_at
-        """, (json.dumps(jornada_data), now_local))
-        conn.commit()
-        conn.close()
-        print(f"[{now_local}] ✅ Cache de Turnos actualizado exitosamente desde Jetson Server 1")
-        return True
-    except Exception as e:
+    if not jornada_data:
         now_err = get_local_now_str()
-        print(f"[{now_err}] ⚠️ No se pudo conectar a Jetson Server 1 ({e}). Usando datos en cache local.")
+        print(f"[{now_err}] ⚠️ No se pudo conectar a Jetson Server 1 (turnos). Usando datos en cache local.")
         return False
+
+    now_local = get_local_now_str()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO shift_cache (key_name, data_json, updated_at)
+        VALUES ('jornada_actual', ?, ?)
+        ON CONFLICT(key_name) DO UPDATE SET
+            data_json = excluded.data_json,
+            updated_at = excluded.updated_at
+    """, (json.dumps(jornada_data), now_local))
+    conn.commit()
+    conn.close()
+    print(f"[{now_local}] ✅ Cache de Turnos actualizado exitosamente desde Jetson Server 1")
+    return True
 
 def get_cached_turnos():
     """Obtiene los datos de turnos guardados en la base de datos local SQLite."""
@@ -48,6 +57,14 @@ def get_cached_turnos():
     if row and row["data_json"]:
         try:
             data = json.loads(row["data_json"])
+            today_str = get_local_now_str("%Y-%m-%d")
+            if data.get("jornada") != today_str:
+                if sync_turnos_from_server_1():
+                    conn2 = get_db_connection()
+                    row2 = conn2.execute("SELECT data_json, updated_at FROM shift_cache WHERE key_name = 'jornada_actual'").fetchone()
+                    conn2.close()
+                    if row2 and row2["data_json"]:
+                        data = json.loads(row2["data_json"])
             data["cache_updated_at"] = row["updated_at"] or get_local_now_str()
             return data
         except Exception:
