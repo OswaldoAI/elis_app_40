@@ -360,6 +360,55 @@ class TestElis4App(unittest.TestCase):
         )
         self.assertEqual(res_bad_fmt.status_code, 400)
 
+    def test_10_calandras_produccion_kpis_and_charts(self):
+        res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
+        self.assertEqual(res.status_code, 200)
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Verificar en summary que CALANDRA_2 y CALANDRA_3 incluyan métricas de producción y gráficas
+        res_sum = self.client.get("/api/produccion/summary", headers=headers)
+        self.assertEqual(res_sum.status_code, 200)
+        maquinas = {m["id"]: m for m in res_sum.json()["maquinas"]}
+
+        self.assertIn("CALANDRA_2", maquinas)
+        self.assertIn("CALANDRA_3", maquinas)
+
+        cal2 = maquinas["CALANDRA_2"]
+        self.assertIn("produccion_calandra", cal2)
+        p2 = cal2["produccion_calandra"]
+        self.assertIn("prendas_totales", p2)
+        self.assertIn("kgs_totales", p2)
+        self.assertIn("tiempo_valle_min", p2)
+        self.assertIn("prendas_hora", p2)
+        self.assertIn("kg_hora", p2)
+        self.assertIn("desglose_calandra2", p2)
+        self.assertIn("prendas_grandes", p2["desglose_calandra2"])
+        self.assertIn("prendas_pequenas", p2["desglose_calandra2"])
+        self.assertIn("grafica_hora_a_hora", p2)
+        self.assertIn("labels", p2["grafica_hora_a_hora"])
+        self.assertIn("prendas", p2["grafica_hora_a_hora"])
+        self.assertIn("tiempo_valle", p2["grafica_hora_a_hora"])
+
+        cal3 = maquinas["CALANDRA_3"]
+        self.assertIn("produccion_calandra", cal3)
+        p3 = cal3["produccion_calandra"]
+        self.assertIn("prendas_totales", p3)
+        self.assertIn("kgs_totales", p3)
+        self.assertIn("tiempo_valle_min", p3)
+        self.assertIn("prendas_hora", p3)
+        self.assertIn("kg_hora", p3)
+        self.assertIn("grafica_hora_a_hora", p3)
+
+        # 2. Endpoint en vivo de calandras
+        res_live = self.client.get("/api/produccion/calandras/live", headers=headers)
+        self.assertEqual(res_live.status_code, 200)
+        live_data = res_live.json()
+        self.assertEqual(live_data["status"], "success")
+        self.assertIn("calandra_2", live_data)
+        self.assertIn("calandra_3", live_data)
+
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -175,6 +175,35 @@ def init_db():
     )
     """)
 
+    # Tabla de Producción de Calandras (MQTT elis/calandra2/produccion y elis/calandra3/produccion)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS calandras_produccion (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        maquina TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        session_id TEXT,
+        sequence_id INTEGER,
+        shift_name TEXT,
+        count_total INTEGER DEFAULT 0,
+        count_grandes INTEGER DEFAULT 0,
+        count_pequenas INTEGER DEFAULT 0,
+        delta_total INTEGER DEFAULT 0,
+        delta_grandes INTEGER DEFAULT 0,
+        delta_pequenas INTEGER DEFAULT 0,
+        weight_total_kg REAL DEFAULT 0.0,
+        weight_grandes_kg REAL DEFAULT 0.0,
+        weight_pequenas_kg REAL DEFAULT 0.0,
+        idle_min_total REAL DEFAULT 0.0,
+        idle_min_grandes REAL DEFAULT 0.0,
+        idle_min_pequenas REAL DEFAULT 0.0,
+        in_idle INTEGER DEFAULT 0,
+        raw_json TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_calandras_prod ON calandras_produccion(maquina, timestamp_iso);")
+
     conn.commit()
     conn.close()
 

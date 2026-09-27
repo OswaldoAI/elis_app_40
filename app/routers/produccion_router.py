@@ -317,6 +317,8 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
     horario_con_fecha = f"{horario_base} | {fecha_formateada}"
 
     tunel_kpis = calculate_tunel_metrics(turno_act)
+    cal2_data = get_calandra_production("CALANDRA_2", turno_act)
+    cal3_data = get_calandra_production("CALANDRA_3", turno_act)
 
     return {
         "status": "online",
@@ -373,16 +375,16 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "id": "CALANDRA_2",
                 "nombre": "CALANDRA 2",
                 "tipo": "Planchado y Plegado Automático",
-                "estado": "Operativa",
+                "estado": "En Tiempo Valle" if cal2_data["en_valle"] else "Operativa",
                 "icono": "fa-scroll",
                 "oee": 86.4,
                 "clickable": False,
-                "metricas_clave": [
-                    {"label": "Velocidad", "val": "28 m/min"},
-                    {"label": "Procesamiento", "val": "1.450 prendas/h"},
-                    {"label": "Temp. Rodillo", "val": "175 °C"},
-                    {"label": "Presión Vapor", "val": "8,8 bar"}
-                ],
+                "turno_info": {
+                    "nombre": nombre_turno,
+                    "horario": horario_con_fecha,
+                    "fecha": fecha_formateada
+                },
+                "produccion_calandra": cal2_data,
                 "progreso_carga": 90,
                 "programa_actual": "Plegado Automático 3 Pliegues"
             },
@@ -390,20 +392,199 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "id": "CALANDRA_3",
                 "nombre": "CALANDRA 3",
                 "tipo": "Planchado & Inspección Óptica IA",
-                "estado": "Operativa",
+                "estado": "En Tiempo Valle" if cal3_data["en_valle"] else "Operativa",
                 "icono": "fa-eye",
                 "oee": 93.1,
                 "clickable": False,
-                "metricas_clave": [
-                    {"label": "Velocidad", "val": "32 m/min"},
-                    {"label": "Procesamiento", "val": "1.680 prendas/h"},
-                    {"label": "Temp. Rodillo", "val": "180 °C"},
-                    {"label": "Inspección IA", "val": "99.4% Conforme"}
-                ],
+                "turno_info": {
+                    "nombre": nombre_turno,
+                    "horario": horario_con_fecha,
+                    "fecha": fecha_formateada
+                },
+                "produccion_calandra": cal3_data,
                 "progreso_carga": 94,
                 "programa_actual": "Control Calidad Óptico Calandra 3 (Port 5000)"
             }
         ]
+    }
+
+@router.get("/calandras/live")
+def get_calandras_live_data(user: dict = Depends(check_produccion_permission)):
+    """Retorna las métricas instantáneas y gráficas hora a hora de Calandra 2 y Calandra 3."""
+    turnos_cache = get_cached_turnos()
+    turno_act = turnos_cache.get("turno_actual", {})
+    return {
+        "status": "success",
+        "timestamp": get_local_now_str(),
+        "calandra_2": get_calandra_production("CALANDRA_2", turno_act),
+        "calandra_3": get_calandra_production("CALANDRA_3", turno_act)
+    }
+
+def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
+    """
+    Calcula los indicadores y la matriz hora a hora para Calandra 2 o Calandra 3
+    a partir de los mensajes MQTT (elis/calandra2/produccion o elis/calandra3/produccion),
+    la base de datos SQLite calandras_produccion y la sincronización con el servicio de producción.
+    """
+    from app.mqtt_subscriber import get_calandras_live_cache
+    import urllib.request
+
+    live_cache = get_calandras_live_cache().get(maquina_id, {})
+    maq_param = "calandra_2" if maquina_id == "CALANDRA_2" else "calandra_3"
+
+    now_dt = get_local_now().replace(tzinfo=None)
+    w_idx = now_dt.weekday()
+
+    if not turno_act:
+        turnos_cache = get_cached_turnos()
+        turno_act = turnos_cache.get("turno_actual", {})
+
+    labels = []
+    prendas = []
+    valle = []
+    grandes = []
+    pequenas = []
+
+    # 1. Intentar consultar la matriz horaria procesada del día actual
+    try:
+        url = f"http://100.127.85.111:5002/api/tabla-horaria?maquina={maq_param}"
+        req = urllib.request.urlopen(url, timeout=3)
+        t_data = json.loads(req.read().decode('utf-8'))
+        hour_slots = t_data.get("hour_slots", [])
+        cells = t_data.get("cells", {})
+
+        for s in hour_slots:
+            lbl = f"{s['startStr']} - {s['endStr']}"
+            labels.append(lbl)
+            cell_key = f"{w_idx}_{s['index']}"
+            c = cells.get(cell_key, {})
+            l = c.get("large", 0)
+            p = c.get("small", 0)
+            tot = c.get("total", l + p)
+            v = round(float(c.get("idle_min", 0.0)), 1)
+
+            prendas.append(tot)
+            grandes.append(l)
+            pequenas.append(p)
+            valle.append(v)
+    except Exception:
+        # Franjas horarias por defecto del turno
+        h_ini = str(turno_act.get("hora_inicio", "06:00"))[:2]
+        h_fin = str(turno_act.get("hora_fin", "14:00"))[:2]
+        try:
+            start_h = int(h_ini)
+            end_h = int(h_fin)
+            if end_h <= start_h:
+                end_h += 24
+        except Exception:
+            start_h, end_h = 6, 14
+
+        for h in range(start_h, end_h):
+            h1 = h % 24
+            h2 = (h + 1) % 24
+            labels.append(f"{h1:02d}:00 - {h2:02d}:00")
+            prendas.append(0)
+            valle.append(0.0)
+            grandes.append(0)
+            pequenas.append(0)
+
+    # 2. Consultar registros recientes en SQLite local calandras_produccion
+    conn = get_db_connection()
+    c_row = conn.execute("""
+        SELECT * FROM calandras_produccion
+        WHERE maquina = ?
+        ORDER BY id DESC LIMIT 1
+    """, (maquina_id,)).fetchone()
+    conn.close()
+
+    last_p = live_cache if live_cache else (dict(c_row) if c_row else {})
+
+    tot_prendas_remotas = sum(prendas)
+    tot_grandes_remotas = sum(grandes)
+    tot_pequenas_remotas = sum(pequenas)
+    tot_valle_remoto = round(sum(valle), 1)
+
+    if maquina_id == "CALANDRA_2":
+        p_grandes = int(last_p.get("count_grandes") or tot_grandes_remotas)
+        p_pequenas = int(last_p.get("count_pequenas") or tot_pequenas_remotas)
+        p_totales = int(last_p.get("count_total") or (p_grandes + p_pequenas))
+        if p_totales == 0 and tot_prendas_remotas > 0:
+            p_totales = tot_prendas_remotas
+            p_grandes = tot_grandes_remotas
+            p_pequenas = tot_pequenas_remotas
+
+        w_grandes = float(last_p.get("weight_grandes_kg") or round(p_grandes * 0.45, 1))
+        w_pequenas = float(last_p.get("weight_pequenas_kg") or round(p_pequenas * 0.15, 1))
+        w_totales = float(last_p.get("total_weight_kg") or round(w_grandes + w_pequenas, 1))
+
+        v_grandes = float(last_p.get("idle_min_grandes") or tot_valle_remoto)
+        v_pequenas = float(last_p.get("idle_min_pequenas") or tot_valle_remoto)
+        v_total = round(max(v_grandes, v_pequenas, tot_valle_remoto), 1)
+        in_idle = bool(last_p.get("in_idle_grandes") or last_p.get("in_idle_pequenas") or last_p.get("in_idle"))
+    else:
+        # CALANDRA_3
+        p_totales = int(last_p.get("count") or tot_prendas_remotas)
+        p_grandes = p_totales
+        p_pequenas = 0
+        w_totales = float(last_p.get("total_weight_kg") or round(p_totales * 0.25, 1))
+        w_grandes = w_totales
+        w_pequenas = 0.0
+        v_total = float(last_p.get("idle_min") or tot_valle_remoto)
+        v_grandes = v_total
+        v_pequenas = 0.0
+        in_idle = bool(last_p.get("in_idle"))
+
+    # Calcular horas transcurridas de turno
+    dur_min = float(turno_act.get("minutos_transcurridos") or 60)
+    horas_transcurridas = max(dur_min / 60.0, 0.25)
+
+    prendas_h = int(round(p_totales / horas_transcurridas))
+    kg_h = round(w_totales / horas_transcurridas, 1)
+
+    prendas_totales_str = f"{p_totales:,}".replace(",", ".") + " prendas"
+    kgs_totales_str = f"{w_totales:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg"
+    tiempo_valle_str = f"{v_total:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min"
+    prendas_hora_str = f"{prendas_h:,}".replace(",", ".") + " prendas/h"
+    kg_hora_str = f"{kg_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+
+    return {
+        "maquina": maquina_id,
+        "en_valle": in_idle,
+        "prendas_totales": p_totales,
+        "prendas_totales_str": prendas_totales_str,
+        "kgs_totales": w_totales,
+        "kgs_totales_str": kgs_totales_str,
+        "tiempo_valle_min": v_total,
+        "tiempo_valle_str": tiempo_valle_str,
+        "prendas_hora": prendas_h,
+        "prendas_hora_str": prendas_hora_str,
+        "kg_hora": kg_h,
+        "kg_hora_str": kg_hora_str,
+        "desglose_calandra2": {
+            "prendas_grandes": p_grandes,
+            "prendas_grandes_str": f"{p_grandes:,}".replace(",", ".") + " grandes",
+            "prendas_pequenas": p_pequenas,
+            "prendas_pequenas_str": f"{p_pequenas:,}".replace(",", ".") + " pequeñas",
+            "kg_grandes": w_grandes,
+            "kg_grandes_str": f"{w_grandes:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "kg_pequenas": w_pequenas,
+            "kg_pequenas_str": f"{w_pequenas:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "tiempo_valle_grandes": v_grandes,
+            "tiempo_valle_grandes_str": f"{v_grandes:.1f} min",
+            "tiempo_valle_pequenas": v_pequenas,
+            "tiempo_valle_pequenas_str": f"{v_pequenas:.1f} min",
+            "prendas_grandes_hora": int(round(p_grandes / horas_transcurridas)),
+            "prendas_grandes_hora_str": f"{int(round(p_grandes / horas_transcurridas)):,} g/h".replace(",", "."),
+            "prendas_pequenas_hora": int(round(p_pequenas / horas_transcurridas)),
+            "prendas_pequenas_hora_str": f"{int(round(p_pequenas / horas_transcurridas)):,} p/h".replace(",", ".")
+        } if maquina_id == "CALANDRA_2" else None,
+        "grafica_hora_a_hora": {
+            "labels": labels,
+            "prendas": prendas,
+            "tiempo_valle": valle,
+            "grandes": grandes if maquina_id == "CALANDRA_2" else None,
+            "pequenas": pequenas if maquina_id == "CALANDRA_2" else None
+        }
     }
 
 from datetime import datetime, timedelta

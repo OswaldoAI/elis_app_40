@@ -461,6 +461,99 @@ def build_pdf():
         code_style
     ))
 
+    # Page Break
+    story.append(PageBreak())
+
+    # Section 9: Módulo Receptor y Tablas de Producción de Calandras (Puerto 5002)
+    story.append(Paragraph("9. Módulo Receptor y Tablas de Producción Dual Calandras (Puerto 5002)", h1_style))
+    story.append(Paragraph(
+        "El subsistema <b>Dual Calandra Production Receiver</b> (desplegado en el puerto 5002 de Jetson Server 1) constituye "
+        "la plataforma centralizada para la ingesta de telemetría de inferencia en tiempo real, el cálculo de tiempos valle, "
+        "la generación interactiva de tablas de producción y la retransmisión estandarizada hacia el broker MQTT corporativo.", body_style
+    ))
+
+    # 9.1 Consumo de Endpoints de Visión
+    story.append(Paragraph("9.1 Consumo e Integración con Aplicaciones Edge AI de Visión", h2_style))
+    story.append(Paragraph(
+        "El módulo sondea y consume continuamente las APIs de visión por computador desplegadas en las Jetson Edge de cada máquina:<br/>"
+        "• <b>Calandra 3 (Sábanas):</b> Consume <code>http://100.127.85.111:5000/api/status</code> (o <code>100.121.212.67:5000</code>). Obtiene conteo de sábanas procesadas, estado del stream RTSP, estatus de inferencia y telemetría de hardware (temperatura/uso CPU-GPU).<br/>"
+        "• <b>Calandra 2 (Grandes y Pequeñas):</b> Consume <code>http://100.101.226.80:5000/api/status</code> y <code>/api/conteo_live</code>. Obtiene de forma independiente las prendas grandes, pequeñas, total acumulado, pesaje en kg e inactividad en vivo (<code>idle_min_grandes</code>, <code>idle_min_pequenas</code>).", body_style
+    ))
+
+    # 9.2 Lógica de Tablas de Producción y Tiempo Valle Incremental
+    story.append(Paragraph("9.2 Lógica de Tablas de Producción y Tiempo Valle Incremental", h2_style))
+    story.append(Paragraph(
+        "Las vistas de producción <code>/tabla/calandra3</code> y <code>/tabla/calandra2</code> construyen una matriz horaria dividida "
+        "en los 3 turnos industriales de planta (Turno 1: 06:00-14:00, Turno 2: 14:00-21:00, Turno 3: 21:00-02:10).<br/>"
+        "<b>Algoritmo de Tiempo Valle por Deltas Positivos:</b> Para evitar la congelación de celdas cuando los contadores de la cámara "
+        "de visión sufren reinicios locales o desbordamientos, el backend procesa los registros cronológicos calculando deltas incrementales "
+        "positivos entre capturas consecutivas:<br/>"
+        "&nbsp;&nbsp;&nbsp;&nbsp;<b>&Delta; idle = (idle_curr - idle_prev)</b> si idle_curr &ge; idle_prev, o <b>&Delta; idle = idle_curr</b> si ocurrió un reset.<br/>"
+        "Esto garantiza que cada hora refleje exactamente los minutos reales de inactividad transcurridos en esa franja sin arrastrar acumulados previos.<br/>"
+        "<b>Actualización Automática SSE (Zero-Flicker):</b> La interfaz web mantiene una conexión EventSource en <code>/api/tabla-stream</code> "
+        "recibiendo actualizaciones cada 5 segundos para actualizar el DOM sin parpadeos ni recargas.", body_style
+    ))
+
+    # 9.3 Esquema de Base de Datos SQLite (receiver_production.db)
+    story.append(Paragraph("9.3 Esquema de Base de Datos Local (receiver_production.db)", h2_style))
+    story.append(Paragraph(
+        "Toda la telemetría y los estados de turno de ambas calandras se persisten de manera autónoma en SQLite:<br/>"
+        "• <b><code>production_records</code></b>: Registros temporales atómicos de Calandra 3 (count, delta_count, total_historical, idle_min, in_idle).<br/>"
+        "• <b><code>calandra2_records</code></b>: Registros atómicos de Calandra 2 (count_grandes, count_pequenas, delta_grandes, delta_pequenas, weight_kg, idle_min_grandes, idle_min_pequenas).<br/>"
+        "• <b><code>shift_json_records</code></b>: Guarda el JSON completo e inmutable de cada turno por máquina, fecha e índice de turno. Un hilo en segundo plano (<i>auto-saver</i>) actualiza y respalda continuamente 30+ registros de turnos en BD y en disco (<code>/shift_records/*.json</code>).<br/>"
+        "• <b><code>reset_events</code> / <code>calandra2_resets</code></b>: Auditoría de eventos de reinicio de sesión y conteo.", body_style
+    ))
+
+    # 9.4 Publicación en Broker MQTT (192.168.0.116:1883)
+    story.append(Paragraph("9.4 Publicación e Integración con Broker MQTT", h2_style))
+    story.append(Paragraph(
+        "Dos servicios emisores autónomos en segundo plano (<code>calandra3_publisher.service</code> y <code>calandra2_publisher.service</code>) "
+        "retransmiten cada 60 segundos paquetes JSON autenticados hacia el broker Mosquitto corporativo (<b>192.168.0.116:1883</b>, usuario: <code>elis_laundry_admin</code>):<br/>"
+        "• <b>Tópico Calandra 3 (<code>elis/calandra3/produccion</code>):</b> Transmite <code>count</code>, <code>delta_count</code>, <code>total_historical</code>, <code>total_weight_kg</code>, <code>idle_min</code>, <code>in_idle</code>, <code>shift_name</code> y telemetría.<br/>"
+        "• <b>Tópico Calandra 2 (<code>elis/calandra2/produccion</code>):</b> Transmite <code>count_grandes</code>, <code>count_pequenas</code>, <code>delta_grandes</code>, <code>delta_pequenas</code>, <code>weight_grandes_kg</code>, <code>weight_pequenas_kg</code>, <code>idle_min_grandes</code>, <code>idle_min_pequenas</code>, <code>in_idle_grandes</code>, <code>in_idle_pequenas</code>.", body_style
+    ))
+
+    # 9.5 Rutas de Acceso y Catálogo de Endpoints del Puerto 5002
+    story.append(Paragraph("9.5 Rutas de Conexión y Catálogo de Endpoints (Puerto 5002)", h2_style))
+    c2_routes_data = [
+        [Paragraph("<b>Tipo de Red / Acceso</b>", body_style), Paragraph("<b>Host / URL Base</b>", body_style), Paragraph("<b>Rutas Principales Calandras</b>", body_style)],
+        [Paragraph("<b>Red Local (LAN Planta)</b>", body_style), Paragraph("<code>http://192.168.0.137:5002</code>", body_style), Paragraph("<code>/tabla/calandra2</code><br/><code>/tabla/calandra3</code>", body_style)],
+        [Paragraph("<b>VPN Tailscale (IP Malla)</b>", body_style), Paragraph("<code>http://100.127.85.111:5002</code>", body_style), Paragraph("<code>/tabla/calandra2</code><br/><code>/tabla/calandra3</code>", body_style)],
+        [Paragraph("<b>Dominio Público / Proxy</b>", body_style), Paragraph("<code>https://elisnajera-desktop.tail2f2130.ts.net</code>", body_style), Paragraph("Acceso remoto cifrado a las tablas de producción.", body_style)]
+    ]
+    t_c2_routes = Table(c2_routes_data, colWidths=[120, 160, 224])
+    t_c2_routes.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    story.append(t_c2_routes)
+    story.append(Spacer(1, 6))
+
+    c2_api_data = [
+        [Paragraph("<b>Método</b>", body_style), Paragraph("<b>Endpoint (Puerto 5002)</b>", body_style), Paragraph("<b>Descripción / Payload</b>", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/</code>", body_style), Paragraph("Dashboard unificado de monitoreo de Calandra 2 y Calandra 3.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/tabla/calandra3</code>", body_style), Paragraph("Interfaz web interactiva de tabla de producción de Calandra 3 (Sábanas).", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/tabla/calandra2</code>", body_style), Paragraph("Interfaz web de tabla de producción de Calandra 2 (Grandes y Pequeñas).", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/conteo_live</code>", body_style), Paragraph("Métricas instantáneas en vivo de Calandra 3 (conteo, peso, idle_min).", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/calandra2/conteo_live</code>", body_style), Paragraph("Métricas instantáneas en vivo de Calandra 2 (grandes, pequeñas, idle).", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/tabla-horaria</code>", body_style), Paragraph("Matriz horaria procesada por máquina (<code>calandra_2</code> / <code>calandra_3</code>) y turno.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/tabla-stream</code>", body_style), Paragraph("Server-Sent Events (SSE) para refresco en tiempo real cada 5s.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/shift-records/query</code>", body_style), Paragraph("Consulta y obtención del JSON exhaustivo almacenado de un turno.", body_style)],
+        [Paragraph("<code>GET</code>", body_style), Paragraph("<code>/api/shift-records/list</code>", body_style), Paragraph("Listado completo de todos los JSONs de turno guardados en BD.", body_style)],
+        [Paragraph("<code>GET/POST</code>", body_style), Paragraph("<code>/api/config/weight</code>", body_style), Paragraph("Lectura y actualización del peso unitario en gramos por prenda.", body_style)]
+    ]
+    t_c2_api = Table(c2_api_data, colWidths=[45, 175, 284])
+    t_c2_api.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    story.append(t_c2_api)
+    story.append(Spacer(1, 8))
+
     doc.build(story, canvasmaker=NumberedCanvas)
     print(f"PDF successfully generated at: {pdf_path}")
 
