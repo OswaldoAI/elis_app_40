@@ -438,6 +438,36 @@ def is_shift_active(turno_act: dict = None) -> bool:
     except Exception:
         return False
 
+@router.get("/turnos/sync-status")
+def get_turnos_sync_status(user: dict = Depends(check_produccion_permission)):
+    """Informa sobre el estado de la sincronización de turnos desde http://100.127.85.111:5001."""
+    cached = get_cached_turnos()
+    return {
+        "status": "success",
+        "fuente_principal": "http://100.127.85.111:5001",
+        "intervalo_sincronizacion_seg": 1800,
+        "intervalo_sincronizacion_min": 30,
+        "cache_actualizado_el": cached.get("cache_updated_at"),
+        "sincronizado_desde": cached.get("synced_from_url") or "http://100.127.85.111:5001",
+        "jornada": cached.get("jornada"),
+        "turno_actual": cached.get("turno_actual"),
+        "is_shift_active": is_shift_active(cached.get("turno_actual", {})),
+        "turnos_jornada": cached.get("shifts", [])
+    }
+
+@router.post("/turnos/sync-now")
+def trigger_turnos_sync_now(user: dict = Depends(check_produccion_permission)):
+    """Fuerza una sincronización inmediata desde la aplicación de turnos (http://100.127.85.111:5001)."""
+    ok = sync_turnos_from_server_1()
+    cached = get_cached_turnos()
+    return {
+        "status": "success" if ok else "warning",
+        "message": "Turnos sincronizados correctamente desde http://100.127.85.111:5001" if ok else "No se pudo contactar http://100.127.85.111:5001, usando caché",
+        "timestamp": get_local_now_str(),
+        "turno_actual": cached.get("turno_actual"),
+        "turnos_jornada": cached.get("shifts", [])
+    }
+
 @router.get("/calandras/live")
 def get_calandras_live_data(user: dict = Depends(check_produccion_permission)):
     """Retorna las métricas instantáneas y gráficas hora a hora de Calandra 2 y Calandra 3."""

@@ -8,32 +8,35 @@ from app.database import get_db_connection
 from app.utils import get_local_now_str, get_local_now
 
 JETSON_SERVER_1_URLS = [
-    "http://192.168.0.137:5001",
-    "http://100.127.85.111:5001"
+    "http://100.127.85.111:5001",
+    "http://192.168.0.137:5001"
 ]
 SYNC_INTERVAL_SECONDS = 1800  # 30 minutos
 
 logger = logging.getLogger("turnos_sync")
 
 def sync_turnos_from_server_1():
-    """Consulta la API de turnos de Jetson Server 1 y actualiza la cache en SQLite."""
+    """Consulta la API de turnos de Jetson Server 1 (http://100.127.85.111:5001) y actualiza la cache en SQLite."""
     jornada_data = None
+    successful_url = None
     for base_url in JETSON_SERVER_1_URLS:
         try:
             url_jornada = f"{base_url}/api/turnos/jornada"
             req = urllib.request.urlopen(url_jornada, timeout=3)
             jornada_data = json.loads(req.read().decode('utf-8'))
             if jornada_data:
+                successful_url = base_url
                 break
         except Exception:
             pass
 
     if not jornada_data:
         now_err = get_local_now_str()
-        print(f"[{now_err}] ⚠️ No se pudo conectar a Jetson Server 1 (turnos). Usando datos en cache local.")
+        print(f"[{now_err}] ⚠️ No se pudo conectar a la aplicación de turnos en {JETSON_SERVER_1_URLS}. Usando datos en cache local.")
         return False
 
     now_local = get_local_now_str()
+    jornada_data["synced_from_url"] = successful_url
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -45,7 +48,7 @@ def sync_turnos_from_server_1():
     """, (json.dumps(jornada_data), now_local))
     conn.commit()
     conn.close()
-    print(f"[{now_local}] ✅ Cache de Turnos actualizado exitosamente desde Jetson Server 1")
+    print(f"[{now_local}] ✅ Turnos sincronizados exitosamente desde {successful_url} (Frecuencia: cada 30 min)")
     return True
 
 def get_cached_turnos():
