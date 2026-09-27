@@ -204,7 +204,32 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_calandras_prod ON calandras_produccion(maquina, timestamp_iso);")
 
+    # Tabla de Persistencia de Paquetes JSON de Turnos para Calandras (Calandra 2 y Calandra 3)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS calandras_turnos_persistencia (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shift_key TEXT UNIQUE NOT NULL,
+        maquina TEXT NOT NULL,
+        fecha TEXT NOT NULL,
+        turno_identificador TEXT NOT NULL,
+        nombre_turno TEXT NOT NULL,
+        hora_inicio TEXT NOT NULL,
+        hora_fin TEXT NOT NULL,
+        rango_horario TEXT NOT NULL,
+        prendas_totales INTEGER DEFAULT 0,
+        kgs_totales REAL DEFAULT 0.0,
+        tiempo_valle_min REAL DEFAULT 0.0,
+        prendas_hora INTEGER DEFAULT 0,
+        kg_hora REAL DEFAULT 0.0,
+        data_json TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cal_turnos_maq_fecha ON calandras_turnos_persistencia(maquina, fecha, turno_identificador);")
+
     conn.commit()
     conn.close()
+
 
 

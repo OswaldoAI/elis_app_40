@@ -437,7 +437,67 @@ class TestElis4App(unittest.TestCase):
             self.assertEqual(dash2["indicadores"]["kgs_totales"], 0.0)
             self.assertEqual(dash2["indicadores"]["tiempo_valle_min"], 0.0)
 
+    def test_11_calandras_shift_json_persistence(self):
+        res = self.client.post("/api/auth/login", json={"username": "producción", "password": "admin"})
+        self.assertEqual(res.status_code, 200)
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Guardar turno 1 para Calandra 2
+        res_save2 = self.client.post("/api/produccion/calandras/CALANDRA_2/guardar-turno-json?fecha=2026-09-27&turno_numero=1", headers=headers)
+        self.assertEqual(res_save2.status_code, 200)
+        d2_save = res_save2.json()
+        self.assertEqual(d2_save["status"], "success")
+        self.assertEqual(d2_save["turno_identificador"], "Turno 1")
+        self.assertEqual(d2_save["maquina"], "CALANDRA_2")
+        self.assertIn("indicadores_dashboard", d2_save)
+        self.assertIn("desglose_hora_a_hora", d2_save)
+        self.assertIn("labels", d2_save["desglose_hora_a_hora"])
+        self.assertIn("prendas", d2_save["desglose_hora_a_hora"])
+        self.assertIn("tiempo_valle_min", d2_save["desglose_hora_a_hora"])
+        shift_key_2 = d2_save["shift_key"]
+
+        # 2. Guardar turno 2 para Calandra 2
+        res_save2_t2 = self.client.post("/api/produccion/calandras/CALANDRA_2/guardar-turno-json?fecha=2026-09-27&turno_numero=2", headers=headers)
+        self.assertEqual(res_save2_t2.status_code, 200)
+        self.assertEqual(res_save2_t2.json()["turno_identificador"], "Turno 2")
+
+        # 3. Guardar turno 1 para Calandra 3
+        res_save3 = self.client.post("/api/produccion/calandras/CALANDRA_3/guardar-turno-json?fecha=2026-09-27&turno_numero=1", headers=headers)
+        self.assertEqual(res_save3.status_code, 200)
+        d3_save = res_save3.json()
+        self.assertEqual(d3_save["status"], "success")
+        self.assertEqual(d3_save["turno_identificador"], "Turno 1")
+        self.assertEqual(d3_save["maquina"], "CALANDRA_3")
+        shift_key_3 = d3_save["shift_key"]
+
+        # 4. Consultar historial de turnos guardados para Calandra 2
+        res_hist2 = self.client.get("/api/produccion/calandras/CALANDRA_2/turnos-historial", headers=headers)
+        self.assertEqual(res_hist2.status_code, 200)
+        h2 = res_hist2.json()
+        self.assertEqual(h2["status"], "success")
+        self.assertGreaterEqual(h2["total"], 2)
+        turnos_nombres = [t["turno_identificador"] for t in h2["turnos"]]
+        self.assertIn("Turno 1", turnos_nombres)
+        self.assertIn("Turno 2", turnos_nombres)
+
+        # 5. Consultar detalle de turno por shift_key para Calandra 2
+        res_det2 = self.client.get(f"/api/produccion/calandras/CALANDRA_2/turnos-historial/{shift_key_2}", headers=headers)
+        self.assertEqual(res_det2.status_code, 200)
+        det2 = res_det2.json()
+        self.assertEqual(det2["shift_key"], shift_key_2)
+        self.assertEqual(det2["turno_identificador"], "Turno 1")
+        self.assertIn("meta_info", det2)
+        self.assertIn("indicadores_dashboard", det2)
+        self.assertIn("desglose_hora_a_hora", det2)
+
+        # 6. Consultar fechas disponibles
+        res_fechas = self.client.get("/api/produccion/calandras/CALANDRA_2/turnos-fechas", headers=headers)
+        self.assertEqual(res_fechas.status_code, 200)
+        self.assertIn("2026-09-27", res_fechas.json()["fechas"])
+
 if __name__ == "__main__":
     unittest.main()
+
 
 

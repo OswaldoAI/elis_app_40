@@ -503,6 +503,13 @@ def get_calandra_dashboard(maquina_id: str, user: dict = Depends(check_produccio
 
     prod = get_calandra_production(m_id, turno_act)
 
+    if shift_active:
+        try:
+            cal_pkg = build_calandra_shift_json(m_id, fecha_raw, turno_act)
+            save_calandra_shift_json(cal_pkg)
+        except Exception as e:
+            print(f"Error auto-guardando turno calandra: {e}")
+
     return {
         "status": "success",
         "maquina_id": m_id,
@@ -519,6 +526,449 @@ def get_calandra_dashboard(maquina_id: str, user: dict = Depends(check_produccio
         "indicadores": prod,
         "grafica_hora_a_hora": prod.get("grafica_hora_a_hora", {})
     }
+
+
+def get_turno_identificador(turno_dict: dict, shifts_list: list = None) -> tuple[str, int]:
+    """
+    Determina la identificación estandarizada del turno: 'Turno 1', 'Turno 2', etc.
+    Devuelve (turno_identificador, turno_numero).
+    """
+    import re
+    if not turno_dict:
+        return "Turno 1", 1
+
+    hora_ini = str(turno_dict.get("hora_inicio") or turno_dict.get("start") or "")[:5]
+    nombre = str(turno_dict.get("nombre") or turno_dict.get("name") or "")
+
+    if shifts_list:
+        for idx, s in enumerate(shifts_list):
+            s_start = str(s.get("hora_inicio") or s.get("start") or "")[:5]
+            s_name = str(s.get("nombre") or s.get("name") or "")
+            if hora_ini and s_start and hora_ini == s_start:
+                return f"Turno {idx + 1}", idx + 1
+            if nombre and s_name and (nombre.lower() in s_name.lower() or s_name.lower() in nombre.lower()):
+                return f"Turno {idx + 1}", idx + 1
+
+    # Extraer numeral si está presente en el nombre
+    match = re.search(r'\b(?:turno\s*)?([1-9])\b', nombre, re.IGNORECASE)
+    if match:
+        num = int(match.group(1))
+        return f"Turno {num}", num
+
+    return "Turno 1", 1
+
+
+def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: dict = None, turno_numero: int = None) -> dict:
+    """
+    Construye el paquete JSON completo de un turno para Calandra 2 o Calandra 3,
+    guardando la información hora a hora de cantidad de prendas y tiempo valle
+    y de los indicadores del dashboard. Cada JSON contiene fecha y hora del turno
+    y es identificado formalmente como 'Turno 1', 'Turno 2', etc.
+    """
+    m_id = maquina_id.upper()
+    turnos_cache = get_cached_turnos()
+    shifts_list = turnos_cache.get("shifts", [])
+
+    if not shift_data:
+        turno_act = turnos_cache.get("turno_actual", {})
+        if is_shift_active(turno_act):
+            shift_data = turno_act
+        elif shifts_list:
+            shift_data = shifts_list[0]
+        else:
+            shift_data = {
+                "nombre": "Turno 1",
+                "hora_inicio": "06:00",
+                "hora_fin": "14:00",
+                "fecha": fecha or datetime.now().strftime("%Y-%m-%d")
+            }
+
+    if turno_numero:
+        turno_identificador = f"Turno {turno_numero}"
+        t_num = turno_numero
+    else:
+        turno_identificador, t_num = get_turno_identificador(shift_data, shifts_list)
+
+    fecha_turno = fecha or shift_data.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    hora_inicio = str(shift_data.get("hora_inicio") or shift_data.get("start") or "06:00")[:5]
+    hora_fin = str(shift_data.get("hora_fin") or shift_data.get("end") or "14:00")[:5]
+    rango_horario = f"{hora_inicio} - {hora_fin}"
+
+    try:
+        fecha_formateada = datetime.strptime(fecha_turno, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha_formateada = fecha_turno
+
+    shift_key = f"{m_id}_{fecha_turno}_{turno_identificador.replace(' ', '_')}"
+
+    # Obtener franjas horarias del turno
+    try:
+        h_ini_int = int(hora_inicio[:2])
+        h_fin_int = int(hora_fin[:2])
+    except Exception:
+        h_ini_int, h_fin_int = 6, 14
+    if h_fin_int <= h_ini_int:
+        h_fin_int += 24
+
+    labels = []
+    prendas = []
+    valle = []
+    grandes = []
+    pequenas = []
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    for h in range(h_ini_int, h_fin_int):
+        h1 = h % 24
+        h2 = (h + 1) % 24
+        lbl = f"{h1:02d}:00 - {h2:02d}:00"
+        labels.append(lbl)
+
+        day_offset = h // 24
+        dt_day = datetime.strptime(fecha_turno, "%Y-%m-%d") + timedelta(days=day_offset)
+        slot_start_iso = f"{dt_day.strftime('%Y-%m-%d')} {h1:02d}:00:00"
+        slot_end_iso = f"{dt_day.strftime('%Y-%m-%d')} {h2:02d}:00:00" if h2 != 0 else f"{(dt_day + timedelta(days=1)).strftime('%Y-%m-%d')} 00:00:00"
+
+        row = cursor.execute("""
+            SELECT 
+                COALESCE(SUM(delta_total), 0) as tot_delta,
+                COALESCE(SUM(delta_grandes), 0) as tot_g,
+                COALESCE(SUM(delta_pequenas), 0) as tot_p,
+                COALESCE(SUM(idle_min_total), 0.0) as tot_valle,
+                MAX(count_total) - MIN(count_total) as span_tot
+            FROM calandras_produccion
+            WHERE maquina = ? AND timestamp_iso >= ? AND timestamp_iso < ?
+        """, (m_id, slot_start_iso, slot_end_iso)).fetchone()
+
+        tot_slot = 0
+        g_slot = 0
+        p_slot = 0
+        v_slot = 0.0
+
+        if row and (row["tot_delta"] > 0 or (row["span_tot"] and row["span_tot"] > 0)):
+            tot_slot = row["tot_delta"] if row["tot_delta"] > 0 else (row["span_tot"] or 0)
+            g_slot = row["tot_g"]
+            p_slot = row["tot_p"]
+            v_slot = round(float(row["tot_valle"]), 1)
+
+        prendas.append(tot_slot)
+        grandes.append(g_slot)
+        pequenas.append(p_slot)
+        valle.append(v_slot)
+
+    conn.close()
+
+    # Si SQLite aún no tiene cargas y coincide con el turno actual en vivo, consultar datos remotos
+    if sum(prendas) == 0 and sum(valle) == 0.0 and fecha_turno == datetime.now().strftime("%Y-%m-%d"):
+        prod_live = get_calandra_production(m_id, shift_data)
+        g_live = prod_live.get("grafica_hora_a_hora", {})
+        if g_live.get("prendas") and sum(g_live.get("prendas", [])) > 0:
+            labels = g_live.get("labels", labels)
+            prendas = g_live.get("prendas", prendas)
+            valle = g_live.get("tiempo_valle", valle)
+            if m_id == "CALANDRA_2":
+                grandes = g_live.get("grandes", grandes)
+                pequenas = g_live.get("pequenas", pequenas)
+
+    tot_prendas = sum(prendas)
+    tot_grandes = sum(grandes) if grandes else tot_prendas
+    tot_pequenas = sum(pequenas) if pequenas else 0
+    tot_valle = round(sum(valle), 1)
+
+    if m_id == "CALANDRA_2":
+        kg_grandes = round(tot_grandes * 0.45, 1)
+        kg_pequenas = round(tot_pequenas * 0.15, 1)
+        tot_kg = round(kg_grandes + kg_pequenas, 1)
+    else:
+        tot_kg = round(tot_prendas * 0.25, 1)
+        kg_grandes = tot_kg
+        kg_pequenas = 0.0
+
+    duracion_horas = max(len(labels), 1)
+    now_dt = get_local_now().replace(tzinfo=None)
+    start_iso, end_iso = get_shift_start_end_iso(fecha_turno, hora_inicio, hora_fin)
+    now_str = get_local_now_str()
+    if start_iso <= now_str <= end_iso:
+        dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+        mins = max((now_dt - dt_start).total_seconds() / 60.0, 15.0)
+        horas_calc = max(mins / 60.0, 0.25)
+    else:
+        horas_calc = float(duracion_horas)
+
+    prendas_h = int(round(tot_prendas / horas_calc)) if horas_calc > 0 else 0
+    kg_h = round(tot_kg / horas_calc, 1) if horas_calc > 0 else 0.0
+
+    prendas_totales_str = f"{tot_prendas:,}".replace(",", ".") + " prendas"
+    kgs_totales_str = f"{tot_kg:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg"
+    tiempo_valle_str = f"{tot_valle:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min"
+    prendas_hora_str = f"{prendas_h:,}".replace(",", ".") + " prendas/h"
+    kg_hora_str = f"{kg_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+
+    desglose_cal2 = None
+    if m_id == "CALANDRA_2":
+        g_h = int(round(tot_grandes / horas_calc)) if horas_calc > 0 else 0
+        p_h = int(round(tot_pequenas / horas_calc)) if horas_calc > 0 else 0
+        desglose_cal2 = {
+            "prendas_grandes": tot_grandes,
+            "prendas_grandes_str": f"{tot_grandes:,}".replace(",", ".") + " grandes",
+            "prendas_pequenas": tot_pequenas,
+            "prendas_pequenas_str": f"{tot_pequenas:,}".replace(",", ".") + " pequeñas",
+            "kg_grandes": kg_grandes,
+            "kg_grandes_str": f"{kg_grandes:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "kg_pequenas": kg_pequenas,
+            "kg_pequenas_str": f"{kg_pequenas:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "tiempo_valle_grandes": tot_valle,
+            "tiempo_valle_grandes_str": f"{tot_valle:.1f} min",
+            "tiempo_valle_pequenas": tot_valle,
+            "tiempo_valle_pequenas_str": f"{tot_valle:.1f} min",
+            "prendas_grandes_hora": g_h,
+            "prendas_grandes_hora_str": f"{g_h:,} g/h".replace(",", "."),
+            "prendas_pequenas_hora": p_h,
+            "prendas_pequenas_hora_str": f"{p_h:,} p/h".replace(",", ".")
+        }
+
+    return {
+        "shift_key": shift_key,
+        "maquina": m_id,
+        "fecha": fecha_turno,
+        "turno_identificador": turno_identificador,
+        "hora_inicio": hora_inicio,
+        "hora_fin": hora_fin,
+        "rango_horario": rango_horario,
+        "meta_info": {
+            "planta": "ELIS NÁJERA 4.0",
+            "maquina_id": m_id,
+            "maquina_nombre": "Calandra 2" if m_id == "CALANDRA_2" else "Calandra 3",
+            "fecha": fecha_turno,
+            "fecha_formateada": fecha_formateada,
+            "turno_identificador": turno_identificador,
+            "nombre_turno": shift_data.get("nombre") or turno_identificador,
+            "hora_inicio": hora_inicio,
+            "hora_fin": hora_fin,
+            "rango_horario": rango_horario,
+            "timestamp_actualizacion": get_local_now_str()
+        },
+        "indicadores_dashboard": {
+            "prendas_totales": tot_prendas,
+            "prendas_totales_str": prendas_totales_str,
+            "kgs_totales": tot_kg,
+            "kgs_totales_str": kgs_totales_str,
+            "tiempo_valle_min": tot_valle,
+            "tiempo_valle_str": tiempo_valle_str,
+            "prendas_hora": prendas_h,
+            "prendas_hora_str": prendas_hora_str,
+            "kg_hora": kg_h,
+            "kg_hora_str": kg_hora_str,
+            "en_valle": False,
+            "desglose_calandra2": desglose_cal2
+        },
+        "desglose_hora_a_hora": {
+            "labels": labels,
+            "prendas": prendas,
+            "tiempo_valle_min": valle,
+            "grandes": grandes if m_id == "CALANDRA_2" else None,
+            "pequenas": pequenas if m_id == "CALANDRA_2" else None
+        }
+    }
+
+
+def save_calandra_shift_json(shift_package: dict) -> bool:
+    """Almacena o actualiza un paquete JSON de turno para Calandras en SQLite."""
+    shift_key = shift_package["shift_key"]
+    maquina = shift_package["maquina"]
+    fecha = shift_package["fecha"]
+    turno_identificador = shift_package["turno_identificador"]
+    meta = shift_package.get("meta_info", {})
+    nombre_turno = meta.get("nombre_turno", turno_identificador)
+    hora_inicio = shift_package["hora_inicio"]
+    hora_fin = shift_package["hora_fin"]
+    rango_horario = shift_package.get("rango_horario", f"{hora_inicio} - {hora_fin}")
+
+    ind = shift_package.get("indicadores_dashboard", {})
+    prendas_totales = int(ind.get("prendas_totales", 0))
+    kgs_totales = float(ind.get("kgs_totales", 0.0))
+    tiempo_valle_min = float(ind.get("tiempo_valle_min", 0.0))
+    prendas_hora = int(ind.get("prendas_hora", 0))
+    kg_hora = float(ind.get("kg_hora", 0.0))
+
+    data_json = json.dumps(shift_package, ensure_ascii=False)
+    now_local = get_local_now_str()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO calandras_turnos_persistencia (
+            shift_key, maquina, fecha, turno_identificador, nombre_turno,
+            hora_inicio, hora_fin, rango_horario,
+            prendas_totales, kgs_totales, tiempo_valle_min,
+            prendas_hora, kg_hora, data_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(shift_key) DO UPDATE SET
+            fecha = excluded.fecha,
+            turno_identificador = excluded.turno_identificador,
+            nombre_turno = excluded.nombre_turno,
+            hora_inicio = excluded.hora_inicio,
+            hora_fin = excluded.hora_fin,
+            rango_horario = excluded.rango_horario,
+            prendas_totales = excluded.prendas_totales,
+            kgs_totales = excluded.kgs_totales,
+            tiempo_valle_min = excluded.tiempo_valle_min,
+            prendas_hora = excluded.prendas_hora,
+            kg_hora = excluded.kg_hora,
+            data_json = excluded.data_json,
+            updated_at = excluded.updated_at
+    """, (
+        shift_key, maquina, fecha, turno_identificador, nombre_turno,
+        hora_inicio, hora_fin, rango_horario,
+        prendas_totales, kgs_totales, tiempo_valle_min,
+        prendas_hora, kg_hora, data_json, now_local
+    ))
+    conn.commit()
+    conn.close()
+    return True
+
+
+@router.post("/calandras/{maquina_id}/guardar-turno-json")
+def trigger_save_calandra_shift_json(
+    maquina_id: str,
+    fecha: Optional[str] = None,
+    turno_numero: Optional[int] = None,
+    user: dict = Depends(check_produccion_permission)
+):
+    """Genera y guarda en la base de datos local SQLite el paquete JSON del turno para Calandra 2 o Calandra 3."""
+    m_id = maquina_id.upper()
+    if m_id not in ["CALANDRA_2", "CALANDRA_3"]:
+        raise HTTPException(status_code=404, detail="Máquina no válida")
+
+    pkg = build_calandra_shift_json(m_id, fecha=fecha, turno_numero=turno_numero)
+    ok = save_calandra_shift_json(pkg)
+    return {
+        "status": "success" if ok else "error",
+        "message": f"Turno {pkg['turno_identificador']} guardado exitosamente en SQLite para {m_id}",
+        "shift_key": pkg["shift_key"],
+        "maquina": m_id,
+        "fecha": pkg["fecha"],
+        "turno_identificador": pkg["turno_identificador"],
+        "hora_inicio": pkg["hora_inicio"],
+        "hora_fin": pkg["hora_fin"],
+        "rango_horario": pkg["rango_horario"],
+        "indicadores_dashboard": pkg["indicadores_dashboard"],
+        "desglose_hora_a_hora": pkg["desglose_hora_a_hora"]
+    }
+
+
+@router.get("/calandras/{maquina_id}/turnos-historial")
+def get_calandras_turnos_historial(
+    maquina_id: str,
+    fecha: Optional[str] = None,
+    user: dict = Depends(check_produccion_permission)
+):
+    """Consulta la lista de turnos guardados en SQLite para Calandra 2 o Calandra 3."""
+    m_id = maquina_id.upper()
+    if m_id not in ["CALANDRA_2", "CALANDRA_3"]:
+        raise HTTPException(status_code=404, detail="Máquina no válida")
+
+    conn = get_db_connection()
+    if fecha:
+        rows = conn.execute("""
+            SELECT shift_key, maquina, fecha, turno_identificador, nombre_turno,
+                   hora_inicio, hora_fin, rango_horario,
+                   prendas_totales, kgs_totales, tiempo_valle_min,
+                   prendas_hora, kg_hora, updated_at
+            FROM calandras_turnos_persistencia
+            WHERE maquina = ? AND fecha = ?
+            ORDER BY hora_inicio ASC
+        """, (m_id, fecha)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT shift_key, maquina, fecha, turno_identificador, nombre_turno,
+                   hora_inicio, hora_fin, rango_horario,
+                   prendas_totales, kgs_totales, tiempo_valle_min,
+                   prendas_hora, kg_hora, updated_at
+            FROM calandras_turnos_persistencia
+            WHERE maquina = ?
+            ORDER BY fecha DESC, hora_inicio ASC
+        """, (m_id,)).fetchall()
+    conn.close()
+
+    results = []
+    for r in rows:
+        results.append({
+            "shift_key": r["shift_key"],
+            "maquina": r["maquina"],
+            "fecha": r["fecha"],
+            "turno_identificador": r["turno_identificador"],
+            "nombre_turno": r["nombre_turno"],
+            "hora_inicio": r["hora_inicio"],
+            "hora_fin": r["hora_fin"],
+            "rango_horario": r["rango_horario"],
+            "prendas_totales": r["prendas_totales"],
+            "prendas_totales_str": f"{r['prendas_totales']:,}".replace(",", ".") + " prendas",
+            "kgs_totales": r["kgs_totales"],
+            "kgs_totales_str": f"{r['kgs_totales']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "tiempo_valle_min": r["tiempo_valle_min"],
+            "tiempo_valle_str": f"{r['tiempo_valle_min']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
+            "prendas_hora": r["prendas_hora"],
+            "prendas_hora_str": f"{r['prendas_hora']:,}".replace(",", ".") + " prendas/h",
+            "kg_hora": r["kg_hora"],
+            "kg_hora_str": f"{r['kg_hora']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h",
+            "updated_at": r["updated_at"]
+        })
+
+    return {
+        "status": "success",
+        "maquina": m_id,
+        "total": len(results),
+        "turnos": results
+    }
+
+
+@router.get("/calandras/{maquina_id}/turnos-historial/{shift_key}")
+def get_calandras_turno_json_detalle(
+    maquina_id: str,
+    shift_key: str,
+    user: dict = Depends(check_produccion_permission)
+):
+    """Retorna el paquete JSON completo de un turno persistido para Calandra 2 o Calandra 3."""
+    m_id = maquina_id.upper()
+    conn = get_db_connection()
+    row = conn.execute("""
+        SELECT data_json FROM calandras_turnos_persistencia
+        WHERE maquina = ? AND shift_key = ?
+    """, (m_id, shift_key)).fetchone()
+    conn.close()
+
+    if not row or not row["data_json"]:
+        raise HTTPException(status_code=404, detail="Turno no encontrado en persistencia")
+
+    try:
+        return json.loads(row["data_json"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error parseando JSON: {e}")
+
+
+@router.get("/calandras/{maquina_id}/turnos-fechas")
+def get_calandras_turnos_fechas_disponibles(
+    maquina_id: str,
+    user: dict = Depends(check_produccion_permission)
+):
+    """Retorna la lista de fechas disponibles con turnos guardados en SQLite."""
+    m_id = maquina_id.upper()
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT DISTINCT fecha FROM calandras_turnos_persistencia
+        WHERE maquina = ?
+        ORDER BY fecha DESC
+    """, (m_id,)).fetchall()
+    conn.close()
+
+    return {
+        "status": "success",
+        "maquina": m_id,
+        "fechas": [r["fecha"] for r in rows]
+    }
+
 
 def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
     """
