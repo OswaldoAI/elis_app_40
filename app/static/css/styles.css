@@ -1191,4 +1191,34 @@ body {
   width: 100%;
 }
 
+/* Layout del Dashboard Ampliado de Calandras (4 cols x 2 filas, igual a Túnel de Lavado) */
+.calandra-dashboard-grid-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr 1fr 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (max-width: 1200px) {
+  .calandra-dashboard-grid-layout {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .calandra-dashboard-grid-layout .calandra-card-kg-hora {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+  .calandra-dashboard-grid-layout .calandra-chart-section {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .calandra-dashboard-grid-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+
 

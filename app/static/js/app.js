@@ -842,10 +842,10 @@ async function loadCalandraDashboard(maquinaId) {
     }
 
     html += `
-      <!-- Tarjetas Principales de Producción (5 KPIs) -->
-      <div class="dashboard-kpi-grid">
-        <!-- 1. Prendas Totales -->
-        <div class="kpi-card-striking kpi-card-cyan">
+      <!-- Cuadrícula 4 Columnas x 2 Filas del Dashboard de Calandra -->
+      <div class="calandra-dashboard-grid-layout">
+        <!-- Columna 1, Fila 1: Prendas Totales -->
+        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 1; grid-row: 1;">
           <div class="kpi-card-header">
             <h4><i class="fas fa-tshirt"></i> Prendas Totales</h4>
             <div class="kpi-icon-circle"><i class="fas fa-layer-group"></i></div>
@@ -860,8 +860,8 @@ async function loadCalandraDashboard(maquinaId) {
           ` : ''}
         </div>
 
-        <!-- 2. Kgs Totales -->
-        <div class="kpi-card-striking kpi-card-green">
+        <!-- Columna 2, Fila 1: Kgs Totales -->
+        <div class="kpi-card-striking kpi-card-green" style="grid-column: 2; grid-row: 1;">
           <div class="kpi-card-header">
             <h4><i class="fas fa-weight-hanging"></i> Kgs Totales</h4>
             <div class="kpi-icon-circle"><i class="fas fa-balance-scale-right"></i></div>
@@ -876,8 +876,8 @@ async function loadCalandraDashboard(maquinaId) {
           ` : ''}
         </div>
 
-        <!-- 3. Tiempo Valle -->
-        <div class="kpi-card-striking ${ind.en_valle ? 'kpi-card-red' : 'kpi-card-amber'}">
+        <!-- Columna 3, Fila 1: Tiempo Valle -->
+        <div class="kpi-card-striking ${ind.en_valle ? 'kpi-card-red' : 'kpi-card-amber'}" style="grid-column: 3; grid-row: 1;">
           <div class="kpi-card-header">
             <h4><i class="fas fa-stopwatch"></i> Tiempo Valle</h4>
             <div class="kpi-icon-circle">
@@ -899,8 +899,8 @@ async function loadCalandraDashboard(maquinaId) {
           ` : ''}
         </div>
 
-        <!-- 4. Prendas / Hora -->
-        <div class="kpi-card-striking kpi-card-purple">
+        <!-- Columna 4, Fila 1: Prendas / Hora -->
+        <div class="kpi-card-striking kpi-card-purple" style="grid-column: 4; grid-row: 1;">
           <div class="kpi-card-header">
             <h4><i class="fas fa-tachometer-alt"></i> Prendas / Hora</h4>
             <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
@@ -915,35 +915,72 @@ async function loadCalandraDashboard(maquinaId) {
           ` : ''}
         </div>
 
-        <!-- 5. Kg / Hora -->
-        <div class="kpi-card-striking kpi-card-indigo">
-          <div class="kpi-card-header">
-            <h4><i class="fas fa-balance-scale"></i> Kg / Hora</h4>
-            <div class="kpi-icon-circle"><i class="fas fa-chart-line"></i></div>
+        <!-- Columna 1, Fila 2: Kg / Hora (Estirada hacia abajo, idéntica a IKPROD) -->
+        <div class="kpi-card-striking calandra-card-kg-hora" style="grid-column: 1; grid-row: 2; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #818cf8; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div class="kpi-card-header">
+              <h4 style="color: #f8fafc;"><i class="fas fa-balance-scale"></i> KG / HORA</h4>
+              <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+            </div>
+            <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);">${ind.kg_hora_str}</div>
+            
+            ${isCal2 && ind.desglose_calandra2 ? `
+              <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                <span style="font-size: 0.72rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.35);">
+                  <i class="fas fa-expand-alt"></i> ${ind.desglose_calandra2.kg_grandes_str}
+                </span>
+                <span style="font-size: 0.72rem; font-weight: 600; color: #60a5fa; background: rgba(59, 130, 246, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.35);">
+                  <i class="fas fa-compress-alt"></i> ${ind.desglose_calandra2.kg_pequenas_str}
+                </span>
+              </div>
+              <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+                <span style="font-size: 0.7rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.1); padding: 2px 6px; border-radius: 4px;">
+                  ${ind.desglose_calandra2.prendas_grandes_hora_str}
+                </span>
+                <span style="font-size: 0.7rem; font-weight: 600; color: #60a5fa; background: rgba(59, 130, 246, 0.1); padding: 2px 6px; border-radius: 4px;">
+                  ${ind.desglose_calandra2.prendas_pequenas_hora_str}
+                </span>
+              </div>
+            ` : `
+              <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                <span style="font-size: 0.75rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3);">
+                  <i class="fas fa-tshirt"></i> ${ind.prendas_hora_str}
+                </span>
+                <span style="font-size: 0.75rem; font-weight: 600; color: #34d399; background: rgba(52, 211, 153, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(52, 211, 153, 0.3);">
+                  <i class="fas fa-weight-hanging"></i> ${ind.kgs_totales_str}
+                </span>
+              </div>
+            `}
           </div>
-          <div class="kpi-big-number">${ind.kg_hora_str}</div>
-          <div class="kpi-card-subtext">Ritmo horario de kilogramos</div>
-        </div>
-      </div>
 
-      <!-- Gráfica de Producción y Tiempo Valle Hora a Hora -->
-      <div class="chart-card" style="margin-top: 24px; background: rgba(30, 41, 59, 0.7); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px;">
-        <div class="chart-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
-          <div class="chart-header-title">
-            <h4 style="font-size: 1.15rem; color: #f8fafc; font-weight: 700; margin: 0;">
-              <i class="fas fa-chart-line" style="color: #38bdf8; margin-right: 8px;"></i>
-              Producción y Tiempo Valle Hora a Hora (Turno Actual)
-            </h4>
-          </div>
-          <div style="font-size: 0.82rem; color: #94a3b8;">
-            <span style="display:inline-block;width:12px;height:12px;background:#38bdf8;border-radius:3px;margin-right:4px;"></span>
-            <strong style="color: #38bdf8;">Prendas</strong> (Eje Izquierdo)
-            <span style="display:inline-block;width:12px;height:12px;background:#fbbf24;border-radius:3px;margin-left:14px;margin-right:4px;"></span>
-            <strong style="color: #fbbf24;">Tiempo Valle min</strong> (Eje Derecho)
+          <div>
+            <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+              <span style="color: #818cf8;"><i class="fas fa-tachometer-alt"></i> Cadencia Turno</span>
+              <span style="color: #38bdf8;">${ind.prendas_hora_str}</span>
+            </div>
+            <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
+              <i class="fas fa-calculator"></i> Ritmo ponderado de kilogramos en tiempo productivo
+            </div>
           </div>
         </div>
-        <div style="position: relative; height: 350px; width: 100%;">
-          <canvas id="chart-dashboard-${maquinaId.toLowerCase()}"></canvas>
+
+        <!-- Fila 2, Columnas 2 a 4: Gráfica de Producción y Tiempo Valle (Estrechada a la derecha de Kg/Hora) -->
+        <div class="chart-section-card calandra-chart-section" style="grid-column: 2 / span 3; grid-row: 2;">
+          <div class="chart-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+            <div class="chart-header-title">
+              <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
+              <h4 style="font-size: 0.95rem; font-weight: 800; color: var(--text-main); margin: 0;">
+                Avance de Producción y Tiempo Valle Hora a Hora (${isCal2 ? 'Calandra 2' : 'Calandra 3'} - Turno Actual)
+              </h4>
+            </div>
+            <div style="font-size: 0.72rem; color: #94a3b8; display: flex; align-items: center; gap: 12px;">
+              <span><span style="display:inline-block;width:10px;height:10px;background:#38bdf8;border-radius:2px;margin-right:4px;"></span><strong style="color: #38bdf8;">Prendas</strong> (Eje Izquierdo)</span>
+              <span><span style="display:inline-block;width:10px;height:10px;background:#fbbf24;border-radius:2px;margin-right:4px;"></span><strong style="color: #fbbf24;">Tiempo Valle min</strong> (Eje Derecho)</span>
+            </div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="chart-dashboard-${maquinaId.toLowerCase()}"></canvas>
+          </div>
         </div>
       </div>
     `;
