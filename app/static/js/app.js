@@ -853,13 +853,26 @@ function getCalandraDesglosePrendasHtml(isCal2, ind) {
 }
 
 function getCalandraDesgloseKgsHtml(isCal2, ind) {
-  if (!isCal2 || !ind.desglose_calandra2) return '';
-  return `
-    <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
-      <span class="cal-badge-g">${ind.desglose_calandra2.kg_grandes_str}</span>
-      <span class="cal-badge-p">${ind.desglose_calandra2.kg_pequenas_str}</span>
-    </div>
-  `;
+  if (isCal2 && ind.desglose_calandra2) {
+    const d = ind.desglose_calandra2;
+    const puG = d.peso_unitario_grandes_str ? ` · ${d.peso_unitario_grandes_str}` : '';
+    const puP = d.peso_unitario_pequenas_str ? ` · ${d.peso_unitario_pequenas_str}` : '';
+    return `
+      <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
+        <span class="cal-badge-g" title="Prendas Grandes (Peso Unitario)"><i class="fas fa-expand-alt"></i> ${d.kg_grandes_str}${puG}</span>
+        <span class="cal-badge-p" title="Prendas Pequeñas (Peso Unitario)"><i class="fas fa-compress-alt"></i> ${d.kg_pequenas_str}${puP}</span>
+      </div>
+    `;
+  } else if (!isCal2 && ind.peso_unitario_info) {
+    return `
+      <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
+        <span class="cal-badge-p" style="background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;" title="Peso Unitario MQTT">
+          <i class="fas fa-balance-scale"></i> ${ind.peso_unitario_info}
+        </span>
+      </div>
+    `;
+  }
+  return '';
 }
 
 function getCalandraDesgloseValleHtml(isCal2, ind) {
@@ -886,10 +899,10 @@ function getCalandraDesgloseKgHoraHtml(isCal2, ind) {
   if (isCal2 && ind.desglose_calandra2) {
     return `
       <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; margin-bottom: 6px; flex-wrap: wrap;">
-        <span style="font-size: 0.72rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.35);">
+        <span style="font-size: 0.72rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.35);" title="Kg Grandes por hora">
           <i class="fas fa-expand-alt"></i> ${ind.desglose_calandra2.kg_grandes_str}
         </span>
-        <span style="font-size: 0.72rem; font-weight: 600; color: #60a5fa; background: rgba(59, 130, 246, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.35);">
+        <span style="font-size: 0.72rem; font-weight: 600; color: #60a5fa; background: rgba(59, 130, 246, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.35);" title="Kg Pequeñas por hora">
           <i class="fas fa-compress-alt"></i> ${ind.desglose_calandra2.kg_pequenas_str}
         </span>
       </div>
@@ -911,6 +924,11 @@ function getCalandraDesgloseKgHoraHtml(isCal2, ind) {
         <span style="font-size: 0.75rem; font-weight: 600; color: #34d399; background: rgba(52, 211, 153, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(52, 211, 153, 0.3);">
           <i class="fas fa-weight-hanging"></i> ${ind.kgs_totales_str}
         </span>
+        ${ind.peso_unitario_info ? `
+          <span style="font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(251, 191, 36, 0.12); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(251, 191, 36, 0.3);" title="Peso Unitario MQTT">
+            <i class="fas fa-balance-scale"></i> ${ind.peso_unitario_info}
+          </span>
+        ` : ''}
       </div>
     `;
   }

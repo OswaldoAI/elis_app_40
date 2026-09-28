@@ -1112,13 +1112,27 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
     tot_pequenas_remotas = sum(pequenas)
     tot_valle_remoto = round(sum(valle), 1)
 
+    conn = get_db_connection()
+    peso_row = conn.execute("SELECT * FROM calandras_peso_unitario WHERE maquina = ?", (maquina_id,)).fetchone()
+    conn.close()
+
     if maquina_id == "CALANDRA_2":
         p_grandes = tot_grandes_remotas
         p_pequenas = tot_pequenas_remotas
         p_totales = tot_prendas_remotas or (p_grandes + p_pequenas)
 
-        w_grandes = round(p_grandes * 0.45, 1)
-        w_pequenas = round(p_pequenas * 0.15, 1)
+        # Prioridad de peso unitario: 1. Live MQTT cache -> 2. BD calandras_peso_unitario -> 3. Default real (0.78 / 0.47)
+        p_gra_unit = float(
+            live_cache.get("peso_unitario_grandes")
+            or (peso_row["peso_grandes"] if peso_row and peso_row["peso_grandes"] is not None else 0.780)
+        )
+        p_peq_unit = float(
+            live_cache.get("peso_unitario_pequenas")
+            or (peso_row["peso_pequenas"] if peso_row and peso_row["peso_pequenas"] is not None else 0.470)
+        )
+
+        w_grandes = round(p_grandes * p_gra_unit, 1)
+        w_pequenas = round(p_pequenas * p_peq_unit, 1)
         w_totales = round(w_grandes + w_pequenas, 1)
 
         v_total = tot_valle_remoto
@@ -1130,7 +1144,14 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
         p_totales = tot_prendas_remotas
         p_grandes = 0
         p_pequenas = tot_prendas_remotas
-        w_totales = round(p_totales * 0.25, 1)
+
+        # Prioridad de peso unitario: 1. Live MQTT cache -> 2. BD calandras_peso_unitario -> 3. Default real (1.18)
+        p_unit = float(
+            live_cache.get("peso_unitario")
+            or (peso_row["peso_unitario"] if peso_row and peso_row["peso_unitario"] is not None else 1.180)
+        )
+
+        w_totales = round(p_totales * p_unit, 1)
         w_grandes = 0.0
         w_pequenas = w_totales
         v_total = tot_valle_remoto
@@ -1175,6 +1196,10 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             "kg_grandes_str": f"{w_grandes:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
             "kg_pequenas": w_pequenas,
             "kg_pequenas_str": f"{w_pequenas:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "peso_unitario_grandes": p_gra_unit,
+            "peso_unitario_grandes_str": f"{p_gra_unit:,.2f} kg/u".replace(".", ","),
+            "peso_unitario_pequenas": p_peq_unit,
+            "peso_unitario_pequenas_str": f"{p_peq_unit:,.2f} kg/u".replace(".", ","),
             "tiempo_valle_grandes": v_grandes,
             "tiempo_valle_grandes_str": f"{v_grandes:.1f} min",
             "tiempo_valle_pequenas": v_pequenas,
@@ -1184,6 +1209,8 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             "prendas_pequenas_hora": int(round(p_pequenas / horas_transcurridas)),
             "prendas_pequenas_hora_str": f"{int(round(p_pequenas / horas_transcurridas)):,} p/h".replace(",", ".")
         } if maquina_id == "CALANDRA_2" else None,
+        "peso_unitario_info": f"Gdes: {p_gra_unit:,.2f} kg/u | Peq: {p_peq_unit:,.2f} kg/u".replace(".", ",") if maquina_id == "CALANDRA_2" else f"{p_unit:,.2f} kg/u".replace(".", ","),
+        "peso_unitario": p_gra_unit if maquina_id == "CALANDRA_2" else p_unit,
         "grafica_hora_a_hora": {
             "labels": labels,
             "prendas": prendas,
@@ -2562,6 +2589,90 @@ def get_totales_periodo(
         },
         "turnos_concatenados": turnos_concatenados
     }
+
+
+@router.get("/calandras/{maquina_id}/peso-unitario")
+def get_peso_unitario_calandra(maquina_id: str):
+    """Retorna la configuración de peso unitario para Calandra 2 o Calandra 3."""
+    m_id = maquina_id.upper()
+    conn = get_db_connection()
+    row = conn.execute("SELECT * FROM calandras_peso_unitario WHERE maquina = ?", (m_id,)).fetchone()
+    conn.close()
+
+    if not row:
+        if m_id == "CALANDRA_2":
+            return {"status": "success", "maquina": m_id, "peso_pequenas": 0.080, "peso_grandes": 0.350, "unidad": "kg"}
+        else:
+            return {"status": "success", "maquina": m_id, "peso_unitario": 0.400, "unidad": "kg"}
+
+    if m_id == "CALANDRA_2":
+        return {
+            "status": "success",
+            "maquina": m_id,
+            "peso_pequenas": float(row["peso_pequenas"] or 0.080),
+            "peso_grandes": float(row["peso_grandes"] or 0.350),
+            "unidad": "kg"
+        }
+    else:
+        return {
+            "status": "success",
+            "maquina": m_id,
+            "peso_unitario": float(row["peso_unitario"] or 0.400),
+            "unidad": "kg"
+        }
+
+@router.post("/calandras/{maquina_id}/peso-unitario")
+def set_peso_unitario_calandra(maquina_id: str, data: dict):
+    """Guarda la configuración de peso unitario para Calandra 2 o Calandra 3."""
+    m_id = maquina_id.upper()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    if m_id == "CALANDRA_2":
+        p_peq = float(data.get("peso_pequenas", 0.080))
+        p_gra = float(data.get("peso_grandes", 0.350))
+        cursor.execute("""
+            INSERT INTO calandras_peso_unitario (maquina, peso_pequenas, peso_grandes, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(maquina) DO UPDATE SET
+                peso_pequenas = excluded.peso_pequenas,
+                peso_grandes = excluded.peso_grandes,
+                updated_at = CURRENT_TIMESTAMP
+        """, (m_id, p_peq, p_gra))
+    else:
+        val = data.get("peso_unitario") or data.get("weight_g") or data.get("weight") or data.get("peso") or 0.400
+        p_uni = float(val)
+        if p_uni > 50:
+            p_uni = round(p_uni / 1000.0, 3)
+        cursor.execute("""
+            INSERT INTO calandras_peso_unitario (maquina, peso_unitario, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(maquina) DO UPDATE SET
+                peso_unitario = excluded.peso_unitario,
+                updated_at = CURRENT_TIMESTAMP
+        """, (m_id, p_uni))
+
+    conn.commit()
+    conn.close()
+
+    if m_id == "CALANDRA_3":
+        try:
+            import urllib.request
+            import json
+            req_data = json.dumps({"weight_g": int(round(p_uni * 1000))}).encode("utf-8")
+            req = urllib.request.Request(
+                "http://100.127.85.111:5002/api/config/weight",
+                data=req_data,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                pass
+        except Exception as ex:
+            print(f"Error sincronizando peso C3 con 5002: {ex}")
+
+    return {"status": "success", "message": f"Peso unitario de {m_id} actualizado correctamente"}
+
 
 
 
