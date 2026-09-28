@@ -463,9 +463,28 @@ function renderCalandraHourlyChart(canvasId, cal, machineId) {
     yAxisID: 'yValle'
   });
 
-  if (window.calandraHourlyCharts[machineId]) {
+  // Actualización in-place si la instancia del gráfico y su canvas ya existen
+  const chartInst = window.calandraHourlyCharts[machineId];
+  if (chartInst && chartInst.ctx && chartInst.ctx.canvas === canvas) {
+    chartInst.data.labels = labels;
+    if (isCal2 && chartInst.data.datasets.length >= 4) {
+      chartInst.data.datasets[0].data = prendasData;
+      chartInst.data.datasets[1].data = (g.grandes || []);
+      chartInst.data.datasets[2].data = (g.pequenas || []);
+      chartInst.data.datasets[3].data = valleData;
+      chartInst.update('none');
+      return;
+    } else if (!isCal2 && chartInst.data.datasets.length >= 2) {
+      chartInst.data.datasets[0].data = prendasData;
+      chartInst.data.datasets[1].data = valleData;
+      chartInst.update('none');
+      return;
+    }
+  }
+
+  if (chartInst) {
     try {
-      window.calandraHourlyCharts[machineId].destroy();
+      chartInst.destroy();
     } catch (e) {
       console.warn("Error destruyendo gráfico anterior de calandra:", e);
     }
@@ -480,6 +499,7 @@ function renderCalandraHourlyChart(canvasId, cal, machineId) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: false,
       interaction: {
         mode: 'index',
         intersect: false
@@ -806,6 +826,96 @@ async function loadProduccionData() {
   }
 }
 
+// Helpers para desgloses y botones de Calandras (evita código duplicado y permite refresco in-place)
+function getCalandraCotejoBtnHtml(maquinaId, comp) {
+  if (comp && comp.disponible_5002) {
+    return `
+      <button class="btn-header" onclick="openModalComparar5002('${maquinaId}')" style="font-size: 0.82rem; padding: 5px 12px; background: ${comp.coincidencia_exacta ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)'}; border: 1px solid ${comp.coincidencia_exacta ? '#10b981' : '#f59e0b'}; color: ${comp.coincidencia_exacta ? '#34d399' : '#fbbf24'}; cursor: pointer; border-radius: 8px;">
+        <i class="fas ${comp.coincidencia_exacta ? 'fa-check-circle' : 'fa-balance-scale'}"></i> Cotejo Puerto 5002: ${comp.coincidencia_exacta ? '✅ 100% Coincidente' : 'Ver Comparativa'}
+      </button>
+    `;
+  }
+  return `
+    <button class="btn-header" onclick="openModalComparar5002('${maquinaId}')" style="font-size: 0.82rem; padding: 5px 12px; background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; cursor: pointer; border-radius: 8px;">
+      <i class="fas fa-balance-scale"></i> Cotejo Puerto 5002
+    </button>
+  `;
+}
+
+function getCalandraDesglosePrendasHtml(isCal2, ind) {
+  if (!isCal2 || !ind.desglose_calandra2) return '';
+  return `
+    <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
+      <span class="cal-badge-g"><i class="fas fa-expand-alt"></i> ${ind.desglose_calandra2.prendas_grandes_str}</span>
+      <span class="cal-badge-p"><i class="fas fa-compress-alt"></i> ${ind.desglose_calandra2.prendas_pequenas_str}</span>
+    </div>
+  `;
+}
+
+function getCalandraDesgloseKgsHtml(isCal2, ind) {
+  if (!isCal2 || !ind.desglose_calandra2) return '';
+  return `
+    <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
+      <span class="cal-badge-g">${ind.desglose_calandra2.kg_grandes_str}</span>
+      <span class="cal-badge-p">${ind.desglose_calandra2.kg_pequenas_str}</span>
+    </div>
+  `;
+}
+
+function getCalandraDesgloseValleHtml(isCal2, ind) {
+  if (!isCal2 || !ind.desglose_calandra2) return '';
+  return `
+    <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
+      <span class="cal-badge-g">${ind.desglose_calandra2.tiempo_valle_grandes_str} Gdes</span>
+      <span class="cal-badge-p">${ind.desglose_calandra2.tiempo_valle_pequenas_str} Peq</span>
+    </div>
+  `;
+}
+
+function getCalandraDesglosePrendasHoraHtml(isCal2, ind) {
+  if (!isCal2 || !ind.desglose_calandra2) return '';
+  return `
+    <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
+      <span class="cal-badge-g">${ind.desglose_calandra2.prendas_grandes_hora_str}</span>
+      <span class="cal-badge-p">${ind.desglose_calandra2.prendas_pequenas_hora_str}</span>
+    </div>
+  `;
+}
+
+function getCalandraDesgloseKgHoraHtml(isCal2, ind) {
+  if (isCal2 && ind.desglose_calandra2) {
+    return `
+      <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+        <span style="font-size: 0.72rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.35);">
+          <i class="fas fa-expand-alt"></i> ${ind.desglose_calandra2.kg_grandes_str}
+        </span>
+        <span style="font-size: 0.72rem; font-weight: 600; color: #60a5fa; background: rgba(59, 130, 246, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.35);">
+          <i class="fas fa-compress-alt"></i> ${ind.desglose_calandra2.kg_pequenas_str}
+        </span>
+      </div>
+      <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+        <span style="font-size: 0.7rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.1); padding: 2px 6px; border-radius: 4px;">
+          ${ind.desglose_calandra2.prendas_grandes_hora_str}
+        </span>
+        <span style="font-size: 0.7rem; font-weight: 600; color: #60a5fa; background: rgba(59, 130, 246, 0.1); padding: 2px 6px; border-radius: 4px;">
+          ${ind.desglose_calandra2.prendas_pequenas_hora_str}
+        </span>
+      </div>
+    `;
+  } else {
+    return `
+      <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+        <span style="font-size: 0.75rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3);">
+          <i class="fas fa-tshirt"></i> ${ind.prendas_hora_str}
+        </span>
+        <span style="font-size: 0.75rem; font-weight: 600; color: #34d399; background: rgba(52, 211, 153, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(52, 211, 153, 0.3);">
+          <i class="fas fa-weight-hanging"></i> ${ind.kgs_totales_str}
+        </span>
+      </div>
+    `;
+  }
+}
+
 // Load Dashboard Ampliado para Calandra 2 o Calandra 3
 async function loadCalandraDashboard(maquinaId) {
   const isCal2 = (maquinaId === 'CALANDRA_2');
@@ -821,190 +931,192 @@ async function loadCalandraDashboard(maquinaId) {
     const ind = data.indicadores;
     const isShiftActive = data.is_turno_activo;
     const turno = data.turno_info;
+    const canvasId = `chart-dashboard-${maquinaId.toLowerCase()}`;
+    const canvasExists = document.getElementById(canvasId);
 
-    let html = `
-      <!-- Banner de Turno -->
-      <div class="shift-banner" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-          <span class="shift-title"><i class="fas fa-user-clock"></i> ${turno.nombre} (${turno.horario})</span>
-          <span class="shift-time"><i class="fas fa-calendar-alt"></i> ${turno.fecha || ''}</span>
-          <span style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 0.78rem; font-weight: 600; padding: 3px 8px; border-radius: 6px;">
-            <i class="fas fa-broadcast-tower"></i> Fuente: MQTT Directo
-          </span>
+    if (!canvasExists) {
+      let html = `
+        <!-- Banner de Turno -->
+        <div class="shift-banner" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <span id="cal-shift-title-${maquinaId}" class="shift-title"><i class="fas fa-user-clock"></i> ${turno.nombre} (${turno.horario})</span>
+            <span id="cal-shift-time-${maquinaId}" class="shift-time"><i class="fas fa-calendar-alt"></i> ${turno.fecha || ''}</span>
+            <span style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 0.78rem; font-weight: 600; padding: 3px 8px; border-radius: 6px;">
+              <i class="fas fa-broadcast-tower"></i> Fuente: MQTT Directo
+            </span>
+          </div>
+          <div id="cal-cotejo-btn-wrapper-${maquinaId}">
+            ${getCalandraCotejoBtnHtml(maquinaId, data.comparacion_5002)}
+          </div>
         </div>
-        <div>
-          ${data.comparacion_5002 && data.comparacion_5002.disponible_5002 ? `
-            <button class="btn-header" onclick="openModalComparar5002('${maquinaId}')" style="font-size: 0.82rem; padding: 5px 12px; background: ${data.comparacion_5002.coincidencia_exacta ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)'}; border: 1px solid ${data.comparacion_5002.coincidencia_exacta ? '#10b981' : '#f59e0b'}; color: ${data.comparacion_5002.coincidencia_exacta ? '#34d399' : '#fbbf24'}; cursor: pointer; border-radius: 8px;">
-              <i class="fas ${data.comparacion_5002.coincidencia_exacta ? 'fa-check-circle' : 'fa-balance-scale'}"></i> Cotejo Puerto 5002: ${data.comparacion_5002.coincidencia_exacta ? '✅ 100% Coincidente' : 'Ver Comparativa'}
-            </button>
-          ` : `
-            <button class="btn-header" onclick="openModalComparar5002('${maquinaId}')" style="font-size: 0.82rem; padding: 5px 12px; background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; cursor: pointer; border-radius: 8px;">
-              <i class="fas fa-balance-scale"></i> Cotejo Puerto 5002
-            </button>
-          `}
-        </div>
-      </div>
-    `;
 
-    if (!isShiftActive) {
-      html += `
-        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(251, 191, 36, 0.4); border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 14px; color: #fbbf24;">
+        <!-- Alerta de Turno Inactivo -->
+        <div id="cal-no-shift-alert-${maquinaId}" style="display: ${isShiftActive ? 'none' : 'flex'}; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(251, 191, 36, 0.4); border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; align-items: center; gap: 14px; color: #fbbf24;">
           <i class="fas fa-info-circle" style="font-size: 1.5rem;"></i>
           <div>
             <strong style="font-size: 1rem;">Sin Turno Activo en Curso:</strong> En este momento la planta no tiene un turno de producción en proceso. Todos los indicadores y la gráfica se presentan en cero hasta que comience el siguiente turno programado.
           </div>
         </div>
+
+        <!-- Cuadrícula 4 Columnas x 2 Filas del Dashboard de Calandra -->
+        <div class="calandra-dashboard-grid-layout">
+          <!-- Columna 1, Fila 1: Prendas Totales -->
+          <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 1; grid-row: 1;">
+            <div class="kpi-card-header">
+              <h4><i class="fas fa-tshirt"></i> Prendas Totales</h4>
+              <div class="kpi-icon-circle"><i class="fas fa-layer-group"></i></div>
+            </div>
+            <div id="cal-kpi-prendas-${maquinaId}" class="kpi-big-number">${ind.prendas_totales_str}</div>
+            <div class="kpi-card-subtext">Acumulado del turno en curso</div>
+            <div id="cal-desglose-prendas-${maquinaId}">
+              ${getCalandraDesglosePrendasHtml(isCal2, ind)}
+            </div>
+          </div>
+
+          <!-- Columna 2, Fila 1: Kgs Totales -->
+          <div class="kpi-card-striking kpi-card-green" style="grid-column: 2; grid-row: 1;">
+            <div class="kpi-card-header">
+              <h4><i class="fas fa-weight-hanging"></i> Kgs Totales</h4>
+              <div class="kpi-icon-circle"><i class="fas fa-balance-scale-right"></i></div>
+            </div>
+            <div id="cal-kpi-kgs-${maquinaId}" class="kpi-big-number">${ind.kgs_totales_str}</div>
+            <div class="kpi-card-subtext">Kilos procesados en el turno</div>
+            <div id="cal-desglose-kgs-${maquinaId}">
+              ${getCalandraDesgloseKgsHtml(isCal2, ind)}
+            </div>
+          </div>
+
+          <!-- Columna 3, Fila 1: Tiempo Valle -->
+          <div id="cal-card-valle-${maquinaId}" class="kpi-card-striking ${ind.en_valle ? 'kpi-card-red' : 'kpi-card-amber'}" style="grid-column: 3; grid-row: 1;">
+            <div class="kpi-card-header">
+              <h4><i class="fas fa-stopwatch"></i> Tiempo Valle</h4>
+              <div class="kpi-icon-circle">
+                <i id="cal-icon-valle-${maquinaId}" class="fas ${ind.en_valle ? 'fa-exclamation-triangle' : 'fa-hourglass-half'}"></i>
+              </div>
+            </div>
+            <div id="cal-kpi-valle-${maquinaId}" class="kpi-big-number">${ind.tiempo_valle_str}</div>
+            <div class="kpi-card-subtext">
+              <span id="cal-pill-valle-${maquinaId}" class="valle-pill ${ind.en_valle ? 'in-valle' : 'running'}" style="margin-right: 6px;">
+                ${isShiftActive ? (ind.en_valle ? '⚠️ En Valle' : '⚡ Produciendo') : 'Sin Turno'}
+              </span>
+              Minutos en espera/valle
+            </div>
+            <div id="cal-desglose-valle-${maquinaId}">
+              ${getCalandraDesgloseValleHtml(isCal2, ind)}
+            </div>
+          </div>
+
+          <!-- Columna 4, Fila 1: Prendas / Hora -->
+          <div class="kpi-card-striking kpi-card-purple" style="grid-column: 4; grid-row: 1;">
+            <div class="kpi-card-header">
+              <h4><i class="fas fa-tachometer-alt"></i> Prendas / Hora</h4>
+              <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
+            </div>
+            <div id="cal-kpi-prendas-hora-${maquinaId}" class="kpi-big-number">${ind.prendas_hora_str}</div>
+            <div class="kpi-card-subtext">Cadencia promedio horaria</div>
+            <div id="cal-desglose-prendas-hora-${maquinaId}">
+              ${getCalandraDesglosePrendasHoraHtml(isCal2, ind)}
+            </div>
+          </div>
+
+          <!-- Columna 1, Fila 2: Kg / Hora (Estirada hacia abajo, idéntica a IKPROD) -->
+          <div class="kpi-card-striking calandra-card-kg-hora" style="grid-column: 1; grid-row: 2; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #818cf8; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div class="kpi-card-header">
+                <h4 style="color: #f8fafc;"><i class="fas fa-balance-scale"></i> KG / HORA</h4>
+                <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+              </div>
+              <div id="cal-kpi-kg-hora-${maquinaId}" class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);">${ind.kg_hora_str}</div>
+              <div id="cal-desglose-kg-hora-${maquinaId}">
+                ${getCalandraDesgloseKgHoraHtml(isCal2, ind)}
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span style="color: #818cf8;"><i class="fas fa-tachometer-alt"></i> Cadencia Turno</span>
+                <span id="cal-cadencia-kg-hora-${maquinaId}" style="color: #38bdf8;">${ind.prendas_hora_str}</span>
+              </div>
+              <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
+                <i class="fas fa-calculator"></i> Ritmo ponderado de kilogramos en tiempo productivo
+              </div>
+            </div>
+          </div>
+
+          <!-- Fila 2, Columnas 2 a 4: Gráfica de Producción y Tiempo Valle (Estrechada a la derecha de Kg/Hora) -->
+          <div class="chart-section-card calandra-chart-section" style="grid-column: 2 / span 3; grid-row: 2;">
+            <div class="chart-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+              <div class="chart-header-title">
+                <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
+                <h4 style="font-size: 0.95rem; font-weight: 800; color: var(--text-main); margin: 0;">
+                  Avance de Producción y Tiempo Valle Hora a Hora (${isCal2 ? 'Calandra 2' : 'Calandra 3'} - Turno Actual)
+                </h4>
+              </div>
+              <div style="font-size: 0.72rem; color: #94a3b8; display: flex; align-items: center; gap: 12px;">
+                <span><span style="display:inline-block;width:10px;height:10px;background:#38bdf8;border-radius:2px;margin-right:4px;"></span><strong style="color: #38bdf8;">Prendas</strong> (Eje Izquierdo)</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#fbbf24;border-radius:2px;margin-right:4px;"></span><strong style="color: #fbbf24;">Tiempo Valle min</strong> (Eje Derecho)</span>
+              </div>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chart-dashboard-${maquinaId.toLowerCase()}"></canvas>
+            </div>
+          </div>
+        </div>
       `;
+      container.innerHTML = html;
+    } else {
+      // Actualizaciones in-place sin parpadear ni re-crear canvas
+      const shiftTitleEl = document.getElementById(`cal-shift-title-${maquinaId}`);
+      if (shiftTitleEl) shiftTitleEl.innerHTML = `<i class="fas fa-user-clock"></i> ${turno.nombre} (${turno.horario})`;
+
+      const shiftTimeEl = document.getElementById(`cal-shift-time-${maquinaId}`);
+      if (shiftTimeEl) shiftTimeEl.innerHTML = `<i class="fas fa-calendar-alt"></i> ${turno.fecha || ''}`;
+
+      const cotejoWrapper = document.getElementById(`cal-cotejo-btn-wrapper-${maquinaId}`);
+      if (cotejoWrapper) cotejoWrapper.innerHTML = getCalandraCotejoBtnHtml(maquinaId, data.comparacion_5002);
+
+      const noShiftEl = document.getElementById(`cal-no-shift-alert-${maquinaId}`);
+      if (noShiftEl) noShiftEl.style.display = isShiftActive ? 'none' : 'flex';
+
+      const prendasEl = document.getElementById(`cal-kpi-prendas-${maquinaId}`);
+      if (prendasEl) prendasEl.textContent = ind.prendas_totales_str;
+      const desgPrendas = document.getElementById(`cal-desglose-prendas-${maquinaId}`);
+      if (desgPrendas) desgPrendas.innerHTML = getCalandraDesglosePrendasHtml(isCal2, ind);
+
+      const kgsEl = document.getElementById(`cal-kpi-kgs-${maquinaId}`);
+      if (kgsEl) kgsEl.textContent = ind.kgs_totales_str;
+      const desgKgs = document.getElementById(`cal-desglose-kgs-${maquinaId}`);
+      if (desgKgs) desgKgs.innerHTML = getCalandraDesgloseKgsHtml(isCal2, ind);
+
+      const cardValle = document.getElementById(`cal-card-valle-${maquinaId}`);
+      if (cardValle) cardValle.className = `kpi-card-striking ${ind.en_valle ? 'kpi-card-red' : 'kpi-card-amber'}`;
+      const iconValle = document.getElementById(`cal-icon-valle-${maquinaId}`);
+      if (iconValle) iconValle.className = `fas ${ind.en_valle ? 'fa-exclamation-triangle' : 'fa-hourglass-half'}`;
+      const valleEl = document.getElementById(`cal-kpi-valle-${maquinaId}`);
+      if (valleEl) valleEl.textContent = ind.tiempo_valle_str;
+      const pillValle = document.getElementById(`cal-pill-valle-${maquinaId}`);
+      if (pillValle) {
+        pillValle.className = `valle-pill ${ind.en_valle ? 'in-valle' : 'running'}`;
+        pillValle.textContent = isShiftActive ? (ind.en_valle ? '⚠️ En Valle' : '⚡ Produciendo') : 'Sin Turno';
+      }
+      const desgValle = document.getElementById(`cal-desglose-valle-${maquinaId}`);
+      if (desgValle) desgValle.innerHTML = getCalandraDesgloseValleHtml(isCal2, ind);
+
+      const prendasHoraEl = document.getElementById(`cal-kpi-prendas-hora-${maquinaId}`);
+      if (prendasHoraEl) prendasHoraEl.textContent = ind.prendas_hora_str;
+      const desgPrendasHora = document.getElementById(`cal-desglose-prendas-hora-${maquinaId}`);
+      if (desgPrendasHora) desgPrendasHora.innerHTML = getCalandraDesglosePrendasHoraHtml(isCal2, ind);
+
+      const kgHoraEl = document.getElementById(`cal-kpi-kg-hora-${maquinaId}`);
+      if (kgHoraEl) kgHoraEl.textContent = ind.kg_hora_str;
+      const desgKgHora = document.getElementById(`cal-desglose-kg-hora-${maquinaId}`);
+      if (desgKgHora) desgKgHora.innerHTML = getCalandraDesgloseKgHoraHtml(isCal2, ind);
+      const cadenciaEl = document.getElementById(`cal-cadencia-kg-hora-${maquinaId}`);
+      if (cadenciaEl) cadenciaEl.textContent = ind.prendas_hora_str;
     }
 
-    html += `
-      <!-- Cuadrícula 4 Columnas x 2 Filas del Dashboard de Calandra -->
-      <div class="calandra-dashboard-grid-layout">
-        <!-- Columna 1, Fila 1: Prendas Totales -->
-        <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 1; grid-row: 1;">
-          <div class="kpi-card-header">
-            <h4><i class="fas fa-tshirt"></i> Prendas Totales</h4>
-            <div class="kpi-icon-circle"><i class="fas fa-layer-group"></i></div>
-          </div>
-          <div class="kpi-big-number">${ind.prendas_totales_str}</div>
-          <div class="kpi-card-subtext">Acumulado del turno en curso</div>
-          ${isCal2 && ind.desglose_calandra2 ? `
-            <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
-              <span class="cal-badge-g"><i class="fas fa-expand-alt"></i> ${ind.desglose_calandra2.prendas_grandes_str}</span>
-              <span class="cal-badge-p"><i class="fas fa-compress-alt"></i> ${ind.desglose_calandra2.prendas_pequenas_str}</span>
-            </div>
-          ` : ''}
-        </div>
-
-        <!-- Columna 2, Fila 1: Kgs Totales -->
-        <div class="kpi-card-striking kpi-card-green" style="grid-column: 2; grid-row: 1;">
-          <div class="kpi-card-header">
-            <h4><i class="fas fa-weight-hanging"></i> Kgs Totales</h4>
-            <div class="kpi-icon-circle"><i class="fas fa-balance-scale-right"></i></div>
-          </div>
-          <div class="kpi-big-number">${ind.kgs_totales_str}</div>
-          <div class="kpi-card-subtext">Kilos procesados en el turno</div>
-          ${isCal2 && ind.desglose_calandra2 ? `
-            <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
-              <span class="cal-badge-g">${ind.desglose_calandra2.kg_grandes_str}</span>
-              <span class="cal-badge-p">${ind.desglose_calandra2.kg_pequenas_str}</span>
-            </div>
-          ` : ''}
-        </div>
-
-        <!-- Columna 3, Fila 1: Tiempo Valle -->
-        <div class="kpi-card-striking ${ind.en_valle ? 'kpi-card-red' : 'kpi-card-amber'}" style="grid-column: 3; grid-row: 1;">
-          <div class="kpi-card-header">
-            <h4><i class="fas fa-stopwatch"></i> Tiempo Valle</h4>
-            <div class="kpi-icon-circle">
-              <i class="fas ${ind.en_valle ? 'fa-exclamation-triangle' : 'fa-hourglass-half'}"></i>
-            </div>
-          </div>
-          <div class="kpi-big-number">${ind.tiempo_valle_str}</div>
-          <div class="kpi-card-subtext">
-            <span class="valle-pill ${ind.en_valle ? 'in-valle' : 'running'}" style="margin-right: 6px;">
-              ${isShiftActive ? (ind.en_valle ? '⚠️ En Valle' : '⚡ Produciendo') : 'Sin Turno'}
-            </span>
-            Minutos en espera/valle
-          </div>
-          ${isCal2 && ind.desglose_calandra2 ? `
-            <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
-              <span class="cal-badge-g">${ind.desglose_calandra2.tiempo_valle_grandes_str} Gdes</span>
-              <span class="cal-badge-p">${ind.desglose_calandra2.tiempo_valle_pequenas_str} Peq</span>
-            </div>
-          ` : ''}
-        </div>
-
-        <!-- Columna 4, Fila 1: Prendas / Hora -->
-        <div class="kpi-card-striking kpi-card-purple" style="grid-column: 4; grid-row: 1;">
-          <div class="kpi-card-header">
-            <h4><i class="fas fa-tachometer-alt"></i> Prendas / Hora</h4>
-            <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
-          </div>
-          <div class="kpi-big-number">${ind.prendas_hora_str}</div>
-          <div class="kpi-card-subtext">Cadencia promedio horaria</div>
-          ${isCal2 && ind.desglose_calandra2 ? `
-            <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start;">
-              <span class="cal-badge-g">${ind.desglose_calandra2.prendas_grandes_hora_str}</span>
-              <span class="cal-badge-p">${ind.desglose_calandra2.prendas_pequenas_hora_str}</span>
-            </div>
-          ` : ''}
-        </div>
-
-        <!-- Columna 1, Fila 2: Kg / Hora (Estirada hacia abajo, idéntica a IKPROD) -->
-        <div class="kpi-card-striking calandra-card-kg-hora" style="grid-column: 1; grid-row: 2; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #818cf8; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; justify-content: space-between;">
-          <div>
-            <div class="kpi-card-header">
-              <h4 style="color: #f8fafc;"><i class="fas fa-balance-scale"></i> KG / HORA</h4>
-              <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
-            </div>
-            <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);">${ind.kg_hora_str}</div>
-            
-            ${isCal2 && ind.desglose_calandra2 ? `
-              <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; margin-bottom: 6px; flex-wrap: wrap;">
-                <span style="font-size: 0.72rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.35);">
-                  <i class="fas fa-expand-alt"></i> ${ind.desglose_calandra2.kg_grandes_str}
-                </span>
-                <span style="font-size: 0.72rem; font-weight: 600; color: #60a5fa; background: rgba(59, 130, 246, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(59, 130, 246, 0.35);">
-                  <i class="fas fa-compress-alt"></i> ${ind.desglose_calandra2.kg_pequenas_str}
-                </span>
-              </div>
-              <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
-                <span style="font-size: 0.7rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.1); padding: 2px 6px; border-radius: 4px;">
-                  ${ind.desglose_calandra2.prendas_grandes_hora_str}
-                </span>
-                <span style="font-size: 0.7rem; font-weight: 600; color: #60a5fa; background: rgba(59, 130, 246, 0.1); padding: 2px 6px; border-radius: 4px;">
-                  ${ind.desglose_calandra2.prendas_pequenas_hora_str}
-                </span>
-              </div>
-            ` : `
-              <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-top: 8px; margin-bottom: 12px; flex-wrap: wrap;">
-                <span style="font-size: 0.75rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3);">
-                  <i class="fas fa-tshirt"></i> ${ind.prendas_hora_str}
-                </span>
-                <span style="font-size: 0.75rem; font-weight: 600; color: #34d399; background: rgba(52, 211, 153, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(52, 211, 153, 0.3);">
-                  <i class="fas fa-weight-hanging"></i> ${ind.kgs_totales_str}
-                </span>
-              </div>
-            `}
-          </div>
-
-          <div>
-            <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-              <span style="color: #818cf8;"><i class="fas fa-tachometer-alt"></i> Cadencia Turno</span>
-              <span style="color: #38bdf8;">${ind.prendas_hora_str}</span>
-            </div>
-            <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
-              <i class="fas fa-calculator"></i> Ritmo ponderado de kilogramos en tiempo productivo
-            </div>
-          </div>
-        </div>
-
-        <!-- Fila 2, Columnas 2 a 4: Gráfica de Producción y Tiempo Valle (Estrechada a la derecha de Kg/Hora) -->
-        <div class="chart-section-card calandra-chart-section" style="grid-column: 2 / span 3; grid-row: 2;">
-          <div class="chart-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-            <div class="chart-header-title">
-              <i class="fas fa-chart-line" style="color: #38bdf8; font-size: 1.1rem;"></i>
-              <h4 style="font-size: 0.95rem; font-weight: 800; color: var(--text-main); margin: 0;">
-                Avance de Producción y Tiempo Valle Hora a Hora (${isCal2 ? 'Calandra 2' : 'Calandra 3'} - Turno Actual)
-              </h4>
-            </div>
-            <div style="font-size: 0.72rem; color: #94a3b8; display: flex; align-items: center; gap: 12px;">
-              <span><span style="display:inline-block;width:10px;height:10px;background:#38bdf8;border-radius:2px;margin-right:4px;"></span><strong style="color: #38bdf8;">Prendas</strong> (Eje Izquierdo)</span>
-              <span><span style="display:inline-block;width:10px;height:10px;background:#fbbf24;border-radius:2px;margin-right:4px;"></span><strong style="color: #fbbf24;">Tiempo Valle min</strong> (Eje Derecho)</span>
-            </div>
-          </div>
-          <div class="chart-wrapper">
-            <canvas id="chart-dashboard-${maquinaId.toLowerCase()}"></canvas>
-          </div>
-        </div>
-      </div>
-    `;
-
-    container.innerHTML = html;
-
-    // Renderizar gráfica dual axis
-    renderCalandraHourlyChart(`chart-dashboard-${maquinaId.toLowerCase()}`, ind, maquinaId);
+    // Renderizar / Actualizar gráfica dual axis
+    renderCalandraHourlyChart(canvasId, ind, maquinaId);
   } catch (err) {
     container.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
   }
