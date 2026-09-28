@@ -1048,27 +1048,15 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             delta_total, delta_grandes, delta_pequenas, idle_min_total, in_idle
         FROM calandras_produccion
         WHERE maquina = ? 
-          AND (
-              (timestamp_iso >= ? AND timestamp_iso < ?)
-              OR (timestamp LIKE '%+00:00' AND datetime(timestamp_iso, '+2 hours') >= ? AND datetime(timestamp_iso, '+2 hours') < ?)
-          )
+          AND timestamp_iso >= ? AND timestamp_iso < ?
         ORDER BY timestamp_iso ASC
-    """, (maquina_id, shift_start_iso, shift_end_iso, shift_start_iso, shift_end_iso)).fetchall()
+    """, (maquina_id, shift_start_iso, shift_end_iso)).fetchall()
     conn.close()
 
-    # Normalizar a hora local si algún registro histórico tenía offset UTC
     norm_rows = []
     for r in db_rows:
-        ts_iso = r["timestamp_iso"]
-        raw_ts = str(r["timestamp"] or "")
-        if "+00:00" in raw_ts and ts_iso < "2026-09-28 08:30:00":
-            try:
-                dt_loc = datetime.strptime(ts_iso, "%Y-%m-%d %H:%M:%S") + timedelta(hours=2)
-                ts_iso = dt_loc.strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
-                pass
         norm_rows.append({
-            "ts": ts_iso,
+            "ts": r["timestamp_iso"],
             "count_total": int(r["count_total"] or 0),
             "count_grandes": int(r["count_grandes"] or 0),
             "count_pequenas": int(r["count_pequenas"] or 0),
@@ -1083,7 +1071,7 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
     valle = []
     grandes = []
     pequenas = []
-    prev_idle = None
+    prev_idle = norm_rows[0]["idle_min_total"] if norm_rows else None
 
     for s_start, s_end in slot_ranges:
         slot_items = [it for it in norm_rows if s_start <= it["ts"] < s_end]
@@ -1108,14 +1096,16 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             if prev_idle is not None:
                 if curr_idle >= prev_idle:
                     v_slot_delta += (curr_idle - prev_idle)
-                else:
+                elif curr_idle < 60.0:
                     v_slot_delta += curr_idle
             prev_idle = curr_idle
+
+        v_slot_delta = min(round(v_slot_delta, 1), 60.0)
 
         prendas.append(tot_slot)
         grandes.append(g_slot)
         pequenas.append(p_slot)
-        valle.append(round(v_slot_delta, 1))
+        valle.append(v_slot_delta)
 
     tot_prendas_remotas = sum(prendas)
     tot_grandes_remotas = sum(grandes)

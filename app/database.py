@@ -203,16 +203,6 @@ def init_db():
     );
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_calandras_prod ON calandras_produccion(maquina, timestamp_iso);")
-
-    # Normalización automática de compatibilidad: ajustar registros antiguos en UTC al horario local Madrid (+2h)
-    try:
-        cursor.execute("""
-            UPDATE calandras_produccion 
-            SET timestamp_iso = datetime(timestamp_iso, '+2 hours') 
-            WHERE timestamp LIKE '%+00:00' AND timestamp_iso < '2026-09-28 08:30:00';
-        """)
-    except Exception:
-        pass
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS calandras_turnos_persistencia (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
