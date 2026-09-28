@@ -671,19 +671,21 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
                 grandes = g_live.get("grandes", grandes)
                 pequenas = g_live.get("pequenas", pequenas)
 
-    tot_prendas = sum(prendas)
-    tot_grandes = sum(grandes) if grandes else tot_prendas
-    tot_pequenas = sum(pequenas) if pequenas else 0
-    tot_valle = round(sum(valle), 1)
-
     if m_id == "CALANDRA_2":
+        tot_grandes = sum(grandes) if grandes else 0
+        tot_pequenas = sum(pequenas) if pequenas else 0
+        tot_prendas = sum(prendas) or (tot_grandes + tot_pequenas)
         kg_grandes = round(tot_grandes * 0.45, 1)
         kg_pequenas = round(tot_pequenas * 0.15, 1)
         tot_kg = round(kg_grandes + kg_pequenas, 1)
     else:
-        tot_kg = round(tot_prendas * 0.25, 1)
-        kg_grandes = tot_kg
+        tot_prendas = sum(prendas)
+        tot_grandes = 0
+        tot_pequenas = 0
+        kg_grandes = 0.0
         kg_pequenas = 0.0
+        tot_kg = round(tot_prendas * 0.25, 1)
+    tot_valle = round(sum(valle), 1)
 
     duracion_horas = max(len(labels), 1)
     now_dt = get_local_now().replace(tzinfo=None)
@@ -1046,7 +1048,7 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
 
     # 1. Intentar consultar la matriz horaria procesada del día y turno actual
     try:
-        url = f"http://100.127.85.111:5002/api/tabla-horaria?maquina={maq_param}"
+        url = f"http://100.127.85.111:5002/api/tabla-horaria?machine_id={maq_param}"
         req = urllib.request.urlopen(url, timeout=3)
         t_data = json.loads(req.read().decode('utf-8'))
         hour_slots = t_data.get("hour_slots", [])
@@ -1057,10 +1059,11 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             labels.append(lbl)
             cell_key = f"{w_idx}_{s['index']}"
             c = cells.get(cell_key, {})
-            l = c.get("large", 0)
-            p = c.get("small", 0)
-            tot = c.get("total", l + p)
-            v = round(float(c.get("idle_min", 0.0)), 1)
+            l = int(c.get("large", 0) or 0)
+            p = int(c.get("small", 0) or 0)
+            tot_val = c.get("total")
+            tot = int(tot_val if tot_val is not None else (l + p))
+            v = round(float(c.get("idle_min", 0.0) or 0.0), 1)
 
             prendas.append(tot)
             grandes.append(l)
@@ -1107,14 +1110,14 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
     else:
         # CALANDRA_3
         p_totales = tot_prendas_remotas
-        p_grandes = p_totales
-        p_pequenas = 0
+        p_grandes = 0
+        p_pequenas = tot_prendas_remotas
         w_totales = round(p_totales * 0.25, 1)
-        w_grandes = w_totales
-        w_pequenas = 0.0
+        w_grandes = 0.0
+        w_pequenas = w_totales
         v_total = tot_valle_remoto
-        v_grandes = v_total
-        v_pequenas = 0.0
+        v_grandes = 0.0
+        v_pequenas = v_total
         in_idle = bool(live_cache.get("in_idle"))
 
     # Calcular horas transcurridas de turno
