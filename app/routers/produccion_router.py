@@ -524,8 +524,25 @@ def get_calandra_dashboard(maquina_id: str, user: dict = Depends(check_produccio
             "is_active": shift_active
         },
         "indicadores": prod,
-        "grafica_hora_a_hora": prod.get("grafica_hora_a_hora", {})
+        "grafica_hora_a_hora": prod.get("grafica_hora_a_hora", {}),
+        "comparacion_5002": prod.get("comparacion_5002", {})
     }
+
+
+@router.get("/calandras/{maquina_id}/comparar-5002")
+def get_calandra_comparar_5002(maquina_id: str, user: dict = Depends(check_produccion_permission)):
+    """
+    Retorna la auditoría comparativa hora a hora entre los datos calculados
+    exclusivamente desde MQTT y la API del puerto 5002.
+    """
+    m_id = maquina_id.upper()
+    if m_id not in ["CALANDRA_2", "CALANDRA_3"]:
+        raise HTTPException(status_code=404, detail="Máquina no encontrada")
+
+    turnos_cache = get_cached_turnos()
+    turno_act = turnos_cache.get("turno_actual", {})
+    prod_mqtt = get_calandra_production(m_id, turno_act)
+    return compare_calandra_mqtt_vs_5002(m_id, prod_mqtt, turno_act)
 
 
 def get_turno_identificador(turno_dict: dict, shifts_list: list = None) -> tuple[str, int]:
@@ -601,91 +618,29 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
 
     shift_key = f"{m_id}_{fecha_turno}_{turno_identificador.replace(' ', '_')}"
 
-    # Obtener franjas horarias del turno
-    try:
-        h_ini_int = int(hora_inicio[:2])
-        h_fin_int = int(hora_fin[:2])
-    except Exception:
-        h_ini_int, h_fin_int = 6, 14
-    if h_fin_int <= h_ini_int:
-        h_fin_int += 24
+    # Utilizar el cálculo unificado y validado desde MQTT
+    prod_live = get_calandra_production(m_id, shift_data)
+    labels = prod_live.get("grafica_hora_a_hora", {}).get("labels", [])
+    prendas = prod_live.get("grafica_hora_a_hora", {}).get("prendas", [])
+    valle = prod_live.get("grafica_hora_a_hora", {}).get("tiempo_valle", [])
+    grandes = prod_live.get("grafica_hora_a_hora", {}).get("grandes") or [0] * len(labels)
+    pequenas = prod_live.get("grafica_hora_a_hora", {}).get("pequenas") or [0] * len(labels)
 
-    labels = []
-    prendas = []
-    valle = []
-    grandes = []
-    pequenas = []
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    for h in range(h_ini_int, h_fin_int):
-        h1 = h % 24
-        h2 = (h + 1) % 24
-        lbl = f"{h1:02d}:00 - {h2:02d}:00"
-        labels.append(lbl)
-
-        day_offset = h // 24
-        dt_day = datetime.strptime(fecha_turno, "%Y-%m-%d") + timedelta(days=day_offset)
-        slot_start_iso = f"{dt_day.strftime('%Y-%m-%d')} {h1:02d}:00:00"
-        slot_end_iso = f"{dt_day.strftime('%Y-%m-%d')} {h2:02d}:00:00" if h2 != 0 else f"{(dt_day + timedelta(days=1)).strftime('%Y-%m-%d')} 00:00:00"
-
-        row = cursor.execute("""
-            SELECT 
-                COALESCE(SUM(delta_total), 0) as tot_delta,
-                COALESCE(SUM(delta_grandes), 0) as tot_g,
-                COALESCE(SUM(delta_pequenas), 0) as tot_p,
-                COALESCE(SUM(idle_min_total), 0.0) as tot_valle,
-                MAX(count_total) - MIN(count_total) as span_tot
-            FROM calandras_produccion
-            WHERE maquina = ? AND timestamp_iso >= ? AND timestamp_iso < ?
-        """, (m_id, slot_start_iso, slot_end_iso)).fetchone()
-
-        tot_slot = 0
-        g_slot = 0
-        p_slot = 0
-        v_slot = 0.0
-
-        if row and (row["tot_delta"] > 0 or (row["span_tot"] and row["span_tot"] > 0)):
-            tot_slot = row["tot_delta"] if row["tot_delta"] > 0 else (row["span_tot"] or 0)
-            g_slot = row["tot_g"]
-            p_slot = row["tot_p"]
-            v_slot = round(float(row["tot_valle"]), 1)
-
-        prendas.append(tot_slot)
-        grandes.append(g_slot)
-        pequenas.append(p_slot)
-        valle.append(v_slot)
-
-    conn.close()
-
-    # Si SQLite aún no tiene cargas y coincide con el turno actual en vivo, consultar datos remotos
-    if sum(prendas) == 0 and sum(valle) == 0.0 and fecha_turno == datetime.now().strftime("%Y-%m-%d"):
-        prod_live = get_calandra_production(m_id, shift_data)
-        g_live = prod_live.get("grafica_hora_a_hora", {})
-        if g_live.get("prendas") and sum(g_live.get("prendas", [])) > 0:
-            labels = g_live.get("labels", labels)
-            prendas = g_live.get("prendas", prendas)
-            valle = g_live.get("tiempo_valle", valle)
-            if m_id == "CALANDRA_2":
-                grandes = g_live.get("grandes", grandes)
-                pequenas = g_live.get("pequenas", pequenas)
+    tot_prendas = prod_live.get("prendas_totales", 0)
+    tot_kg = prod_live.get("kgs_totales", 0.0)
+    tot_valle = prod_live.get("tiempo_valle_min", 0.0)
 
     if m_id == "CALANDRA_2":
-        tot_grandes = sum(grandes) if grandes else 0
-        tot_pequenas = sum(pequenas) if pequenas else 0
-        tot_prendas = sum(prendas) or (tot_grandes + tot_pequenas)
-        kg_grandes = round(tot_grandes * 0.45, 1)
-        kg_pequenas = round(tot_pequenas * 0.15, 1)
-        tot_kg = round(kg_grandes + kg_pequenas, 1)
+        desg = prod_live.get("desglose_calandra2") or {}
+        tot_grandes = desg.get("prendas_grandes", 0)
+        tot_pequenas = desg.get("prendas_pequenas", 0)
+        kg_grandes = desg.get("kg_grandes", 0.0)
+        kg_pequenas = desg.get("kg_pequenas", 0.0)
     else:
-        tot_prendas = sum(prendas)
         tot_grandes = 0
         tot_pequenas = 0
         kg_grandes = 0.0
         kg_pequenas = 0.0
-        tot_kg = round(tot_prendas * 0.25, 1)
-    tot_valle = round(sum(valle), 1)
 
     duracion_horas = max(len(labels), 1)
     now_dt = get_local_now().replace(tzinfo=None)
@@ -1040,54 +995,127 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             }
         }
 
+    fecha_raw = turno_act.get("fecha") or get_local_now().strftime("%Y-%m-%d")
+    if "/" in str(fecha_raw):
+        try:
+            d_p = str(fecha_raw).split("/")
+            fecha_iso = f"{d_p[2]}-{d_p[1].zfill(2)}-{d_p[0].zfill(2)}"
+        except Exception:
+            fecha_iso = get_local_now().strftime("%Y-%m-%d")
+    else:
+        fecha_iso = str(fecha_raw)
+
+    h_ini_str = str(turno_act.get("hora_inicio", "06:00"))[:5]
+    h_fin_str = str(turno_act.get("hora_fin", "14:00"))[:5]
+    try:
+        start_h = int(h_ini_str.split(":")[0])
+        end_h = int(h_fin_str.split(":")[0])
+        if end_h <= start_h:
+            end_h += 24
+    except Exception:
+        start_h, end_h = 6, 14
+
     labels = []
+    slot_ranges = []
+    try:
+        dt_base = datetime.strptime(fecha_iso, "%Y-%m-%d")
+    except Exception:
+        dt_base = get_local_now().replace(tzinfo=None)
+
+    for h in range(start_h, end_h):
+        h1 = h % 24
+        h2 = (h + 1) % 24
+        labels.append(f"{h1:02d}:00 - {h2:02d}:00")
+
+        day_offset_start = h // 24
+        day_offset_end = (h + 1) // 24
+        dt_s = dt_base + timedelta(days=day_offset_start)
+        dt_e = dt_base + timedelta(days=day_offset_end) if h2 == 0 else dt_base + timedelta(days=day_offset_start)
+
+        slot_start_iso = f"{dt_s.strftime('%Y-%m-%d')} {h1:02d}:00:00"
+        slot_end_iso = f"{dt_e.strftime('%Y-%m-%d')} {h2:02d}:00:00"
+        slot_ranges.append((slot_start_iso, slot_end_iso))
+
+    shift_start_iso = slot_ranges[0][0] if slot_ranges else f"{fecha_iso} 06:00:00"
+    shift_end_iso = slot_ranges[-1][1] if slot_ranges else f"{fecha_iso} 14:00:00"
+
+    # Consultar SQLite calandras_produccion para todo el turno (ingesta MQTT directa)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    db_rows = cursor.execute("""
+        SELECT 
+            timestamp, timestamp_iso, count_total, count_grandes, count_pequenas,
+            delta_total, delta_grandes, delta_pequenas, idle_min_total, in_idle
+        FROM calandras_produccion
+        WHERE maquina = ? 
+          AND (
+              (timestamp_iso >= ? AND timestamp_iso < ?)
+              OR (timestamp LIKE '%+00:00' AND datetime(timestamp_iso, '+2 hours') >= ? AND datetime(timestamp_iso, '+2 hours') < ?)
+          )
+        ORDER BY timestamp_iso ASC
+    """, (maquina_id, shift_start_iso, shift_end_iso, shift_start_iso, shift_end_iso)).fetchall()
+    conn.close()
+
+    # Normalizar a hora local si algún registro histórico tenía offset UTC
+    norm_rows = []
+    for r in db_rows:
+        ts_iso = r["timestamp_iso"]
+        raw_ts = str(r["timestamp"] or "")
+        if "+00:00" in raw_ts and ts_iso < "2026-09-28 08:30:00":
+            try:
+                dt_loc = datetime.strptime(ts_iso, "%Y-%m-%d %H:%M:%S") + timedelta(hours=2)
+                ts_iso = dt_loc.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                pass
+        norm_rows.append({
+            "ts": ts_iso,
+            "count_total": int(r["count_total"] or 0),
+            "count_grandes": int(r["count_grandes"] or 0),
+            "count_pequenas": int(r["count_pequenas"] or 0),
+            "delta_total": int(r["delta_total"] or 0),
+            "delta_grandes": int(r["delta_grandes"] or 0),
+            "delta_pequenas": int(r["delta_pequenas"] or 0),
+            "idle_min_total": float(r["idle_min_total"] or 0.0),
+            "in_idle": int(r["in_idle"] or 0)
+        })
+
     prendas = []
     valle = []
     grandes = []
     pequenas = []
+    prev_idle = None
 
-    # 1. Intentar consultar la matriz horaria procesada del día y turno actual
-    try:
-        url = f"http://100.127.85.111:5002/api/tabla-horaria?machine_id={maq_param}"
-        req = urllib.request.urlopen(url, timeout=3)
-        t_data = json.loads(req.read().decode('utf-8'))
-        hour_slots = t_data.get("hour_slots", [])
-        cells = t_data.get("cells", {})
+    for s_start, s_end in slot_ranges:
+        slot_items = [it for it in norm_rows if s_start <= it["ts"] < s_end]
+        tot_slot = sum(it["delta_total"] for it in slot_items)
+        g_slot = sum(it["delta_grandes"] for it in slot_items)
+        p_slot = sum(it["delta_pequenas"] for it in slot_items)
 
-        for s in hour_slots:
-            lbl = f"{s['startStr']} - {s['endStr']}"
-            labels.append(lbl)
-            cell_key = f"{w_idx}_{s['index']}"
-            c = cells.get(cell_key, {})
-            l = int(c.get("large", 0) or 0)
-            p = int(c.get("small", 0) or 0)
-            tot_val = c.get("total")
-            tot = int(tot_val if tot_val is not None else (l + p))
-            v = round(float(c.get("idle_min", 0.0) or 0.0), 1)
+        # Fallback a variación de contador si deltas estuviesen en 0
+        if tot_slot == 0 and len(slot_items) > 1:
+            c_max = max(it["count_total"] for it in slot_items)
+            c_min = min(it["count_total"] for it in slot_items)
+            if c_max > c_min:
+                tot_slot = c_max - c_min
+                if maquina_id == "CALANDRA_2":
+                    g_slot = max(it["count_grandes"] for it in slot_items) - min(it["count_grandes"] for it in slot_items)
+                    p_slot = max(it["count_pequenas"] for it in slot_items) - min(it["count_pequenas"] for it in slot_items)
 
-            prendas.append(tot)
-            grandes.append(l)
-            pequenas.append(p)
-            valle.append(v)
-    except Exception:
-        h_ini = str(turno_act.get("hora_inicio", "06:00"))[:2]
-        h_fin = str(turno_act.get("hora_fin", "14:00"))[:2]
-        try:
-            start_h = int(h_ini)
-            end_h = int(h_fin)
-            if end_h <= start_h:
-                end_h += 24
-        except Exception:
-            start_h, end_h = 6, 14
+        # Cálculo de tiempo valle continuo por deltas positivos acumulados
+        v_slot_delta = 0.0
+        for it in slot_items:
+            curr_idle = it["idle_min_total"]
+            if prev_idle is not None:
+                if curr_idle >= prev_idle:
+                    v_slot_delta += (curr_idle - prev_idle)
+                else:
+                    v_slot_delta += curr_idle
+            prev_idle = curr_idle
 
-        for h in range(start_h, end_h):
-            h1 = h % 24
-            h2 = (h + 1) % 24
-            labels.append(f"{h1:02d}:00 - {h2:02d}:00")
-            prendas.append(0)
-            valle.append(0.0)
-            grandes.append(0)
-            pequenas.append(0)
+        prendas.append(tot_slot)
+        grandes.append(g_slot)
+        pequenas.append(p_slot)
+        valle.append(round(v_slot_delta, 1))
 
     tot_prendas_remotas = sum(prendas)
     tot_grandes_remotas = sum(grandes)
@@ -1106,7 +1134,7 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
         v_total = tot_valle_remoto
         v_grandes = v_total
         v_pequenas = v_total
-        in_idle = bool(live_cache.get("in_idle_grandes") or live_cache.get("in_idle_pequenas") or live_cache.get("in_idle"))
+        in_idle = bool(live_cache.get("in_idle_grandes") or live_cache.get("in_idle_pequenas") or live_cache.get("in_idle") or (norm_rows and norm_rows[-1]["in_idle"]))
     else:
         # CALANDRA_3
         p_totales = tot_prendas_remotas
@@ -1118,7 +1146,7 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
         v_total = tot_valle_remoto
         v_grandes = 0.0
         v_pequenas = v_total
-        in_idle = bool(live_cache.get("in_idle"))
+        in_idle = bool(live_cache.get("in_idle") or (norm_rows and norm_rows[-1]["in_idle"]))
 
     # Calcular horas transcurridas de turno
     dur_min = float(turno_act.get("minutos_transcurridos") or 60)
@@ -1133,10 +1161,11 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
     prendas_hora_str = f"{prendas_h:,}".replace(",", ".") + " prendas/h"
     kg_hora_str = f"{kg_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
 
-    return {
+    res_prod = {
         "maquina": maquina_id,
         "is_turno_activo": True,
         "en_valle": in_idle,
+        "fuente_datos": "MQTT_DIRECTO",
         "prendas_totales": p_totales,
         "prendas_totales_str": prendas_totales_str,
         "kgs_totales": w_totales,
@@ -1173,6 +1202,109 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             "pequenas": pequenas if maquina_id == "CALANDRA_2" else None
         }
     }
+
+    # Comparación temporal con la API del puerto 5002 para verificar igualdad
+    try:
+        res_prod["comparacion_5002"] = compare_calandra_mqtt_vs_5002(maquina_id, res_prod, turno_act)
+    except Exception as e:
+        res_prod["comparacion_5002"] = {"disponible_5002": False, "motivo": str(e)}
+
+    return res_prod
+
+
+def compare_calandra_mqtt_vs_5002(maquina_id: str, prod_mqtt: dict, turno_act: dict = None) -> dict:
+    """
+    Compara temporalmente los datos calculados exclusivamente por MQTT con la API del puerto 5002
+    para verificar que a cada lado los datos se construyen igual.
+    """
+    import urllib.request
+    maq_param = "calandra_2" if maquina_id == "CALANDRA_2" else "calandra_3"
+    w_idx = get_local_now().weekday()
+
+    comparativa = {
+        "maquina": maquina_id,
+        "disponible_5002": False,
+        "coincidencia_exacta": False,
+        "timestamp_comparacion": get_local_now_str(),
+        "resumen": {
+            "prendas_mqtt": prod_mqtt.get("prendas_totales", 0),
+            "prendas_5002": 0,
+            "valle_mqtt_min": prod_mqtt.get("tiempo_valle_min", 0.0),
+            "valle_5002_min": 0.0,
+            "diff_prendas": 0,
+            "diff_valle_min": 0.0
+        },
+        "filas_comparacion": []
+    }
+
+    try:
+        url = f"http://100.127.85.111:5002/api/tabla-horaria?machine_id={maq_param}"
+        req = urllib.request.urlopen(url, timeout=2.0)
+        t_data = json.loads(req.read().decode('utf-8'))
+        hour_slots = t_data.get("hour_slots", [])
+        cells = t_data.get("cells", {})
+
+        g_mqtt = prod_mqtt.get("grafica_hora_a_hora", {})
+        mqtt_labels = g_mqtt.get("labels", [])
+        mqtt_prendas = g_mqtt.get("prendas", [])
+        mqtt_valle = g_mqtt.get("tiempo_valle", [])
+
+        tot_5002_p = 0
+        tot_5002_v = 0.0
+        exact_all = True
+
+        for s in hour_slots:
+            lbl = f"{s['startStr']} - {s['endStr']}"
+            cell_key = f"{w_idx}_{s['index']}"
+            c = cells.get(cell_key, {})
+            l = int(c.get("large", 0) or 0)
+            p = int(c.get("small", 0) or 0)
+            tot_val = c.get("total")
+            p_5002 = int(tot_val if tot_val is not None else (l + p))
+            v_5002 = round(float(c.get("idle_min", 0.0) or 0.0), 1)
+
+            tot_5002_p += p_5002
+            tot_5002_v += v_5002
+
+            p_mq = 0
+            v_mq = 0.0
+            if lbl in mqtt_labels:
+                idx = mqtt_labels.index(lbl)
+                p_mq = mqtt_prendas[idx] if idx < len(mqtt_prendas) else 0
+                v_mq = mqtt_valle[idx] if idx < len(mqtt_valle) else 0.0
+
+            ok_p = (p_mq == p_5002)
+            ok_v = (abs(v_mq - v_5002) <= 0.3)
+            if not (ok_p and ok_v):
+                exact_all = False
+
+            comparativa["filas_comparacion"].append({
+                "franja": lbl,
+                "prendas_mqtt": p_mq,
+                "prendas_5002": p_5002,
+                "valle_mqtt": v_mq,
+                "valle_5002": v_5002,
+                "diff_prendas": p_mq - p_5002,
+                "diff_valle": round(v_mq - v_5002, 1),
+                "ok_prendas": ok_p,
+                "ok_valle": ok_v,
+                "coincide": ok_p and ok_v
+            })
+
+        tot_5002_v = round(tot_5002_v, 1)
+        tot_mq_p = prod_mqtt.get("prendas_totales", 0)
+        tot_mq_v = prod_mqtt.get("tiempo_valle_min", 0.0)
+
+        comparativa["disponible_5002"] = True
+        comparativa["coincidencia_exacta"] = exact_all
+        comparativa["resumen"]["prendas_5002"] = tot_5002_p
+        comparativa["resumen"]["valle_5002_min"] = tot_5002_v
+        comparativa["resumen"]["diff_prendas"] = tot_mq_p - tot_5002_p
+        comparativa["resumen"]["diff_valle_min"] = round(tot_mq_v - tot_5002_v, 1)
+    except Exception as e:
+        comparativa["motivo"] = f"API 5002 no disponible o timeout: {e}"
+
+    return comparativa
 
 from datetime import datetime, timedelta
 from app.utils import get_local_now_str, get_local_now

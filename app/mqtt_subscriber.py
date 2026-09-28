@@ -28,10 +28,23 @@ logger = logging.getLogger("mqtt_subscriber")
 logging.basicConfig(level=logging.INFO)
 
 def parse_timestamp_to_iso(ts_str: str) -> str:
-    """Convierte cualquier formato de timestamp (DD/MM/YYYY HH:MM:SS, YYYY-MM-DD HH:MM:SS, ISO) a YYYY-MM-DD HH:MM:SS."""
+    """Convierte cualquier formato de timestamp a YYYY-MM-DD HH:MM:SS en horario local Europe/Madrid."""
     if not ts_str:
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ts_clean = str(ts_str).strip().replace("T", " ")
+        from app.utils import get_local_now
+        return get_local_now().strftime("%Y-%m-%d %H:%M:%S")
+    ts_clean = str(ts_str).strip()
+    try:
+        # Detectar timestamp ISO con offset o indicador UTC (ej. 2026-09-28T07:31:25.984419+00:00 o con Z)
+        if "T" in ts_clean and ("+" in ts_clean or ts_clean.endswith("Z")):
+            dt = datetime.fromisoformat(ts_clean.replace("Z", "+00:00"))
+            from app.utils import MADRID_TZ
+            if MADRID_TZ:
+                dt = dt.astimezone(MADRID_TZ)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+
+    ts_clean = ts_clean.replace("T", " ")
     try:
         parts = ts_clean.split(" ")
         date_part = parts[0]

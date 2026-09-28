@@ -399,6 +399,21 @@
     </main>
   </div>
 
+  <!-- Modal de Comparación Temporal MQTT vs Puerto 5002 -->
+  <div class="modal-overlay" id="modal-comparar-5002" style="display: none; align-items: center; justify-content: center; z-index: 9999;">
+    <div class="modal-card" style="max-width: 800px; width: 95%; max-height: 90vh; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+        <h3 id="modal-comparar-title" style="color: #38bdf8; font-size: 1.3rem; margin: 0;">
+          <i class="fas fa-balance-scale"></i> Verificación Temporal: MQTT vs Puerto 5002
+        </h3>
+        <button onclick="closeModalComparar5002()" style="background: none; border: none; color: var(--text-muted); font-size: 1.4rem; cursor: pointer;">&times;</button>
+      </div>
+      <div id="modal-comparar-body">
+        <p style="color: var(--text-muted);">Consultando API del Puerto 5002 y comparando con cálculos locales MQTT...</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal de Autenticación / Selección de Usuario -->
   <div class="modal-overlay" id="login-modal">
     <div class="modal-card">
@@ -432,7 +447,7 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=4.0.33"></script>
+  <script src="/static/js/app.js?v=4.0.34"></script>
 
 
 

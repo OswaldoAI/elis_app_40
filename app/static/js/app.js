@@ -824,9 +824,25 @@ async function loadCalandraDashboard(maquinaId) {
 
     let html = `
       <!-- Banner de Turno -->
-      <div class="shift-banner" style="margin-bottom: 20px;">
-        <span class="shift-title"><i class="fas fa-user-clock"></i> ${turno.nombre} (${turno.horario})</span>
-        <span class="shift-time"><i class="fas fa-calendar-alt"></i> ${turno.fecha || ''}</span>
+      <div class="shift-banner" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+          <span class="shift-title"><i class="fas fa-user-clock"></i> ${turno.nombre} (${turno.horario})</span>
+          <span class="shift-time"><i class="fas fa-calendar-alt"></i> ${turno.fecha || ''}</span>
+          <span style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 0.78rem; font-weight: 600; padding: 3px 8px; border-radius: 6px;">
+            <i class="fas fa-broadcast-tower"></i> Fuente: MQTT Directo
+          </span>
+        </div>
+        <div>
+          ${data.comparacion_5002 && data.comparacion_5002.disponible_5002 ? `
+            <button class="btn-header" onclick="openModalComparar5002('${maquinaId}')" style="font-size: 0.82rem; padding: 5px 12px; background: ${data.comparacion_5002.coincidencia_exacta ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)'}; border: 1px solid ${data.comparacion_5002.coincidencia_exacta ? '#10b981' : '#f59e0b'}; color: ${data.comparacion_5002.coincidencia_exacta ? '#34d399' : '#fbbf24'}; cursor: pointer; border-radius: 8px;">
+              <i class="fas ${data.comparacion_5002.coincidencia_exacta ? 'fa-check-circle' : 'fa-balance-scale'}"></i> Cotejo Puerto 5002: ${data.comparacion_5002.coincidencia_exacta ? '✅ 100% Coincidente' : 'Ver Comparativa'}
+            </button>
+          ` : `
+            <button class="btn-header" onclick="openModalComparar5002('${maquinaId}')" style="font-size: 0.82rem; padding: 5px 12px; background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; cursor: pointer; border-radius: 8px;">
+              <i class="fas fa-balance-scale"></i> Cotejo Puerto 5002
+            </button>
+          `}
+        </div>
       </div>
     `;
 
@@ -992,6 +1008,138 @@ async function loadCalandraDashboard(maquinaId) {
   } catch (err) {
     container.innerHTML = `<div style="color: var(--accent-red); padding: 20px;">⚠️ ${err.message}</div>`;
   }
+}
+
+async function openModalComparar5002(maquinaId) {
+  const modal = document.getElementById('modal-comparar-5002');
+  const title = document.getElementById('modal-comparar-title');
+  const body = document.getElementById('modal-comparar-body');
+  if (!modal || !body) return;
+
+  const isCal2 = (maquinaId === 'CALANDRA_2');
+  const maqName = isCal2 ? 'Calandra 2' : 'Calandra 3';
+  title.innerHTML = `<i class="fas fa-balance-scale"></i> Verificación Temporal: MQTT vs Puerto 5002 — ${maqName}`;
+  body.innerHTML = `
+    <div style="text-align: center; padding: 30px; color: var(--text-muted);">
+      <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #38bdf8; margin-bottom: 15px;"></i>
+      <p>Consultando API del Puerto 5002 y contrastando con la base de datos local MQTT...</p>
+    </div>
+  `;
+  modal.style.display = 'flex';
+
+  try {
+    const res = await fetch(`/api/produccion/calandras/${maquinaId}/comparar-5002`);
+    if (!res.ok) throw new Error(`Error ${res.status}: No se pudo obtener la comparativa`);
+    const data = await res.json();
+
+    if (!data.disponible_5002) {
+      body.innerHTML = `
+        <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 12px; padding: 18px; color: #f87171;">
+          <h4 style="margin: 0 0 10px 0;"><i class="fas fa-exclamation-circle"></i> Puerto 5002 No Disponible</h4>
+          <p style="margin: 0; font-size: 0.9rem;">${data.motivo || 'No se pudo establecer conexión con http://100.127.85.111:5002'}</p>
+          <p style="margin: 10px 0 0 0; font-size: 0.85rem; color: var(--text-muted);">Nota: La aplicación continúa funcionando al 100% calculando todos los indicadores directamente desde el tópico MQTT.</p>
+        </div>
+      `;
+      return;
+    }
+
+    const resm = data.resumen || {};
+    const exact = data.coincidencia_exacta;
+
+    let html = `
+      <!-- Tarjetas de Resumen Comparativo -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+        <div style="background: var(--bg-hover); border-radius: 12px; padding: 15px; border-left: 4px solid #38bdf8;">
+          <div style="color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">Prendas Totales</div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 5px;">
+            <div>
+              <span style="font-size: 1.3rem; font-weight: 700; color: #38bdf8;">${resm.prendas_mqtt}</span> <small style="color: var(--text-muted)">MQTT</small>
+            </div>
+            <div>
+              <span style="font-size: 1.3rem; font-weight: 700; color: #94a3b8;">${resm.prendas_5002}</span> <small style="color: var(--text-muted)">5002</small>
+            </div>
+          </div>
+          <div style="font-size: 0.8rem; margin-top: 6px; color: ${resm.diff_prendas === 0 ? '#34d399' : '#fbbf24'};">
+            ${resm.diff_prendas === 0 ? '<i class="fas fa-check-circle"></i> Diferencia: 0 prendas' : `<i class="fas fa-info-circle"></i> Diferencia: ${resm.diff_prendas} prendas`}
+          </div>
+        </div>
+
+        <div style="background: var(--bg-hover); border-radius: 12px; padding: 15px; border-left: 4px solid #f59e0b;">
+          <div style="color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">Tiempo Valle Total</div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 5px;">
+            <div>
+              <span style="font-size: 1.3rem; font-weight: 700; color: #f59e0b;">${resm.valle_mqtt_min}</span> <small style="color: var(--text-muted)">min MQTT</small>
+            </div>
+            <div>
+              <span style="font-size: 1.3rem; font-weight: 700; color: #94a3b8;">${resm.valle_5002_min}</span> <small style="color: var(--text-muted)">min 5002</small>
+            </div>
+          </div>
+          <div style="font-size: 0.8rem; margin-top: 6px; color: ${Math.abs(resm.diff_valle_min) <= 0.3 ? '#34d399' : '#fbbf24'};">
+            ${Math.abs(resm.diff_valle_min) <= 0.3 ? '<i class="fas fa-check-circle"></i> Coincidencia exacta' : `<i class="fas fa-info-circle"></i> Diferencia: ${resm.diff_valle_min} min`}
+          </div>
+        </div>
+
+        <div style="background: var(--bg-hover); border-radius: 12px; padding: 15px; border-left: 4px solid ${exact ? '#10b981' : '#f59e0b'};">
+          <div style="color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">Diagnóstico General</div>
+          <div style="font-size: 1.05rem; font-weight: 700; margin-top: 5px; color: ${exact ? '#34d399' : '#fbbf24'};">
+            ${exact ? '<i class="fas fa-check-double"></i> 100% Coincidente' : '<i class="fas fa-check-circle"></i> Cálculos Consistentes'}
+          </div>
+          <div style="font-size: 0.78rem; margin-top: 6px; color: var(--text-muted);">
+            Hora de cotejo: ${data.timestamp_comparacion}
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabla Detallada Franja a Franja -->
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left;">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--border-color); color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase;">
+              <th style="padding: 10px 12px;">Franja Horaria</th>
+              <th style="padding: 10px 12px; text-align: right;">Prendas MQTT</th>
+              <th style="padding: 10px 12px; text-align: right;">Prendas 5002</th>
+              <th style="padding: 10px 12px; text-align: right;">Valle MQTT</th>
+              <th style="padding: 10px 12px; text-align: right;">Valle 5002</th>
+              <th style="padding: 10px 12px; text-align: center;">Cotejo</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(data.filas_comparacion || []).map(row => {
+              const rowOk = row.ok_prendas && row.ok_valle;
+              return `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: ${rowOk ? 'transparent' : 'rgba(245, 158, 11, 0.05)'};">
+                  <td style="padding: 10px 12px; font-weight: 600; color: var(--text-main);">${row.franja}</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #38bdf8; font-weight: 600;">${row.prendas_mqtt}</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #94a3b8;">${row.prendas_5002}</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #f59e0b; font-weight: 600;">${row.valle_mqtt}m</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #94a3b8;">${row.valle_5002}m</td>
+                  <td style="padding: 10px 12px; text-align: center;">
+                    ${rowOk 
+                      ? '<span style="color: #34d399; font-weight: 600;"><i class="fas fa-check-circle"></i> Exacto</span>' 
+                      : `<span style="color: #fbbf24; font-size: 0.78rem;">${row.diff_prendas !== 0 ? `ΔP:${row.diff_prendas}` : ''} ${row.diff_valle !== 0 ? `ΔV:${row.diff_valle}m` : ''}</span>`
+                    }
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    body.innerHTML = html;
+  } catch (err) {
+    body.innerHTML = `
+      <div style="color: var(--accent-red); padding: 20px;">
+        <i class="fas fa-exclamation-triangle"></i> Error al ejecutar cotejo: ${err.message}
+      </div>
+    `;
+  }
+}
+
+function closeModalComparar5002() {
+  const modal = document.getElementById('modal-comparar-5002');
+  if (modal) modal.style.display = 'none';
 }
 
 // Load Tunel de Lavado Ampliado Dashboard (Sin Menú Izquierdo y Sin Telemetría)
