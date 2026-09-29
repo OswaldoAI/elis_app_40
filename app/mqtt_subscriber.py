@@ -153,15 +153,24 @@ def save_calandra_to_db(maquina: str, payload: dict):
             idle_tot = max(idle_g, idle_p)
             in_idle = 1 if (payload.get("in_idle_grandes") or payload.get("in_idle_pequenas")) else 0
         else: # CALANDRA_3
-            # Capturar nuevo campo peso_unitario de MQTT con fallback a unit_weight_kg, BD o default (1.18)
-            raw_p_uni = payload.get("peso_unitario") or payload.get("unit_weight_kg")
-            if raw_p_uni is not None and float(raw_p_uni) > 0:
-                p_uni_cfg = float(raw_p_uni)
-            else:
-                p_uni_cfg = float(pesos_cfg.get("peso_unitario") or 1.180)
+            # Capturar nuevo campo peso_unitario de MQTT. Descartar 0.25 (residuo antiguo por defecto de la cámara)
+            raw_p_uni = payload.get("peso_unitario")
+            if raw_p_uni is None:
+                u_w = payload.get("unit_weight_kg")
+                if u_w is not None and float(u_w) > 0 and round(float(u_w), 2) != 0.25:
+                    raw_p_uni = u_w
 
-            # Persistir en BD calandras_peso_unitario y reflejar en payload
-            update_peso_unitario_db("CALANDRA_3", peso_unitario=p_uni_cfg)
+            if raw_p_uni is not None and float(raw_p_uni) > 0 and round(float(raw_p_uni), 2) != 0.25:
+                p_uni_cfg = float(raw_p_uni)
+                update_peso_unitario_db("CALANDRA_3", peso_unitario=p_uni_cfg)
+            else:
+                db_p = float(pesos_cfg.get("peso_unitario") or 0.0)
+                if db_p > 0 and round(db_p, 2) != 0.25:
+                    p_uni_cfg = db_p
+                else:
+                    p_uni_cfg = 1.180
+                    update_peso_unitario_db("CALANDRA_3", peso_unitario=1.180)
+
             payload["peso_unitario"] = p_uni_cfg
 
             c_total = int(payload.get("count", payload.get("total_historical", 0)))

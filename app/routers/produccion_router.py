@@ -1145,11 +1145,17 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
         p_grandes = 0
         p_pequenas = tot_prendas_remotas
 
-        # Prioridad de peso unitario: 1. Live MQTT cache -> 2. BD calandras_peso_unitario -> 3. Default real (1.18)
-        p_unit = float(
-            live_cache.get("peso_unitario")
-            or (peso_row["peso_unitario"] if peso_row and peso_row["peso_unitario"] is not None else 1.180)
-        )
+        # Prioridad de peso unitario para Calandra 3:
+        # Descartar 0.25 (residuo antiguo por defecto de la cámara) y usar peso real (1.18 kg)
+        live_w = float(live_cache.get("peso_unitario") or 0.0)
+        db_w = float(peso_row["peso_unitario"] if peso_row and peso_row["peso_unitario"] is not None else 0.0)
+
+        if live_w > 0 and round(live_w, 2) != 0.25:
+            p_unit = live_w
+        elif db_w > 0 and round(db_w, 2) != 0.25:
+            p_unit = db_w
+        else:
+            p_unit = 1.180
 
         w_totales = round(p_totales * p_unit, 1)
         w_grandes = 0.0
