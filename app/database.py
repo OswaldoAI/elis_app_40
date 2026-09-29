@@ -129,6 +129,20 @@ def init_db():
     )
     """)
 
+    # Limpieza automática de registros inválidos 'fuera de turno' o 'sin turno'
+    cursor.execute("""
+        DELETE FROM turnos_persistencia 
+        WHERE UPPER(nombre_turno) LIKE '%FUERA%' 
+           OR UPPER(shift_key) LIKE '%FUERA%' 
+           OR UPPER(nombre_turno) LIKE '%SIN TURNO%';
+    """)
+    cursor.execute("""
+        DELETE FROM resultados_turnos 
+        WHERE UPPER(nombre_turno) LIKE '%FUERA%' 
+           OR UPPER(shift_key) LIKE '%FUERA%' 
+           OR UPPER(nombre_turno) LIKE '%SIN TURNO%';
+    """)
+
     # Sincronización automática a resultados_turnos desde turnos_persistencia si existen datos
     cursor.execute("""
         INSERT OR REPLACE INTO resultados_turnos (shift_key, fecha, nombre_turno, rango_horario, total_kg, total_cargas, ikprod, updated_at)
@@ -142,6 +156,9 @@ def init_db():
             ikprod_pct AS ikprod, 
             updated_at
         FROM turnos_persistencia
+        WHERE UPPER(nombre_turno) NOT LIKE '%FUERA%'
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
     """)
 
     # Tabla de Telemetría de Agua Túnel y Lavadoras (0,1 m3 por pulso)
@@ -203,6 +220,7 @@ def init_db():
     );
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_calandras_prod ON calandras_produccion(maquina, timestamp_iso);")
+
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS calandras_turnos_persistencia (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,8 +244,25 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cal_turnos_maq_fecha ON calandras_turnos_persistencia(maquina, fecha, turno_identificador);")
 
+    # Tabla de Configuración de Peso Unitario por Calandra
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS calandras_peso_unitario (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        maquina TEXT UNIQUE NOT NULL,
+        peso_unitario REAL DEFAULT 0.400,
+        peso_pequenas REAL DEFAULT 0.080,
+        peso_grandes REAL DEFAULT 0.350,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("""
+        INSERT OR IGNORE INTO calandras_peso_unitario (maquina, peso_unitario, peso_pequenas, peso_grandes)
+        VALUES ('CALANDRA_3', 0.400, 0.000, 0.400)
+    """)
+    cursor.execute("""
+        INSERT OR IGNORE INTO calandras_peso_unitario (maquina, peso_unitario, peso_pequenas, peso_grandes)
+        VALUES ('CALANDRA_2', 0.000, 0.080, 0.350)
+    """)
+
     conn.commit()
     conn.close()
-
-
-

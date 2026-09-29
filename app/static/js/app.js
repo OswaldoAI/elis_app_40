@@ -2147,18 +2147,32 @@ async function loadShiftsForHistorialDate(fechaStr) {
     turnoSelect.innerHTML = '<option value="">-- Seleccionar Turno --</option>';
 
     if (data.turnos && data.turnos.length > 0) {
-      data.turnos.forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.shift_key;
-        const totalKgStr = typeof t.total_kg === 'number' ? Math.round(t.total_kg).toLocaleString('es-ES') : t.total_kg;
-        const estadoTag = t.is_in_progress ? ' [En proceso]' : '';
-        opt.textContent = `${t.nombre_turno} (${t.horario}) — ${totalKgStr} kg${estadoTag}`;
-        if (t.is_in_progress) {
-          opt.dataset.inProgress = 'true';
-        }
-        turnoSelect.appendChild(opt);
+      const validos = data.turnos.filter(t => {
+        const nombreUpper = (t.nombre_turno || '').toUpperCase();
+        const keyUpper = (t.shift_key || '').toUpperCase();
+        return !nombreUpper.includes('FUERA') && !keyUpper.includes('FUERA') && !nombreUpper.includes('SIN TURNO') && !nombreUpper.includes('INACTIVO');
       });
-      turnoSelect.disabled = false;
+
+      if (validos.length > 0) {
+        validos.forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t.shift_key;
+          const totalKgStr = typeof t.total_kg === 'number' ? Math.round(t.total_kg).toLocaleString('es-ES') : t.total_kg;
+          const estadoTag = t.is_in_progress ? ' [En proceso]' : '';
+          opt.textContent = `${t.nombre_turno} (${t.horario}) — ${totalKgStr} kg${estadoTag}`;
+          if (t.is_in_progress) {
+            opt.dataset.inProgress = 'true';
+          }
+          turnoSelect.appendChild(opt);
+        });
+        turnoSelect.disabled = false;
+      } else {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Sin turnos procesados en esta jornada';
+        turnoSelect.appendChild(opt);
+        turnoSelect.disabled = true;
+      }
     } else {
       const opt = document.createElement('option');
       opt.value = '';

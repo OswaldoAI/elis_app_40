@@ -1476,8 +1476,10 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
 
     # Auto-guardado dinámico de persistencia del paquete JSON de turno
     try:
-        pkg = build_shift_json_package(turno_act)
-        save_shift_json_package(pkg)
+        nombre_t_up = (nombre_turno or "").upper()
+        if is_shift_active(turno_act) and not any(x in nombre_t_up for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            pkg = build_shift_json_package(turno_act)
+            save_shift_json_package(pkg)
     except Exception as e:
         print(f"Error auto-guardando paquete json de turno: {e}")
 
@@ -1902,12 +1904,18 @@ def build_shift_json_package(turno_act: dict = None):
 
 def save_shift_json_package(shift_package: dict):
     """Almacena o actualiza un paquete JSON de turno en la base de datos local SQLite."""
-    shift_key = shift_package["shift_key"]
-    meta = shift_package["meta_info"]
-    fecha = meta["fecha"]
-    nombre_turno = meta["nombre_turno"]
-    hora_inicio = meta["hora_inicio"]
-    hora_fin = meta["hora_fin"]
+    shift_key = shift_package.get("shift_key", "")
+    meta = shift_package.get("meta_info", {})
+    fecha = meta.get("fecha")
+    nombre_turno = meta.get("nombre_turno", "")
+    hora_inicio = meta.get("hora_inicio")
+    hora_fin = meta.get("hora_fin")
+
+    # Validación estricta: NO persistir registros inválidos de 'fuera de turno', 'sin turno' o inactivos
+    nombre_upper = (nombre_turno or "").upper()
+    key_upper = (shift_key or "").upper()
+    if any(x in nombre_upper or x in key_upper for x in ["FUERA", "SIN TURNO", "SIN_TURNO", "INACTIVO"]):
+        return False
     total_kg = shift_package["indicadores_ampliados"]["kg_totales_turno"]["valor_num"]
     total_cargas = shift_package["indicadores_ampliados"]["cargas_totales_turno"]["valor_num"]
     ikprod_pct = shift_package["indicadores_ampliados"]["indice_eficiencia_ikprod"]["pct_num"]
@@ -1985,6 +1993,9 @@ def list_shift_json_history(user: dict = Depends(check_produccion_permission)):
     rows = conn.execute("""
         SELECT shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, updated_at
         FROM turnos_persistencia
+        WHERE UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
         ORDER BY id DESC
     """).fetchall()
     conn.close()
@@ -2029,6 +2040,9 @@ def get_available_shift_dates(user: dict = Depends(check_produccion_permission))
     conn = get_db_connection()
     rows = conn.execute("""
         SELECT DISTINCT fecha FROM turnos_persistencia
+        WHERE UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
         ORDER BY fecha DESC
     """).fetchall()
     conn.close()
@@ -2059,6 +2073,10 @@ def get_shifts_by_date(fecha: str, user: dict = Depends(check_produccion_permiss
 
     for s_info in shifts_template:
         nombre = s_info["nombre"]
+        nombre_upper = (nombre or "").upper()
+        if any(x in nombre_upper for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            continue
+
         h_start = s_info["hora_inicio"]
         h_end = s_info["hora_fin"]
         shift_key = f"{fecha}_{nombre.replace(' ', '_')}"
@@ -2118,16 +2136,23 @@ def get_shifts_by_date(fecha: str, user: dict = Depends(check_produccion_permiss
             })
             seen_keys.add(shift_key)
 
-    # Revisar si hay otros registros persistidos previamente para esa fecha
+    # Revisar si hay otros registros persistidos previamente para esa fecha (filtrando fuera de turno)
     persisted_rows = conn.execute("""
         SELECT shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, updated_at
         FROM turnos_persistencia
         WHERE fecha = ?
+          AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
         ORDER BY hora_inicio ASC, id ASC
     """, (fecha,)).fetchall()
     conn.close()
 
     for r in persisted_rows:
+        n_up = (r["nombre_turno"] or "").upper()
+        k_up = (r["shift_key"] or "").upper()
+        if any(x in n_up or x in k_up for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            continue
         if r["shift_key"] not in seen_keys:
             result.append({
                 "shift_key": r["shift_key"],
@@ -2156,6 +2181,9 @@ def get_shift_results_summary(user: dict = Depends(check_produccion_permission))
     rows = conn.execute("""
         SELECT id, shift_key, fecha, nombre_turno, rango_horario, total_kg, ikprod, total_cargas, updated_at
         FROM resultados_turnos
+        WHERE UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
         ORDER BY id DESC
     """).fetchall()
     conn.close()
@@ -2184,6 +2212,9 @@ def get_shift_results_by_date(fecha: str, user: dict = Depends(check_produccion_
         SELECT id, shift_key, fecha, nombre_turno, rango_horario, total_kg, ikprod, total_cargas, updated_at
         FROM resultados_turnos
         WHERE fecha = ?
+          AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
         ORDER BY rango_horario ASC, id ASC
     """, (fecha,)).fetchall()
     conn.close()
@@ -2308,11 +2339,19 @@ def get_shifts_ranking(
         SELECT shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, data_json, updated_at
         FROM turnos_persistencia
         WHERE fecha >= ? AND fecha <= ?
+          AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
     """, (fecha_inicio, fecha_fin)).fetchall()
     conn.close()
 
     turnos_evaluados = []
     for r in rows:
+        n_up = (r["nombre_turno"] or "").upper()
+        k_up = (r["shift_key"] or "").upper()
+        if any(x in n_up or x in k_up for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            continue
+
         data_pkg = {}
         if r["data_json"]:
             try:
@@ -2448,6 +2487,9 @@ def get_totales_periodo(
         SELECT shift_key, fecha, nombre_turno, hora_inicio, hora_fin, total_kg, total_cargas, ikprod_pct, data_json, updated_at
         FROM turnos_persistencia
         WHERE fecha >= ? AND fecha <= ?
+          AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
         ORDER BY fecha ASC, hora_inicio ASC
     """, (q_start_date, q_end_date)).fetchall()
     conn.close()
@@ -2458,6 +2500,11 @@ def get_totales_periodo(
     total_segundos_efectivos = 0.0
 
     for r in rows:
+        n_up = (r["nombre_turno"] or "").upper()
+        k_up = (r["shift_key"] or "").upper()
+        if any(x in n_up or x in k_up for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            continue
+
         shift_start_iso, shift_end_iso = get_shift_start_end_iso(r["fecha"], r["hora_inicio"], r["hora_fin"])
         
         # Verificar si el turno cae dentro de la ventana de tiempo escogida (intersección)
