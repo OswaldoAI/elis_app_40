@@ -13,16 +13,23 @@ MQTT_PASS = "elis_mqtt_secure_2026"
 MQTT_TOPIC_TUNEL = "elis/lavanderia/tunel/carga"
 MQTT_TOPIC_CALANDRA2 = "elis/calandra2/produccion"
 MQTT_TOPIC_CALANDRA3 = "elis/calandra3/produccion"
+MQTT_TOPIC_TUNEL_VT = "datos_vt"
 
-# Cache en memoria de última telemetría recibida de cada calandra
+# Cache en memoria de última telemetría recibida de cada máquina
 calandras_live_cache = {
     "CALANDRA_2": {},
     "CALANDRA_3": {}
 }
 
+tunel_vt_live_cache = {}
+
 def get_calandras_live_cache():
     """Devuelve copia del último estado recibido por MQTT para ambas calandras."""
     return calandras_live_cache
+
+def get_tunel_vt_live_cache():
+    """Devuelve copia del último estado recibido por MQTT para el Túnel VT."""
+    return tunel_vt_live_cache
 
 logger = logging.getLogger("mqtt_subscriber")
 logging.basicConfig(level=logging.INFO)
@@ -284,13 +291,136 @@ def save_carga_to_db(payload: dict):
         logger.error(f"❌ Error guardando carga MQTT en DB: {e}")
         return False
 
+def get_peso_unitario_tunel_vt_db() -> float:
+    """Obtiene el peso unitario configurado para Túnel VT (por defecto 0.260 kg / 260 gr)."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT peso_unitario FROM tunel_vt_peso_unitario WHERE id = 1").fetchone()
+        conn.close()
+        if row and row["peso_unitario"] is not None:
+            return float(row["peso_unitario"])
+    except Exception as e:
+        logger.error(f"Error consultando peso unitario de Túnel VT: {e}")
+    return 0.260
+
+def update_peso_unitario_tunel_vt_db(peso_unitario: float):
+    """Actualiza o persiste en SQLite el peso unitario para Túnel VT."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO tunel_vt_peso_unitario (id, peso_unitario, updated_at)
+            VALUES (1, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                peso_unitario = excluded.peso_unitario,
+                updated_at = CURRENT_TIMESTAMP
+        """, (peso_unitario,))
+        conn.commit()
+        conn.close()
+        logger.info(f"✅ Peso unitario de Túnel VT actualizado a {peso_unitario} kg")
+    except Exception as e:
+        logger.error(f"Error persistiendo peso unitario para Túnel VT: {e}")
+
+def save_tunel_vt_to_db(payload: dict):
+    """Guarda un registro de telemetría de producción de Túnel VT en SQLite."""
+    try:
+        ts_raw = payload.get("timestamp") or datetime.now().isoformat()
+        ts_iso = parse_timestamp_to_iso(ts_raw)
+        device_id = str(payload.get("device_id", "jetson_server1_vt"))
+        shift_name = str(payload.get("shift_name", ""))
+        
+        e1 = int(payload.get("entrada_1", 0) or 0)
+        e2 = int(payload.get("entrada_2", 0) or 0)
+        e3 = int(payload.get("entrada_3", 0) or 0)
+        total_count = e1 + e2 + e3
+        gas_pulsos = int(payload.get("gas_pulsos", 0) or 0)
+
+        valle_e1 = float(payload.get("tiempo_valle_e1_min", 0.0) or 0.0)
+        valle_e2 = float(payload.get("tiempo_valle_e2_min", 0.0) or 0.0)
+        valle_e3 = float(payload.get("tiempo_valle_e3_min", 0.0) or 0.0)
+        valle_total = round(max(valle_e1, valle_e2, valle_e3), 1)
+
+        peso_u = get_peso_unitario_tunel_vt_db()
+        weight_total_kg = round(total_count * peso_u, 2)
+
+        raw_json = json.dumps(payload)
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO tunel_vt_produccion (
+                timestamp, timestamp_iso, device_id, shift_name,
+                entrada_1, entrada_2, entrada_3, count_total, gas_pulsos,
+                tiempo_valle_e1_min, tiempo_valle_e2_min, tiempo_valle_e3_min, tiempo_valle_total_min,
+                peso_unitario_kg, weight_total_kg, raw_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ts_raw, ts_iso, device_id, shift_name,
+            e1, e2, e3, total_count, gas_pulsos,
+            valle_e1, valle_e2, valle_e3, valle_total,
+            peso_u, weight_total_kg, raw_json
+        ))
+        conn.commit()
+        conn.close()
+
+        # Actualizar cache en memoria
+        tunel_vt_live_cache.update({
+            "timestamp": ts_raw,
+            "timestamp_iso": ts_iso,
+            "shift_name": shift_name,
+            "entrada_1": e1,
+            "entrada_2": e2,
+            "entrada_3": e3,
+            "count_total": total_count,
+            "gas_pulsos": gas_pulsos,
+            "tiempo_valle_e1_min": valle_e1,
+            "tiempo_valle_e2_min": valle_e2,
+            "tiempo_valle_e3_min": valle_e3,
+            "tiempo_valle_total_min": valle_total,
+            "peso_unitario_kg": peso_u,
+            "weight_total_kg": weight_total_kg,
+            "updated_at": ts_iso
+        })
+
+        # Emitir broadcast por websocket
+        try:
+            from app.websocket_manager import ws_manager
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.run_coroutine_threadsafe(
+                    ws_manager.broadcast({
+                        "type": "tunel_vt_update",
+                        "count_total": total_count,
+                        "entrada_1": e1,
+                        "entrada_2": e2,
+                        "entrada_3": e3,
+                        "weight_total_kg": weight_total_kg,
+                        "tiempo_valle_total_min": valle_total
+                    }),
+                    loop
+                )
+            except RuntimeError:
+                pass
+        except Exception:
+            pass
+
+        logger.info(f"✅ Túnel VT Telemetría guardada: {total_count} prendas ({e1}/{e2}/{e3}) | {weight_total_kg} kg | Valle: {valle_e1}/{valle_e2}/{valle_e3} min")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error guardando telemetría de Túnel VT en DB: {e}")
+        return False
+
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         logger.info(f"✅ Conectado exitosamente al Broker MQTT ({MQTT_BROKER}:{MQTT_PORT})")
         client.subscribe(MQTT_TOPIC_TUNEL)
         client.subscribe(MQTT_TOPIC_CALANDRA2)
         client.subscribe(MQTT_TOPIC_CALANDRA3)
-        logger.info(f"📡 Subscrito a tópicos: {MQTT_TOPIC_TUNEL}, {MQTT_TOPIC_CALANDRA2}, {MQTT_TOPIC_CALANDRA3}")
+        client.subscribe(MQTT_TOPIC_TUNEL_VT)
+        client.subscribe("elis/tunel_vt/produccion")
+        client.subscribe("laundry/telemetry/#")
+        logger.info(f"📡 Subscrito a tópicos: {MQTT_TOPIC_TUNEL}, {MQTT_TOPIC_CALANDRA2}, {MQTT_TOPIC_CALANDRA3}, {MQTT_TOPIC_TUNEL_VT}, laundry/telemetry/#")
     else:
         logger.warning(f"⚠️ Fallo conexión a Broker MQTT con código resultado: {rc}")
 
@@ -307,6 +437,15 @@ def on_message(client, userdata, msg):
         elif msg.topic == MQTT_TOPIC_CALANDRA3:
             logger.info(f"📥 Mensaje MQTT Calandra 3 recibido: {payload_str[:120]}")
             save_calandra_to_db("CALANDRA_3", data)
+        elif msg.topic in [MQTT_TOPIC_TUNEL_VT, "elis/tunel_vt/produccion"]:
+            logger.info(f"📥 Mensaje MQTT Túnel VT recibido: {payload_str[:120]}")
+            save_tunel_vt_to_db(data)
+        elif msg.topic.startswith("laundry/telemetry/"):
+            try:
+                from app.services.electricity_service import record_electric_reading
+                record_electric_reading(msg.topic, data)
+            except Exception as e_elec:
+                logger.error(f"❌ Error procesando telemetría eléctrica en {msg.topic}: {e_elec}")
         else:
             logger.info(f"📥 Mensaje MQTT tópico desconocido [{msg.topic}]: {payload_str[:100]}")
     except Exception as e:
