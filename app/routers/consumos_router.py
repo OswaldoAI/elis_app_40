@@ -4,6 +4,21 @@ from app.database import get_db_connection
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger("consumos_router")
+
+try:
+    from app.services.electricity_service import (
+        get_live_electricity_summary,
+        get_proceso_electric_telemetry,
+        VARIABLE_TO_SENSOR
+    )
+except Exception as e:
+    logger.warning(f"No se pudo importar electricity_service: {e}")
+    get_live_electricity_summary = None
+    get_proceso_electric_telemetry = None
+    VARIABLE_TO_SENSOR = {}
 
 router = APIRouter(prefix="/api/consumos", tags=["Consumos"])
 
@@ -26,7 +41,7 @@ def check_consumos_permission(current_user: dict = Depends(get_current_user)):
 
 @router.get("/summary")
 def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
-    return {
+    res = {
         "status": "online",
         "planta": "ELIS NÁJERA 4.0",
         "generales": {
@@ -50,10 +65,13 @@ def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
             },
             "energia_electrica": {
                 "titulo": "Energía Eléctrica General",
-                "variable_telemetria": "I_gneral",
+                "variable_telemetria": "I_general",
                 "potencia_activa_kw": 345.2,
+                "potencia_kw": 345.2,
                 "consumo_hoy_kwh": 4120.0,
-                "factor_potencia": 0.96,
+                "corriente_max_a": 0.0,
+                "corriente_actual_a": 0.0,
+                "factor_potencia": 0.90,
                 "icono": "fa-bolt",
                 "color": "amber"
             }
@@ -157,9 +175,53 @@ def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
                 "consumo_hoy_kwh": 558.0,
                 "icono": "fa-eye",
                 "color": "amber"
+            },
+            "elec_prensa_tunel": {
+                "titulo": "Electricidad Prensa Túnel",
+                "variable_telemetria": "I_prensa_tunel",
+                "potencia_kw": 16.8,
+                "potencia_activa_kw": 16.8,
+                "consumo_hoy_kwh": 0.0,
+                "corriente_max_a": 0.0,
+                "corriente_actual_a": 0.0,
+                "icono": "fa-compress-arrows-alt",
+                "color": "amber"
             }
         }
     }
+
+    # Integración dinámica de mediciones eléctricas en tiempo real desde el servicio de electricidad
+    if get_live_electricity_summary is not None:
+        try:
+            live_elec = get_live_electricity_summary()
+            if live_elec:
+                if "I_general" in live_elec:
+                    g_elec = live_elec["I_general"]
+                    res["generales"]["energia_electrica"]["potencia_activa_kw"] = g_elec.get("potencia_activa_kw", 0.0)
+                    res["generales"]["energia_electrica"]["potencia_kw"] = g_elec.get("potencia_kw", 0.0)
+                    res["generales"]["energia_electrica"]["consumo_hoy_kwh"] = g_elec.get("consumo_hoy_kwh", 0.0)
+                    res["generales"]["energia_electrica"]["corriente_max_a"] = g_elec.get("corriente_max_a", 0.0)
+                    res["generales"]["energia_electrica"]["corriente_actual_a"] = g_elec.get("corriente_actual_a", 0.0)
+
+                elec_map = {
+                    "elec_tunel": "I_motor_tunel",
+                    "elec_calandra_1": "I_bomba_calandra1",
+                    "elec_calandra_2": "Bomba_calandra2",
+                    "elec_calandra_3": "I_bomba_calandra3",
+                    "elec_prensa_tunel": "I_prensa_tunel"
+                }
+                for card_key, v_code in elec_map.items():
+                    if v_code in live_elec and card_key in res["desglose_electricidad"]:
+                        c_elec = live_elec[v_code]
+                        res["desglose_electricidad"][card_key]["potencia_kw"] = c_elec.get("potencia_kw", 0.0)
+                        res["desglose_electricidad"][card_key]["potencia_activa_kw"] = c_elec.get("potencia_activa_kw", 0.0)
+                        res["desglose_electricidad"][card_key]["consumo_hoy_kwh"] = c_elec.get("consumo_hoy_kwh", 0.0)
+                        res["desglose_electricidad"][card_key]["corriente_max_a"] = c_elec.get("corriente_max_a", 0.0)
+                        res["desglose_electricidad"][card_key]["corriente_actual_a"] = c_elec.get("corriente_actual_a", 0.0)
+        except Exception as e:
+            logger.warning(f"Error integrando live electricity en consumos summary: {e}")
+
+    return res
 
 
 class ProcesoIngestaPayload(BaseModel):
@@ -182,6 +244,21 @@ def get_proceso_telemetria(
     user: dict = Depends(check_consumos_permission)
 ):
     """Consulta dinámica de telemetría para cualquier variable de proceso."""
+    # 1. Delegar a servicio de electricidad si es sensor de corriente o energía eléctrica
+    is_elec_var = (
+        variable in VARIABLE_TO_SENSOR 
+        or variable.lower().startswith("i_") 
+        or "elec" in variable.lower() 
+        or variable.lower() in ["bomba_calandra2", "i_gneral", "i_general", "energia_electrica"]
+    )
+    if is_elec_var and get_proceso_electric_telemetry is not None:
+        return get_proceso_electric_telemetry(
+            var_code=variable,
+            fecha_inicio=fecha_inicio or "",
+            hora_inicio=hora_inicio or "00:00:00",
+            fecha_fin=fecha_fin or "",
+            hora_fin=hora_fin or "23:59:59"
+        )
     now = datetime.now()
     if not fecha_inicio:
         fecha_inicio = now.strftime("%Y-%m-%d")

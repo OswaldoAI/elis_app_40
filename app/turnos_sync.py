@@ -1,3 +1,68 @@
+
+def resolve_current_shift(data: dict) -> dict:
+    """Verifica si el turno_actual en caché sigue vigente en el reloj local.
+    Si ya expiró, busca en la lista de turnos programados el que corresponda a la hora actual."""
+    shifts = data.get("shifts") or []
+    if not shifts:
+        return data.get("turno_actual", {})
+
+    now_dt = get_local_now()
+    now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+    fecha_hoy = now_dt.strftime("%Y-%m-%d")
+
+    # Si turno_actual existe y sigue en su ventana de tiempo, conservarlo
+    t_act = data.get("turno_actual") or {}
+    h_ini = t_act.get("hora_inicio")
+    h_fin = t_act.get("hora_fin")
+    f_shift = t_act.get("fecha") or fecha_hoy
+    if h_ini and h_fin and t_act.get("is_active"):
+        try:
+            from app.routers.produccion_router import get_shift_start_end_iso
+            s_iso, e_iso = get_shift_start_end_iso(f_shift, h_ini, h_fin)
+            if s_iso <= now_str <= e_iso:
+                return t_act
+        except Exception:
+            pass
+
+    # Si ya expiró, evaluar cada turno de la lista 'shifts'
+    for idx, s in enumerate(shifts):
+        s_ini = s.get("start") or s.get("hora_inicio") or "06:00"
+        s_fin = s.get("end") or s.get("hora_fin") or "14:00"
+        s_name = s.get("name") or s.get("nombre") or f"Turno {idx + 1}"
+        s_color = s.get("color") or "#10b981"
+        try:
+            from app.routers.produccion_router import get_shift_start_end_iso
+            s_iso, e_iso = get_shift_start_end_iso(fecha_hoy, s_ini[:5], s_fin[:5])
+            if s_iso <= now_str <= e_iso:
+                dt_start = datetime.strptime(s_iso, "%Y-%m-%d %H:%M:%S")
+                dt_end = datetime.strptime(e_iso, "%Y-%m-%d %H:%M:%S")
+                dur_min = max(1, int((dt_end - dt_start).total_seconds() / 60))
+                elapsed_min = max(0, int((now_dt.replace(tzinfo=None) - dt_start).total_seconds() / 60))
+                remaining_min = max(0, dur_min - elapsed_min)
+                pct = round(min(100.0, max(0.0, (elapsed_min / dur_min) * 100)), 1)
+                
+                resolved = {
+                    "nombre": s_name,
+                    "hora_inicio": s_ini[:5],
+                    "hora_fin": s_fin[:5],
+                    "nombre_completo": f"{s_name} ({s_ini[:5]} - {s_fin[:5]}) - {now_dt.strftime('%d/%m/%Y')}",
+                    "fecha": fecha_hoy,
+                    "fecha_formateada": now_dt.strftime("%d/%m/%Y"),
+                    "duracion_total_minutos": dur_min,
+                    "minutos_transcurridos": elapsed_min,
+                    "minutos_restantes": remaining_min,
+                    "progreso_porcentaje": pct,
+                    "color": s_color,
+                    "turno_index": idx + 1,
+                    "is_active": True
+                }
+                data["turno_actual"] = resolved
+                return resolved
+        except Exception as e:
+            logger.debug(f"Error comprobando turno {s_name}: {e}")
+
+    return t_act
+
 import urllib.request
 import json
 import asyncio
@@ -8,15 +73,15 @@ from app.database import get_db_connection
 from app.utils import get_local_now_str, get_local_now
 
 JETSON_SERVER_1_URLS = [
-    "http://100.127.85.111:5001",
-    "http://192.168.0.137:5001"
+    "http://192.168.0.137:5001",
+    "http://100.127.85.111:5001"
 ]
-SYNC_INTERVAL_SECONDS = 1800  # 30 minutos
+SYNC_INTERVAL_SECONDS = 30  # Sincronización continua cada 30 segundos
 
 logger = logging.getLogger("turnos_sync")
 
 def sync_turnos_from_server_1():
-    """Consulta la API de turnos de Jetson Server 1 (http://100.127.85.111:5001) y actualiza la cache en SQLite."""
+    """Consulta la API de turnos de Jetson Server 1 (http://192.168.0.137:5001) y actualiza la cache en SQLite cada 30 min."""
     jornada_data = None
     successful_url = None
     for base_url in JETSON_SERVER_1_URLS:
@@ -51,27 +116,32 @@ def sync_turnos_from_server_1():
     print(f"[{now_local}] ✅ Turnos sincronizados exitosamente desde {successful_url} (Frecuencia: cada 30 min)")
     return True
 
-def get_cached_turnos():
-    """Obtiene los datos de turnos guardados en la base de datos local SQLite."""
-    conn = get_db_connection()
-    row = conn.execute("SELECT data_json, updated_at FROM shift_cache WHERE key_name = 'jornada_actual'").fetchone()
-    conn.close()
+_turnos_mem_cache = {
+    "data": None,
+    "last_read_ts": 0.0
+}
 
-    if row and row["data_json"]:
-        try:
+def get_cached_turnos():
+    """Obtiene los datos de turnos guardados en la base de datos local SQLite con cache en memoria (TTL 5s)."""
+    now_ts = time.time()
+    if _turnos_mem_cache["data"] and (now_ts - _turnos_mem_cache["last_read_ts"] < 5.0):
+        return _turnos_mem_cache["data"]
+
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT data_json, updated_at FROM shift_cache WHERE key_name = 'jornada_actual'").fetchone()
+        conn.close()
+
+        if row and row["data_json"]:
             data = json.loads(row["data_json"])
-            today_str = get_local_now_str("%Y-%m-%d")
-            if data.get("jornada") != today_str:
-                if sync_turnos_from_server_1():
-                    conn2 = get_db_connection()
-                    row2 = conn2.execute("SELECT data_json, updated_at FROM shift_cache WHERE key_name = 'jornada_actual'").fetchone()
-                    conn2.close()
-                    if row2 and row2["data_json"]:
-                        data = json.loads(row2["data_json"])
             data["cache_updated_at"] = row["updated_at"] or get_local_now_str()
+            # Validar y resolver dinámicamente si el turno actual sigue vigente o avanzó
+            resolve_current_shift(data)
+            _turnos_mem_cache["data"] = data
+            _turnos_mem_cache["last_read_ts"] = now_ts
             return data
-        except Exception:
-            pass
+    except Exception as e:
+        logger.error(f"Error leyendo shift_cache: {e}")
 
     # Fallback predeterminado si aun no hay cache cargado
     return {
@@ -151,7 +221,6 @@ def sync_cargas_from_decoder_api():
 
         if inserted_count > 0:
             logger.info(f"✅ Ingeridas {inserted_count} cargas reales desde API Decodificador HELMS")
-            sync_all_historical_shifts()
     except Exception as e:
         logger.error(f"Error ingiriendo cargas desde API Decodificador HELMS: {e}")
 
