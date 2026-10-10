@@ -1,64 +1,164 @@
-import os
-import time
-import json
-import urllib.request
-import urllib.parse
 from fastapi import APIRouter, HTTPException, Depends, status
 from app.auth import get_current_user
 from app.database import get_db_connection
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone, timedelta
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
+import urllib.request
+import csv
+import io
+import time
 import logging
 
 logger = logging.getLogger("consumos_router")
 
-_last_gas_temp_cache = {"val": 10.5, "ts": 0}
-
-def get_cached_gas_temp() -> float:
-    global _last_gas_temp_cache
-    now_t = time.time()
-    if now_t - _last_gas_temp_cache["ts"] < 60:
-        return _last_gas_temp_cache["val"]
-    try:
-        influx_url = os.getenv("INFLUXDB_URL", "http://192.168.0.116:8086")
-        token = os.getenv("INFLUXDB_TOKEN", "2ivBvpVNfzgfivqZzg_5K2cLIAMzXDeT4pfXOMMOj63-bbVLRyICcPfqBTUotGpyZeqJXv31Mj5c87Ec2aNUlA==")
-        org = os.getenv("INFLUXDB_ORG", "elis_laundry")
-        flux = '''
-        from(bucket: "gas_telemetry")
-          |> range(start: -2h)
-          |> filter(fn: (r) => r["_measurement"] == "gas_consumption" and r["machine_id"] == "gas_general" and r["_field"] == "temperature")
-          |> last()
-        '''
-        url = f"{influx_url}/api/v2/query?org={urllib.parse.quote(org)}"
-        payload = json.dumps({"query": flux, "type": "flux"}).encode("utf-8")
-        req = urllib.request.Request(url, data=payload, headers={"Authorization": f"Token {token}", "Content-Type": "application/json", "Accept": "application/csv"})
-        with urllib.request.urlopen(req, timeout=2) as resp:
-            txt = resp.read().decode('utf-8')
-            lines = [l for l in txt.splitlines() if l and not l.startswith("#") and not l.startswith(",result,table")]
-            if lines:
-                val = float(lines[0].split(",")[6])
-                _last_gas_temp_cache["val"] = round(val, 1)
-                _last_gas_temp_cache["ts"] = now_t
-                return _last_gas_temp_cache["val"]
-    except Exception as e:
-        logger.debug(f"No se pudo consultar temperatura de gas en Influx: {e}")
-    _last_gas_temp_cache["ts"] = now_t
-    return _last_gas_temp_cache["val"]
-
-try:
-    from app.services.electricity_service import (
-        get_live_electricity_summary,
-        get_proceso_electric_telemetry,
-        VARIABLE_TO_SENSOR
-    )
-except Exception as e:
-    logger.warning(f"No se pudo importar electricity_service: {e}")
-    get_live_electricity_summary = None
-    get_proceso_electric_telemetry = None
-    VARIABLE_TO_SENSOR = {}
-
 router = APIRouter(prefix="/api/consumos", tags=["Consumos"])
+
+INFLUX_URL = "http://192.168.0.116:8086/api/v2/query?org=elis_laundry"
+INFLUX_TOKEN = "2ivBvpVNfzgfivqZzg_5K2cLIAMzXDeT4pfXOMMOj63-bbVLRyICcPfqBTUotGpyZeqJXv31Mj5c87Ec2aNUlA=="
+
+GAS_MACHINES_MAP = {
+    "sensor_gas_general": {"machine_id": "gas_general", "title": "Gas General", "multiplier": 1.0, "eui": "24E1241360560098"},
+    "gas_general": {"machine_id": "gas_general", "title": "Gas General", "multiplier": 1.0, "eui": "24E1241360560098"},
+    "calandra1_IoT": {"machine_id": "calandra1", "title": "Gas Calandra 1", "multiplier": 0.1, "eui": "24E124136056524B"},
+    "calandra1": {"machine_id": "calandra1", "title": "Gas Calandra 1", "multiplier": 0.1, "eui": "24E124136056524B"},
+    "Calandra 2": {"machine_id": "calandra_2", "title": "Gas Calandra 2", "multiplier": 0.1, "eui": "24E12413605698EF"},
+    "calandra_2": {"machine_id": "calandra_2", "title": "Gas Calandra 2", "multiplier": 0.1, "eui": "24E12413605698EF"},
+    "Calandra 3": {"machine_id": "calandra_3", "title": "Gas Calandra 3", "multiplier": 0.1, "eui": "24E124136056E73C"},
+    "calandra_3": {"machine_id": "calandra_3", "title": "Gas Calandra 3", "multiplier": 0.1, "eui": "24E124136056E73C"},
+    "caldera1": {"machine_id": "caldera1", "title": "Gas Caldera 1", "multiplier": 0.1, "eui": "24E1241360563A6E"},
+    "caldera2": {"machine_id": "caldera2", "title": "Gas Caldera 2", "multiplier": 0.1, "eui": "24E124136056DBB0"},
+    "Túnel de Secado VT": {"machine_id": "secado_vt", "title": "Gas Túnel VT", "multiplier": 0.1, "eui": "24E124136056BCB7"},
+    "secado_vt": {"machine_id": "secado_vt", "title": "Gas Túnel VT", "multiplier": 0.1, "eui": "24E124136056BCB7"},
+    "secadoras_man": {"machine_id": "secadoras_man", "title": "Gas Secadoras Manuales", "multiplier": 0.1, "eui": "24E124136056026D"},
+    "gas_secadoras_man": {"machine_id": "secadoras_man", "title": "Gas Secadoras Manuales", "multiplier": 0.1, "eui": "24E124136056026D"},
+    "secadoras_aut": {"machine_id": "secadoras_aut", "title": "Gas Secadoras Automáticas", "multiplier": 0.1, "eui": "24E124136056AUTO"},
+    "gas_secadoras_aut": {"machine_id": "secadoras_aut", "title": "Gas Secadoras Automáticas", "multiplier": 0.1, "eui": "24E124136056AUTO"}
+}
+
+def parse_influx_time(time_str: str) -> datetime:
+    """Parsea de forma ultra-robusta timestamps de InfluxDB con cualquier cantidad de decimales en segundos."""
+    if not time_str:
+        return datetime.utcnow()
+    try:
+        ts = str(time_str).strip().rstrip("Z")
+        if "." in ts:
+            base, frac = ts.split(".", 1)
+            frac = (frac + "000000")[:6]
+            return datetime.strptime(f"{base}.{frac}", "%Y-%m-%dT%H:%M:%S.%f")
+        else:
+            return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S")
+    except Exception:
+        return datetime.utcnow()
+
+
+def query_flux(flux: str) -> List[Dict[str, str]]:
+    req = urllib.request.Request(INFLUX_URL, data=flux.encode('utf-8'))
+    req.add_header('Authorization', f'Token {INFLUX_TOKEN}')
+    req.add_header('Content-Type', 'application/vnd.flux')
+    req.add_header('Accept', 'application/csv')
+    try:
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            content = resp.read().decode('utf-8', errors='ignore')
+            lines = [line for line in content.splitlines() if line and not line.startswith('#')]
+            return list(csv.DictReader(lines))
+    except Exception as e:
+        logger.error(f"Error querying InfluxDB: {e}")
+        return []
+
+_gas_summary_cache = {
+    "timestamp": 0.0,
+    "data": None
+}
+
+def get_live_gas_summary() -> Dict[str, Dict[str, Any]]:
+    global _gas_summary_cache
+    now_ts = time.time()
+    if _gas_summary_cache["data"] and (now_ts - _gas_summary_cache["timestamp"] < 2.0):
+        return _gas_summary_cache["data"]
+
+    now_dt = datetime.now()
+    today_start_iso = now_dt.strftime("%Y-%m-%dT00:00:00Z")
+
+    flux1 = f"""
+    today_spread = from(bucket: "gas_telemetry")
+      |> range(start: {today_start_iso})
+      |> filter(fn: (r) => r._measurement == "gas_consumption" and r._field == "volume_m3")
+      |> spread()
+      |> set(key: "_stat", value: "today_spread")
+
+    hour_spread = from(bucket: "gas_telemetry")
+      |> range(start: -1h)
+      |> filter(fn: (r) => r._measurement == "gas_consumption" and r._field == "volume_m3")
+      |> spread()
+      |> set(key: "_stat", value: "hour_spread")
+
+    union(tables: [today_spread, hour_spread])
+    """
+
+    flux2 = """
+    from(bucket: "gas_telemetry")
+      |> range(start: -2h)
+      |> filter(fn: (r) => r._measurement == "gas_consumption" and r._field == "temperature")
+      |> last()
+    """
+
+    data: Dict[str, Dict[str, Any]] = {}
+    for m_id in ["gas_general", "calandra1", "calandra_2", "calandra_3", "caldera1", "caldera2", "secado_vt", "secadoras_man", "secadoras_aut"]:
+        data[m_id] = {
+            "consumo_hoy_m3": 0.0,
+            "caudal_1h_m3h": 0.0,
+            "temperatura": None
+        }
+
+    try:
+        rows1 = query_flux(flux1)
+        for r in rows1:
+            m_id = r.get("machine_id")
+            stat = r.get("_stat")
+            val_str = r.get("_value", "0")
+            try:
+                val = float(val_str)
+            except ValueError:
+                val = 0.0
+
+            if m_id in data:
+                if stat == "today_spread":
+                    data[m_id]["consumo_hoy_m3"] = round(val, 2)
+                elif stat == "hour_spread":
+                    data[m_id]["caudal_1h_m3h"] = round(val, 2)
+
+        rows2 = query_flux(flux2)
+        for r in rows2:
+            m_id = r.get("machine_id")
+            val_str = r.get("_value", "0")
+            try:
+                val = float(val_str)
+            except ValueError:
+                val = 0.0
+
+            if m_id in data:
+                data[m_id]["temperatura"] = round(val, 1)
+
+        # Calcular balance para Secadoras Automáticas: Gas General - Suma de todas las demás máquinas
+        gg_hoy = data.get("gas_general", {}).get("consumo_hoy_m3", 0.0)
+        gg_caudal = data.get("gas_general", {}).get("caudal_1h_m3h", 0.0)
+
+        maq_keys = ["calandra1", "calandra_2", "calandra_3", "caldera1", "caldera2", "secado_vt", "secadoras_man"]
+        sum_hoy = sum(data.get(k, {}).get("consumo_hoy_m3", 0.0) for k in maq_keys)
+        sum_caudal = sum(data.get(k, {}).get("caudal_1h_m3h", 0.0) for k in maq_keys)
+
+        data["secadoras_aut"]["consumo_hoy_m3"] = round(max(0.0, gg_hoy - sum_hoy), 2)
+        data["secadoras_aut"]["caudal_1h_m3h"] = round(max(0.0, gg_caudal - sum_caudal), 2)
+        data["secadoras_aut"]["temperatura"] = 28.5
+
+        _gas_summary_cache["timestamp"] = now_ts
+        _gas_summary_cache["data"] = data
+    except Exception as e:
+        logger.error(f"Error updating gas summary cache: {e}")
+
+    return _gas_summary_cache["data"] or data
+
 
 def check_consumos_permission(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") == "Invitado":
@@ -77,8 +177,29 @@ def check_consumos_permission(current_user: dict = Depends(get_current_user)):
         )
     return current_user
 
+
 @router.get("/summary")
 def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
+    gas_data = get_live_gas_summary()
+    try:
+        from app.services.electricity_service import get_live_electricity_summary
+        elec_summary = get_live_electricity_summary()
+    except Exception as e_elec:
+        logger.error(f"Error obteniendo live electricity summary: {e_elec}")
+        elec_summary = {}
+
+    gen_elec = elec_summary.get("I_general", {})
+
+    gg = gas_data.get("gas_general", {})
+    c1 = gas_data.get("calandra1", {})
+    c2 = gas_data.get("calandra_2", {})
+    c3 = gas_data.get("calandra_3", {})
+    cald1 = gas_data.get("caldera1", {})
+    cald2 = gas_data.get("caldera2", {})
+    vt = gas_data.get("secado_vt", {})
+    sec_man = gas_data.get("secadoras_man", {})
+    sec_aut = gas_data.get("secadoras_aut", {})
+
     res = {
         "status": "online",
         "planta": "ELIS NÁJERA 4.0",
@@ -93,22 +214,27 @@ def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
                 "color": "blue"
             },
             "gas_general": {
-                "titulo": "Gas General",
+                "titulo": "Gas General Hoy",
                 "variable_telemetria": "sensor_gas_general",
-                "consumo_hoy_m3": 1540.0,
+                "consumo_hoy_m3": gg.get("consumo_hoy_m3", 0.0),
+                "consumo_hoy_kwh": round(gg.get("consumo_hoy_m3", 0.0) * 11.68, 1),
+                "caudal_m3h": gg.get("caudal_1h_m3h", 0.0),
+                "caudal_kwh": round(gg.get("caudal_1h_m3h", 0.0) * 11.68, 1),
                 "presion_vapor_bar": 9.2,
                 "eficiencia_caldera_pct": 92.4,
+                "temperatura_c": gg.get("temperatura", 25.7),
                 "icono": "fa-fire",
                 "color": "orange"
             },
             "energia_electrica": {
                 "titulo": "Energía Eléctrica General",
                 "variable_telemetria": "I_general",
-                "potencia_activa_kw": 345.2,
-                "potencia_kw": 345.2,
-                "consumo_hoy_kwh": 4120.0,
-                "corriente_max_a": 0.0,
-                "corriente_actual_a": 0.0,
+                "potencia_activa_kw": gen_elec.get("potencia_activa_kw", 0.0),
+                "potencia_kw": gen_elec.get("potencia_activa_kw", 0.0),
+                "potencia_aparente_kva": gen_elec.get("potencia_aparente_kva", 0.0),
+                "consumo_hoy_kwh": gen_elec.get("consumo_hoy_kwh", 0.0),
+                "corriente_max_a": gen_elec.get("corriente_max_a", 0.0),
+                "corriente_actual_a": gen_elec.get("corriente_actual_a", 0.0),
                 "factor_potencia": 0.90,
                 "icono": "fa-bolt",
                 "color": "amber"
@@ -127,57 +253,91 @@ def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
         },
         "desglose_gas": {
             "gas_tunel_vt": {
-                "titulo": "Gas Túnel VT",
+                "titulo": "Gas Túnel VT Hoy",
                 "variable_telemetria": "Túnel de Secado VT",
-                "consumo_m3h": 32.5,
-                "consumo_hoy_m3": 260.0,
-                "temp_secado_c": 118.0,
+                "consumo_m3h": vt.get("caudal_1h_m3h", 0.0),
+                "consumo_hoy_m3": vt.get("consumo_hoy_m3", 0.0),
+                "consumo_hoy_kwh": round(vt.get("consumo_hoy_m3", 0.0) * 11.68, 1),
+                "caudal_kwh": round(vt.get("caudal_1h_m3h", 0.0) * 11.68, 1),
+                "temp_secado_c": vt.get("temperatura", 29.9),
                 "icono": "fa-wind",
                 "color": "orange"
             },
             "gas_calandra_1": {
-                "titulo": "Gas Calandra 1",
+                "titulo": "Gas Calandra 1 Hoy",
                 "variable_telemetria": "calandra1_IoT",
-                "consumo_m3h": 45.0,
-                "consumo_hoy_m3": 360.0,
-                "temp_trabajo_c": 175.0,
+                "consumo_m3h": c1.get("caudal_1h_m3h", 0.0),
+                "consumo_hoy_m3": c1.get("consumo_hoy_m3", 0.0),
+                "consumo_hoy_kwh": round(c1.get("consumo_hoy_m3", 0.0) * 11.68, 1),
+                "caudal_kwh": round(c1.get("caudal_1h_m3h", 0.0) * 11.68, 1),
+                "temp_trabajo_c": c1.get("temperatura", 24.3),
                 "icono": "fa-scroll",
                 "color": "orange"
             },
             "gas_calandra_2": {
-                "titulo": "Gas Calandra 2",
+                "titulo": "Gas Calandra 2 Hoy",
                 "variable_telemetria": "Calandra 2",
-                "consumo_m3h": 42.8,
-                "consumo_hoy_m3": 342.4,
-                "temp_trabajo_c": 175.0,
+                "consumo_m3h": c2.get("caudal_1h_m3h", 0.0),
+                "consumo_hoy_m3": c2.get("consumo_hoy_m3", 0.0),
+                "consumo_hoy_kwh": round(c2.get("consumo_hoy_m3", 0.0) * 11.68, 1),
+                "caudal_kwh": round(c2.get("caudal_1h_m3h", 0.0) * 11.68, 1),
+                "temp_trabajo_c": c2.get("temperatura", 24.4),
                 "icono": "fa-scroll",
                 "color": "orange"
             },
             "gas_calandra_3": {
-                "titulo": "Gas Calandra 3",
+                "titulo": "Gas Calandra 3 Hoy",
                 "variable_telemetria": "Calandra 3",
-                "consumo_m3h": 48.2,
-                "consumo_hoy_m3": 385.6,
-                "temp_trabajo_c": 180.0,
+                "consumo_m3h": c3.get("caudal_1h_m3h", 0.0),
+                "consumo_hoy_m3": c3.get("consumo_hoy_m3", 0.0),
+                "consumo_hoy_kwh": round(c3.get("consumo_hoy_m3", 0.0) * 11.68, 1),
+                "caudal_kwh": round(c3.get("caudal_1h_m3h", 0.0) * 11.68, 1),
+                "temp_trabajo_c": c3.get("temperatura", 24.5),
                 "icono": "fa-eye",
                 "color": "orange"
             },
             "gas_caldera_1": {
-                "titulo": "Gas Caldera 1",
+                "titulo": "Gas Caldera 1 Hoy",
                 "variable_telemetria": "caldera1",
-                "consumo_m3h": 52.4,
-                "consumo_hoy_m3": 419.2,
-                "temp_trabajo_c": 185.0,
+                "consumo_m3h": cald1.get("caudal_1h_m3h", 0.0),
+                "consumo_hoy_m3": cald1.get("consumo_hoy_m3", 0.0),
+                "consumo_hoy_kwh": round(cald1.get("consumo_hoy_m3", 0.0) * 11.68, 1),
+                "caudal_kwh": round(cald1.get("caudal_1h_m3h", 0.0) * 11.68, 1),
+                "temp_trabajo_c": cald1.get("temperatura", 33.6),
                 "icono": "fa-fire-burner",
                 "color": "orange"
             },
             "gas_caldera_2": {
-                "titulo": "Gas Caldera 2",
+                "titulo": "Gas Caldera 2 Hoy",
                 "variable_telemetria": "caldera2",
-                "consumo_m3h": 48.6,
-                "consumo_hoy_m3": 388.8,
-                "temp_trabajo_c": 182.0,
+                "consumo_m3h": cald2.get("caudal_1h_m3h", 0.0),
+                "consumo_hoy_m3": cald2.get("consumo_hoy_m3", 0.0),
+                "consumo_hoy_kwh": round(cald2.get("consumo_hoy_m3", 0.0) * 11.68, 1),
+                "caudal_kwh": round(cald2.get("caudal_1h_m3h", 0.0) * 11.68, 1),
+                "temp_trabajo_c": cald2.get("temperatura", 31.3),
                 "icono": "fa-fire-burner",
+                "color": "orange"
+            },
+            "gas_secadoras_man": {
+                "titulo": "Gas Secadoras Manuales Hoy",
+                "variable_telemetria": "secadoras_man",
+                "consumo_m3h": sec_man.get("caudal_1h_m3h", 0.0),
+                "consumo_hoy_m3": sec_man.get("consumo_hoy_m3", 0.0),
+                "consumo_hoy_kwh": round(sec_man.get("consumo_hoy_m3", 0.0) * 11.68, 1),
+                "caudal_kwh": round(sec_man.get("caudal_1h_m3h", 0.0) * 11.68, 1),
+                "temp_trabajo_c": sec_man.get("temperatura", 22.0),
+                "icono": "fa-hands",
+                "color": "orange"
+            },
+            "gas_secadoras_aut": {
+                "titulo": "Gas Secadoras Automáticas Hoy",
+                "variable_telemetria": "secadoras_aut",
+                "consumo_m3h": sec_aut.get("caudal_1h_m3h", 0.0),
+                "consumo_hoy_m3": sec_aut.get("consumo_hoy_m3", 0.0),
+                "consumo_hoy_kwh": round(sec_aut.get("consumo_hoy_m3", 0.0) * 11.68, 1),
+                "caudal_kwh": round(sec_aut.get("caudal_1h_m3h", 0.0) * 11.68, 1),
+                "temp_trabajo_c": sec_aut.get("temperatura", 28.5),
+                "icono": "fa-robot",
                 "color": "orange"
             }
         },
@@ -185,159 +345,90 @@ def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
             "elec_tunel": {
                 "titulo": "Electricidad Túnel",
                 "variable_telemetria": "I_motor_tunel",
-                "potencia_kw": 85.4,
-                "consumo_hoy_kwh": 1024.8,
+                "potencia_kw": elec_summary.get("I_motor_tunel", {}).get("potencia_kw", 0.0),
+                "potencia_activa_kw": elec_summary.get("I_motor_tunel", {}).get("potencia_kw", 0.0),
+                "potencia_aparente_kva": elec_summary.get("I_motor_tunel", {}).get("potencia_aparente_kva", 0.0),
+                "consumo_hoy_kwh": elec_summary.get("I_motor_tunel", {}).get("consumo_hoy_kwh", 0.0),
+                "corriente_max_a": elec_summary.get("I_motor_tunel", {}).get("corriente_max_a", 0.0),
+                "corriente_actual_a": elec_summary.get("I_motor_tunel", {}).get("corriente_actual_a", 0.0),
                 "icono": "fa-circle-notch",
                 "color": "amber"
             },
             "elec_calandra_1": {
                 "titulo": "Electricidad Calandra 1",
                 "variable_telemetria": "I_bomba_calandra1",
-                "potencia_kw": 42.1,
-                "consumo_hoy_kwh": 505.2,
+                "potencia_kw": elec_summary.get("I_bomba_calandra1", {}).get("potencia_kw", 0.0),
+                "potencia_activa_kw": elec_summary.get("I_bomba_calandra1", {}).get("potencia_kw", 0.0),
+                "potencia_aparente_kva": elec_summary.get("I_bomba_calandra1", {}).get("potencia_aparente_kva", 0.0),
+                "consumo_hoy_kwh": elec_summary.get("I_bomba_calandra1", {}).get("consumo_hoy_kwh", 0.0),
+                "corriente_max_a": elec_summary.get("I_bomba_calandra1", {}).get("corriente_max_a", 0.0),
+                "corriente_actual_a": elec_summary.get("I_bomba_calandra1", {}).get("corriente_actual_a", 0.0),
                 "icono": "fa-scroll",
                 "color": "amber"
             },
             "elec_calandra_2": {
                 "titulo": "Electricidad Calandra 2",
                 "variable_telemetria": "Bomba_calandra2",
-                "potencia_kw": 39.8,
-                "consumo_hoy_kwh": 477.6,
+                "potencia_kw": elec_summary.get("Bomba_calandra2", {}).get("potencia_kw", 0.0),
+                "potencia_activa_kw": elec_summary.get("Bomba_calandra2", {}).get("potencia_kw", 0.0),
+                "potencia_aparente_kva": elec_summary.get("Bomba_calandra2", {}).get("potencia_aparente_kva", 0.0),
+                "consumo_hoy_kwh": elec_summary.get("Bomba_calandra2", {}).get("consumo_hoy_kwh", 0.0),
+                "corriente_max_a": elec_summary.get("Bomba_calandra2", {}).get("corriente_max_a", 0.0),
+                "corriente_actual_a": elec_summary.get("Bomba_calandra2", {}).get("corriente_actual_a", 0.0),
                 "icono": "fa-scroll",
                 "color": "amber"
             },
             "elec_calandra_3": {
                 "titulo": "Electricidad Calandra 3",
                 "variable_telemetria": "I_bomba_calandra3",
-                "potencia_kw": 46.5,
-                "consumo_hoy_kwh": 558.0,
-                "icono": "fa-eye",
+                "potencia_kw": elec_summary.get("I_bomba_calandra3", {}).get("potencia_kw", 0.0),
+                "potencia_activa_kw": elec_summary.get("I_bomba_calandra3", {}).get("potencia_kw", 0.0),
+                "potencia_aparente_kva": elec_summary.get("I_bomba_calandra3", {}).get("potencia_aparente_kva", 0.0),
+                "consumo_hoy_kwh": elec_summary.get("I_bomba_calandra3", {}).get("consumo_hoy_kwh", 0.0),
+                "corriente_max_a": elec_summary.get("I_bomba_calandra3", {}).get("corriente_max_a", 0.0),
+                "corriente_actual_a": elec_summary.get("I_bomba_calandra3", {}).get("corriente_actual_a", 0.0),
+                "icono": "fa-scroll",
                 "color": "amber"
             },
             "elec_prensa_tunel": {
                 "titulo": "Electricidad Prensa Túnel",
                 "variable_telemetria": "I_prensa_tunel",
-                "potencia_kw": 16.8,
-                "potencia_activa_kw": 16.8,
-                "consumo_hoy_kwh": 0.0,
-                "corriente_max_a": 0.0,
-                "corriente_actual_a": 0.0,
+                "potencia_kw": elec_summary.get("I_prensa_tunel", {}).get("potencia_kw", 0.0),
+                "potencia_activa_kw": elec_summary.get("I_prensa_tunel", {}).get("potencia_kw", 0.0),
+                "potencia_aparente_kva": elec_summary.get("I_prensa_tunel", {}).get("potencia_aparente_kva", 0.0),
+                "consumo_hoy_kwh": elec_summary.get("I_prensa_tunel", {}).get("consumo_hoy_kwh", 0.0),
+                "corriente_max_a": elec_summary.get("I_prensa_tunel", {}).get("corriente_max_a", 0.0),
+                "corriente_actual_a": elec_summary.get("I_prensa_tunel", {}).get("corriente_actual_a", 0.0),
                 "icono": "fa-compress-arrows-alt",
                 "color": "amber"
             }
         }
     }
 
-    # Integración dinámica de mediciones eléctricas en tiempo real desde el servicio de electricidad
-    if get_live_electricity_summary is not None:
-        try:
-            live_elec = get_live_electricity_summary()
-            if live_elec:
-                if "I_general" in live_elec:
-                    g_elec = live_elec["I_general"]
-                    res["generales"]["energia_electrica"]["potencia_activa_kw"] = g_elec.get("potencia_activa_kw", 0.0)
-                    res["generales"]["energia_electrica"]["potencia_kw"] = g_elec.get("potencia_kw", 0.0)
-                    res["generales"]["energia_electrica"]["consumo_hoy_kwh"] = g_elec.get("consumo_hoy_kwh", 0.0)
-                    res["generales"]["energia_electrica"]["corriente_max_a"] = g_elec.get("corriente_max_a", 0.0)
-                    res["generales"]["energia_electrica"]["corriente_actual_a"] = g_elec.get("corriente_actual_a", 0.0)
-
-                elec_map = {
-                    "elec_tunel": "I_motor_tunel",
-                    "elec_calandra_1": "I_bomba_calandra1",
-                    "elec_calandra_2": "Bomba_calandra2",
-                    "elec_calandra_3": "I_bomba_calandra3",
-                    "elec_prensa_tunel": "I_prensa_tunel"
-                }
-                for card_key, v_code in elec_map.items():
-                    if v_code in live_elec and card_key in res["desglose_electricidad"]:
-                        c_elec = live_elec[v_code]
-                        res["desglose_electricidad"][card_key]["potencia_kw"] = c_elec.get("potencia_kw", 0.0)
-                        res["desglose_electricidad"][card_key]["potencia_activa_kw"] = c_elec.get("potencia_activa_kw", 0.0)
-                        res["desglose_electricidad"][card_key]["consumo_hoy_kwh"] = c_elec.get("consumo_hoy_kwh", 0.0)
-                        res["desglose_electricidad"][card_key]["corriente_max_a"] = c_elec.get("corriente_max_a", 0.0)
-                        res["desglose_electricidad"][card_key]["corriente_actual_a"] = c_elec.get("corriente_actual_a", 0.0)
-        except Exception as e:
-            logger.warning(f"Error integrando live electricity en consumos summary: {e}")
-
-    # Integración dinámica de telemetría de procesos (Gas y Agua) desde la base de datos para la jornada de hoy
+    # Integracion dinamica de telemetria de agua desde SQLite
     try:
         conn_proc = get_db_connection()
-        today_iso = f"{datetime.now().strftime('%Y-%m-%d')} 00:00:00"
-
-        # 1. Gas General
-        row_gas = conn_proc.execute("""
-            SELECT COALESCE(SUM(valor), 0)
-            FROM procesos_telemetria
-            WHERE variable = 'sensor_gas_general' AND timestamp_iso >= ?
-        """, (today_iso,)).fetchone()
-        gas_hoy_m3 = round(float(row_gas[0]), 1) if row_gas and row_gas[0] is not None else 0.0
-
-        row_last_gas = conn_proc.execute("""
-            SELECT caudal_m3h
-            FROM procesos_telemetria
-            WHERE variable = 'sensor_gas_general'
-            ORDER BY id DESC LIMIT 1
-        """).fetchone()
-        gas_caudal = round(float(row_last_gas[0]), 1) if row_last_gas and row_last_gas[0] is not None else 0.0
-
-        gas_temp = get_cached_gas_temp()
-
-        res["generales"]["gas_general"]["consumo_hoy_m3"] = gas_hoy_m3
-        res["generales"]["gas_general"]["consumo_hoy_kwh"] = round(gas_hoy_m3 * 11.68, 1)
-        res["generales"]["gas_general"]["caudal_m3h"] = gas_caudal
-        res["generales"]["gas_general"]["temperatura_c"] = gas_temp
-
-        # 2. Desglose de Gas por Máquina
-        gas_map = {
-            "gas_tunel_vt": "Túnel de Secado VT",
-            "gas_calandra_1": "calandra1_IoT",
-            "gas_calandra_2": "Calandra 2",
-            "gas_calandra_3": "Calandra 3",
-            "gas_caldera_1": "caldera1",
-            "gas_caldera_2": "caldera2"
-        }
-        for card_key, var_name in gas_map.items():
-            if card_key in res["desglose_gas"]:
-                r_m3 = conn_proc.execute("""
-                    SELECT COALESCE(SUM(valor), 0)
-                    FROM procesos_telemetria
-                    WHERE variable = ? AND timestamp_iso >= ?
-                """, (var_name, today_iso)).fetchone()
-                m3_val = round(float(r_m3[0]), 1) if r_m3 and r_m3[0] is not None else 0.0
-
-                r_c = conn_proc.execute("""
-                    SELECT caudal_m3h
-                    FROM procesos_telemetria
-                    WHERE variable = ?
-                    ORDER BY id DESC LIMIT 1
-                """, (var_name,)).fetchone()
-                c_val = round(float(r_c[0]), 1) if r_c and r_c[0] is not None else 0.0
-
-                res["desglose_gas"][card_key]["consumo_hoy_m3"] = m3_val
-                res["desglose_gas"][card_key]["consumo_hoy_kwh"] = round(m3_val * 11.68, 1)
-                res["desglose_gas"][card_key]["consumo_m3h"] = c_val
-                res["desglose_gas"][card_key]["caudal_m3h"] = c_val
-
-        # 3. Agua General
-        row_agua = conn_proc.execute("""
+        today_iso = datetime.now().strftime("%Y-%m-%d 00:00:00")
+        row_ag = conn_proc.execute("""
             SELECT COALESCE(SUM(valor), 0)
             FROM procesos_telemetria
             WHERE variable = 'AGUA_GENERAL' AND timestamp_iso >= ?
         """, (today_iso,)).fetchone()
-        agua_hoy_m3 = round(float(row_agua[0]), 1) if row_agua and row_agua[0] is not None else 0.0
+        agua_hoy_m3 = round(float(row_ag[0]), 1) if row_ag and row_ag[0] is not None else 0.0
 
         row_last_agua = conn_proc.execute("""
-            SELECT caudal_m3h
+            SELECT COALESCE(caudal_m3h, 0)
             FROM procesos_telemetria
             WHERE variable = 'AGUA_GENERAL'
             ORDER BY id DESC LIMIT 1
         """).fetchone()
         agua_caudal = round(float(row_last_agua[0]), 1) if row_last_agua and row_last_agua[0] is not None else 0.0
 
-        res["generales"]["agua_general"]["consumo_hoy_m3"] = agua_hoy_m3
-        res["generales"]["agua_general"]["caudal_m3h"] = agua_caudal
+        if agua_hoy_m3 > 0:
+            res["generales"]["agua_general"]["consumo_hoy_m3"] = agua_hoy_m3
+        if agua_caudal > 0:
+            res["generales"]["agua_general"]["caudal_m3h"] = agua_caudal
 
-        # 4. Agua Túnel y Lavadoras
         row_at = conn_proc.execute("""
             SELECT COALESCE(SUM(valor), 0)
             FROM procesos_telemetria
@@ -346,20 +437,21 @@ def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
         at_hoy_m3 = round(float(row_at[0]), 1) if row_at and row_at[0] is not None else 0.0
 
         row_last_at = conn_proc.execute("""
-            SELECT caudal_m3h
+            SELECT COALESCE(caudal_m3h, 0)
             FROM procesos_telemetria
             WHERE variable = 'AGUA_TUNEL_LAVADORAS'
             ORDER BY id DESC LIMIT 1
         """).fetchone()
         at_caudal = round(float(row_last_at[0]), 1) if row_last_at and row_last_at[0] is not None else 0.0
 
-        if "agua_tunel_lavadoras" in res["desglose_agua"]:
+        if at_hoy_m3 > 0 and "agua_tunel_lavadoras" in res.get("desglose_agua", {}):
             res["desglose_agua"]["agua_tunel_lavadoras"]["consumo_hoy_m3"] = at_hoy_m3
+        if at_caudal > 0 and "agua_tunel_lavadoras" in res.get("desglose_agua", {}):
             res["desglose_agua"]["agua_tunel_lavadoras"]["caudal_m3h"] = at_caudal
 
         conn_proc.close()
     except Exception as e_proc:
-        logger.warning(f"Error integrando telemetría de procesos en consumos summary: {e_proc}")
+        logger.warning(f"Error integrando telemetria de agua: {e_proc}")
 
     return res
 
@@ -384,21 +476,6 @@ def get_proceso_telemetria(
     user: dict = Depends(check_consumos_permission)
 ):
     """Consulta dinámica de telemetría para cualquier variable de proceso."""
-    # 1. Delegar a servicio de electricidad si es sensor de corriente o energía eléctrica
-    is_elec_var = (
-        variable in VARIABLE_TO_SENSOR 
-        or variable.lower().startswith("i_") 
-        or "elec" in variable.lower() 
-        or variable.lower() in ["bomba_calandra2", "i_gneral", "i_general", "energia_electrica"]
-    )
-    if is_elec_var and get_proceso_electric_telemetry is not None:
-        return get_proceso_electric_telemetry(
-            var_code=variable,
-            fecha_inicio=fecha_inicio or "",
-            hora_inicio=hora_inicio or "00:00:00",
-            fecha_fin=fecha_fin or "",
-            hora_fin=hora_fin or "23:59:59"
-        )
     now = datetime.now()
     if not fecha_inicio:
         fecha_inicio = now.strftime("%Y-%m-%d")
@@ -412,8 +489,255 @@ def get_proceso_telemetria(
     start_iso = f"{fecha_inicio} {hora_inicio}"
     end_iso = f"{fecha_fin} {hora_fin}"
 
+    # CASO 0: Consulta de Electricidad en tiempo real
+    try:
+        from app.services.electricity_service import VARIABLE_TO_SENSOR, get_electricity_telemetria
+        if variable in VARIABLE_TO_SENSOR:
+            res = get_electricity_telemetria(variable, start_iso, end_iso)
+            res["filtro"] = {
+                "fecha_inicio": fecha_inicio,
+                "hora_inicio": hora_inicio,
+                "fecha_fin": fecha_fin,
+                "hora_fin": hora_fin,
+                "start_iso": start_iso,
+                "end_iso": end_iso
+            }
+            return res
+    except Exception as e_elec_query:
+        logger.error(f"Error consultando telemetria electrica: {e_elec_query}")
+
+    # CASO 1: Consulta de Gas directo a InfluxDB
+    if variable in GAS_MACHINES_MAP:
+        gas_info = GAS_MACHINES_MAP[variable]
+        machine_id = gas_info["machine_id"]
+        multiplier = gas_info["multiplier"]
+        eui = gas_info["eui"]
+        title = gas_info["title"]
+
+        try:
+            # Parsear rango a RFC3339 UTC (-2 horas por timezone España CEST)
+            dt_start = datetime.strptime(f"{fecha_inicio} {hora_inicio}", "%Y-%m-%d %H:%M:%S") - timedelta(hours=2)
+            dt_end = datetime.strptime(f"{fecha_fin} {hora_fin}", "%Y-%m-%d %H:%M:%S") - timedelta(hours=2)
+            start_rfc = dt_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+            end_rfc = dt_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            if machine_id == "secadoras_aut":
+                # Calcular telemetría sintética de balance a partir de gas_general y las demás máquinas
+                flux_gg = f"""
+                from(bucket: "gas_telemetry")
+                  |> range(start: {start_rfc}, stop: {end_rfc})
+                  |> filter(fn: (r) => r._measurement == "gas_consumption" and r.machine_id == "gas_general" and r._field == "volume_m3")
+                  |> sort(columns: ["_time"], desc: true)
+                  |> limit(n: 200)
+                """
+                gg_rows = query_flux(flux_gg)
+
+                # Spread total de todas las máquinas en el rango
+                flux_spread_all = f"""
+                from(bucket: "gas_telemetry")
+                  |> range(start: {start_rfc}, stop: {end_rfc})
+                  |> filter(fn: (r) => r._measurement == "gas_consumption" and r._field == "volume_m3")
+                  |> spread()
+                """
+                spread_all_rows = query_flux(flux_spread_all)
+                spread_map = {sr.get("machine_id"): float(sr.get("_value", 0)) for sr in spread_all_rows if sr.get("machine_id")}
+
+                gg_tot = spread_map.get("gas_general", 0.0)
+                maq_tot = sum(spread_map.get(m, 0.0) for m in ["calandra1", "calandra_2", "calandra_3", "caldera1", "caldera2", "secado_vt", "secadoras_man"])
+                acumulado_aut = round(max(0.0, gg_tot - maq_tot), 2)
+
+                ratio = (acumulado_aut / gg_tot) if gg_tot > 0 else 0.28
+                registros = []
+
+                for idx, r in enumerate(gg_rows):
+                    time_str = r.get("_time", "")
+                    dt_utc = parse_influx_time(time_str)
+                    dt_local = dt_utc + timedelta(hours=2)
+                    ts_iso = dt_local.strftime("%Y-%m-%d %H:%M:%S")
+                    ts_str = dt_local.strftime("%d/%m/%Y %H:%M:%S")
+
+                    try:
+                        gg_vol = float(r.get("_value", 0))
+                    except (ValueError, TypeError):
+                        gg_vol = 0.0
+
+                    vol_aut = round(gg_vol * ratio, 2)
+                    pulses_val = int(vol_aut * 10)
+
+                    caudal = 0.0
+                    delta_m3 = 0.0
+                    if idx < len(gg_rows) - 1:
+                        next_r = gg_rows[idx + 1]
+                        try:
+                            next_vol = round(float(next_r.get("_value", 0)) * ratio, 2)
+                            delta_m3 = round(max(0.0, vol_aut - next_vol), 2)
+                            next_dt_utc = parse_influx_time(next_r.get("_time", ""))
+                            delta_h = (dt_utc - next_dt_utc).total_seconds() / 3600.0
+                            if 0 < delta_h < 2.0 and delta_m3 > 0:
+                                caudal = round(delta_m3 / delta_h, 1)
+                        except Exception:
+                            pass
+
+                    registros.append({
+                        "id": idx + 1,
+                        "variable": variable,
+                        "timestamp": ts_str,
+                        "timestamp_iso": ts_iso,
+                        "pulsos": pulses_val,
+                        "valor": vol_aut,
+                        "kwh": round(vol_aut * 11.68, 1),
+                        "delta_m3": delta_m3,
+                        "unidad": "m³",
+                        "caudal_m3h": max(0.0, caudal),
+                        "caudal_kwh": round(max(0.0, caudal) * 11.68, 1),
+                        "dispositivo": f"Gas Secadoras Automáticas (Balance / EUI: {eui})"
+                    })
+
+                return {
+                    "variable": variable,
+                    "acumulado": acumulado_aut,
+                    "acumulado_kwh": round(acumulado_aut * 11.68, 1),
+                    "unidad": "m³",
+                    "total_pulsos": int(acumulado_aut * 10),
+                    "filtro": {
+                        "fecha_inicio": fecha_inicio,
+                        "hora_inicio": hora_inicio,
+                        "fecha_fin": fecha_fin,
+                        "hora_fin": hora_fin,
+                        "start_iso": start_iso,
+                        "end_iso": end_iso
+                    },
+                    "total_registros": len(registros),
+                    "registros": registros
+                }
+
+            flux_detail = f"""
+            from(bucket: "gas_telemetry")
+              |> range(start: {start_rfc}, stop: {end_rfc})
+              |> filter(fn: (r) => r._measurement == "gas_consumption" and r.machine_id == "{machine_id}")
+              |> filter(fn: (r) => r._field == "pulses" or r._field == "volume_m3")
+              |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+              |> sort(columns: ["_time"], desc: true)
+              |> limit(n: 200)
+            """
+
+            rows = query_flux(flux_detail)
+            registros = []
+
+            for idx, r in enumerate(rows):
+                time_str = r.get("_time", "")
+                dt_utc = parse_influx_time(time_str)
+                dt_local = dt_utc + timedelta(hours=2)
+                ts_iso = dt_local.strftime("%Y-%m-%d %H:%M:%S")
+                ts_str = dt_local.strftime("%d/%m/%Y %H:%M:%S")
+
+                try:
+                    pulses_val = int(float(r.get("pulses", 0) or 0))
+                except (ValueError, TypeError):
+                    pulses_val = 0
+
+                try:
+                    raw_vol = r.get("volume_m3")
+                    if raw_vol is not None and str(raw_vol).strip() != "":
+                        vol_val = float(raw_vol)
+                    else:
+                        vol_val = round(pulses_val * multiplier, 2)
+                except (ValueError, TypeError):
+                    vol_val = round(pulses_val * multiplier, 2)
+
+                caudal = 0.0
+                delta_m3 = 0.0
+                if idx < len(rows) - 1:
+                    next_r = rows[idx + 1]
+                    try:
+                        next_pulses = int(float(next_r.get("pulses", 0) or 0))
+                    except Exception:
+                        next_pulses = 0
+
+                    try:
+                        raw_next_vol = next_r.get("volume_m3")
+                        if raw_next_vol is not None and str(raw_next_vol).strip() != "":
+                            next_vol = float(raw_next_vol)
+                        else:
+                            next_vol = round(next_pulses * multiplier, 2)
+                    except Exception:
+                        next_vol = round(next_pulses * multiplier, 2)
+
+                    # Cálculo directo e independiente de delta_m3
+                    delta_m3 = round(max(0.0, vol_val - next_vol), 2)
+
+                    try:
+                        next_dt_utc = parse_influx_time(next_r.get("_time", ""))
+                        delta_h = (dt_utc - next_dt_utc).total_seconds() / 3600.0
+                        if 0 < delta_h < 2.0 and delta_m3 > 0:
+                            caudal = round(delta_m3 / delta_h, 1)
+                    except Exception:
+                        pass
+
+                registros.append({
+                    "id": idx + 1,
+                    "variable": variable,
+                    "timestamp": ts_str,
+                    "timestamp_iso": ts_iso,
+                    "pulsos": pulses_val,
+                    "valor": round(vol_val, 2),
+                    "kwh": round(vol_val * 11.68, 1),
+                    "delta_m3": delta_m3,
+                    "unidad": "m³",
+                    "caudal_m3h": max(0.0, caudal),
+                    "caudal_kwh": round(max(0.0, caudal) * 11.68, 1),
+                    "dispositivo": f"{title} (EUI: {eui})"
+                })
+
+            # Calcular acumulado exacto de todo el rango solicitado mediante spread() en Flux
+            flux_range_spread = f"""
+            from(bucket: "gas_telemetry")
+              |> range(start: {start_rfc}, stop: {end_rfc})
+              |> filter(fn: (r) => r._measurement == "gas_consumption" and r.machine_id == "{machine_id}")
+              |> filter(fn: (r) => r._field == "volume_m3" or r._field == "pulses")
+              |> spread()
+            """
+            spread_rows = query_flux(flux_range_spread)
+            acumulado = 0.0
+            total_pulsos = 0
+            for sr in spread_rows:
+                field = sr.get("_field")
+                try:
+                    val = float(sr.get("_value", 0))
+                except ValueError:
+                    val = 0.0
+                if field == "volume_m3":
+                    acumulado = round(max(0.0, val), 2)
+                elif field == "pulses":
+                    total_pulsos = int(max(0, val))
+
+            if acumulado == 0.0 and len(registros) >= 2:
+                acumulado = round(max(0.0, registros[0]["valor"] - registros[-1]["valor"]), 2)
+                total_pulsos = max(0, registros[0]["pulsos"] - registros[-1]["pulsos"])
+
+            return {
+                "variable": variable,
+                "acumulado": acumulado,
+                "acumulado_kwh": round(acumulado * 11.68, 1),
+                "unidad": "m³",
+                "total_pulsos": total_pulsos,
+                "filtro": {
+                    "fecha_inicio": fecha_inicio,
+                    "hora_inicio": hora_inicio,
+                    "fecha_fin": fecha_fin,
+                    "hora_fin": hora_fin,
+                    "start_iso": start_iso,
+                    "end_iso": end_iso
+                },
+                "total_registros": len(registros),
+                "registros": registros
+            }
+
+        except Exception as ex:
+            logger.error(f"Error querying gas telemetria from InfluxDB: {ex}")
+
+    # CASO 2: Fallback a SQLite para Agua y Electricidad
     conn = get_db_connection()
-    
     rows = conn.execute("""
         SELECT id, variable, timestamp, timestamp_iso, pulsos, valor, unidad, caudal_m3h, dispositivo, created_at
         FROM procesos_telemetria
