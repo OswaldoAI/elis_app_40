@@ -2938,8 +2938,9 @@ async function updateConsumosRealtime() {
     if (g.gas_general) {
       const m3Hoy = g.gas_general.consumo_hoy_m3 !== undefined ? g.gas_general.consumo_hoy_m3 : 0;
       const kwhHoy = g.gas_general.consumo_hoy_kwh !== undefined ? g.gas_general.consumo_hoy_kwh : Math.round(m3Hoy * 11.68);
-      const valHtml = `${m3Hoy} m³ <span style="font-size: inherit; font-weight: inherit; color: #16a34a;">| ${kwhHoy.toLocaleString('es-ES')} kWh</span>`;
-      setCard('gas_general', valHtml, `Caudal: ${g.gas_general.caudal_m3h} m³/h | Temp: ${g.gas_general.temperatura_c}°C`);
+      const caudalVal = g.gas_general.caudal_m3h !== undefined ? g.gas_general.caudal_m3h : (g.gas_general.consumo_m3h || 0);
+      const tempVal = g.gas_general.temperatura_c !== undefined ? g.gas_general.temperatura_c : 21;
+      setCard('gas_general', valHtml, `Caudal: ${caudalVal} m³/h | Temp: ${tempVal}°C`);
     }
     if (g.agua_general) {
       setCard('agua_general', 'Sin Servicio', 'Sensor en verificación');

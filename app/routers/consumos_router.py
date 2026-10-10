@@ -1,3 +1,8 @@
+import os
+import time
+import json
+import urllib.request
+import urllib.parse
 from fastapi import APIRouter, HTTPException, Depends, status
 from app.auth import get_current_user
 from app.database import get_db_connection
@@ -7,6 +12,39 @@ from pydantic import BaseModel
 import logging
 
 logger = logging.getLogger("consumos_router")
+
+_last_gas_temp_cache = {"val": 10.5, "ts": 0}
+
+def get_cached_gas_temp() -> float:
+    global _last_gas_temp_cache
+    now_t = time.time()
+    if now_t - _last_gas_temp_cache["ts"] < 60:
+        return _last_gas_temp_cache["val"]
+    try:
+        influx_url = os.getenv("INFLUXDB_URL", "http://192.168.0.116:8086")
+        token = os.getenv("INFLUXDB_TOKEN", "2ivBvpVNfzgfivqZzg_5K2cLIAMzXDeT4pfXOMMOj63-bbVLRyICcPfqBTUotGpyZeqJXv31Mj5c87Ec2aNUlA==")
+        org = os.getenv("INFLUXDB_ORG", "elis_laundry")
+        flux = '''
+        from(bucket: "gas_telemetry")
+          |> range(start: -2h)
+          |> filter(fn: (r) => r["_measurement"] == "gas_consumption" and r["machine_id"] == "gas_general" and r["_field"] == "temperature")
+          |> last()
+        '''
+        url = f"{influx_url}/api/v2/query?org={urllib.parse.quote(org)}"
+        payload = json.dumps({"query": flux, "type": "flux"}).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Authorization": f"Token {token}", "Content-Type": "application/json", "Accept": "application/csv"})
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            txt = resp.read().decode('utf-8')
+            lines = [l for l in txt.splitlines() if l and not l.startswith("#") and not l.startswith(",result,table")]
+            if lines:
+                val = float(lines[0].split(",")[6])
+                _last_gas_temp_cache["val"] = round(val, 1)
+                _last_gas_temp_cache["ts"] = now_t
+                return _last_gas_temp_cache["val"]
+    except Exception as e:
+        logger.debug(f"No se pudo consultar temperatura de gas en Influx: {e}")
+    _last_gas_temp_cache["ts"] = now_t
+    return _last_gas_temp_cache["val"]
 
 try:
     from app.services.electricity_service import (
@@ -220,6 +258,108 @@ def get_consumos_summary(user: dict = Depends(check_consumos_permission)):
                         res["desglose_electricidad"][card_key]["corriente_actual_a"] = c_elec.get("corriente_actual_a", 0.0)
         except Exception as e:
             logger.warning(f"Error integrando live electricity en consumos summary: {e}")
+
+    # Integración dinámica de telemetría de procesos (Gas y Agua) desde la base de datos para la jornada de hoy
+    try:
+        conn_proc = get_db_connection()
+        today_iso = f"{datetime.now().strftime('%Y-%m-%d')} 00:00:00"
+
+        # 1. Gas General
+        row_gas = conn_proc.execute("""
+            SELECT COALESCE(SUM(valor), 0)
+            FROM procesos_telemetria
+            WHERE variable = 'sensor_gas_general' AND timestamp_iso >= ?
+        """, (today_iso,)).fetchone()
+        gas_hoy_m3 = round(float(row_gas[0]), 1) if row_gas and row_gas[0] is not None else 0.0
+
+        row_last_gas = conn_proc.execute("""
+            SELECT caudal_m3h
+            FROM procesos_telemetria
+            WHERE variable = 'sensor_gas_general'
+            ORDER BY id DESC LIMIT 1
+        """).fetchone()
+        gas_caudal = round(float(row_last_gas[0]), 1) if row_last_gas and row_last_gas[0] is not None else 0.0
+
+        gas_temp = get_cached_gas_temp()
+
+        res["generales"]["gas_general"]["consumo_hoy_m3"] = gas_hoy_m3
+        res["generales"]["gas_general"]["consumo_hoy_kwh"] = round(gas_hoy_m3 * 11.68, 1)
+        res["generales"]["gas_general"]["caudal_m3h"] = gas_caudal
+        res["generales"]["gas_general"]["temperatura_c"] = gas_temp
+
+        # 2. Desglose de Gas por Máquina
+        gas_map = {
+            "gas_tunel_vt": "Túnel de Secado VT",
+            "gas_calandra_1": "calandra1_IoT",
+            "gas_calandra_2": "Calandra 2",
+            "gas_calandra_3": "Calandra 3",
+            "gas_caldera_1": "caldera1",
+            "gas_caldera_2": "caldera2"
+        }
+        for card_key, var_name in gas_map.items():
+            if card_key in res["desglose_gas"]:
+                r_m3 = conn_proc.execute("""
+                    SELECT COALESCE(SUM(valor), 0)
+                    FROM procesos_telemetria
+                    WHERE variable = ? AND timestamp_iso >= ?
+                """, (var_name, today_iso)).fetchone()
+                m3_val = round(float(r_m3[0]), 1) if r_m3 and r_m3[0] is not None else 0.0
+
+                r_c = conn_proc.execute("""
+                    SELECT caudal_m3h
+                    FROM procesos_telemetria
+                    WHERE variable = ?
+                    ORDER BY id DESC LIMIT 1
+                """, (var_name,)).fetchone()
+                c_val = round(float(r_c[0]), 1) if r_c and r_c[0] is not None else 0.0
+
+                res["desglose_gas"][card_key]["consumo_hoy_m3"] = m3_val
+                res["desglose_gas"][card_key]["consumo_hoy_kwh"] = round(m3_val * 11.68, 1)
+                res["desglose_gas"][card_key]["consumo_m3h"] = c_val
+                res["desglose_gas"][card_key]["caudal_m3h"] = c_val
+
+        # 3. Agua General
+        row_agua = conn_proc.execute("""
+            SELECT COALESCE(SUM(valor), 0)
+            FROM procesos_telemetria
+            WHERE variable = 'AGUA_GENERAL' AND timestamp_iso >= ?
+        """, (today_iso,)).fetchone()
+        agua_hoy_m3 = round(float(row_agua[0]), 1) if row_agua and row_agua[0] is not None else 0.0
+
+        row_last_agua = conn_proc.execute("""
+            SELECT caudal_m3h
+            FROM procesos_telemetria
+            WHERE variable = 'AGUA_GENERAL'
+            ORDER BY id DESC LIMIT 1
+        """).fetchone()
+        agua_caudal = round(float(row_last_agua[0]), 1) if row_last_agua and row_last_agua[0] is not None else 0.0
+
+        res["generales"]["agua_general"]["consumo_hoy_m3"] = agua_hoy_m3
+        res["generales"]["agua_general"]["caudal_m3h"] = agua_caudal
+
+        # 4. Agua Túnel y Lavadoras
+        row_at = conn_proc.execute("""
+            SELECT COALESCE(SUM(valor), 0)
+            FROM procesos_telemetria
+            WHERE variable = 'AGUA_TUNEL_LAVADORAS' AND timestamp_iso >= ?
+        """, (today_iso,)).fetchone()
+        at_hoy_m3 = round(float(row_at[0]), 1) if row_at and row_at[0] is not None else 0.0
+
+        row_last_at = conn_proc.execute("""
+            SELECT caudal_m3h
+            FROM procesos_telemetria
+            WHERE variable = 'AGUA_TUNEL_LAVADORAS'
+            ORDER BY id DESC LIMIT 1
+        """).fetchone()
+        at_caudal = round(float(row_last_at[0]), 1) if row_last_at and row_last_at[0] is not None else 0.0
+
+        if "agua_tunel_lavadoras" in res["desglose_agua"]:
+            res["desglose_agua"]["agua_tunel_lavadoras"]["consumo_hoy_m3"] = at_hoy_m3
+            res["desglose_agua"]["agua_tunel_lavadoras"]["caudal_m3h"] = at_caudal
+
+        conn_proc.close()
+    except Exception as e_proc:
+        logger.warning(f"Error integrando telemetría de procesos en consumos summary: {e_proc}")
 
     return res
 
