@@ -1353,41 +1353,196 @@ function getCalandraDesgloseValleHtml(isCal2, ind) {
   `;
 }
 
-function getCalandraDesglosePrendasHoraHtml(isCal2, ind) {
+window.activeRateModes = window.activeRateModes || {};
+window.lastDashboardData = window.lastDashboardData || {};
+
+window.setMachineRateMode = function(machineId, indicatorType, mode, event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const key = `${machineId}_${indicatorType}`;
+  window.activeRateModes[key] = mode;
+
+  // Actualizar botones de conmutación correspondientes
+  const pillContainers = document.querySelectorAll(`.rate-toggle-pills[data-machine="${machineId}"][data-indicator="${indicatorType}"]`);
+  pillContainers.forEach(container => {
+    const btns = container.querySelectorAll('.rate-pill-btn');
+    btns.forEach(b => {
+      if (b.dataset.mode === mode) {
+        b.classList.add('active');
+      } else {
+        b.classList.remove('active');
+      }
+    });
+  });
+
+  // Actualizar elementos numéricos y de texto en el DOM
+  if (indicatorType === 'prendas') {
+    // 1. Calandras Live
+    const calEl = document.getElementById(`cal-kpi-prendas-hora-${machineId}`);
+    if (calEl) {
+      calEl.textContent = (mode === 'dist') ? (calEl.dataset.distVal || calEl.dataset.genVal) : calEl.dataset.genVal;
+    }
+    const calSub = document.getElementById(`cal-sub-prendas-hora-${machineId}`);
+    if (calSub) {
+      calSub.textContent = (mode === 'dist') ? (calSub.dataset.distSub || 'Cadencia efectiva (con descuento descanso)') : (calSub.dataset.genSub || 'Cadencia promedio horaria');
+    }
+    const calDesg = document.getElementById(`cal-desglose-prendas-hora-${machineId}`);
+    if (calDesg && window.lastDashboardData && window.lastDashboardData[machineId]) {
+      const ind = window.lastDashboardData[machineId];
+      calDesg.innerHTML = getCalandraDesglosePrendasHoraHtml(machineId === 'CALANDRA_2', ind, mode);
+    }
+
+    // 2. Túnel VT Live
+    if (machineId === 'TUNEL_VT') {
+      const vtEl = document.getElementById('vt-kpi-prendas-hora');
+      if (vtEl) {
+        vtEl.textContent = (mode === 'dist') ? (vtEl.dataset.distVal || vtEl.dataset.genVal) : vtEl.dataset.genVal;
+      }
+      const vtSub = document.getElementById('vt-sub-prendas-hora');
+      if (vtSub) {
+        vtSub.textContent = (mode === 'dist') ? (vtSub.dataset.distSub || 'Cadencia efectiva (con descuento descanso)') : (vtSub.dataset.genSub || 'Cadencia combinada horaria');
+      }
+      const vtDesg = document.getElementById('vt-desglose-prendas-hora');
+      if (vtDesg && window.lastDashboardData && window.lastDashboardData['TUNEL_VT']) {
+        const ind = window.lastDashboardData['TUNEL_VT'];
+        const de = ind.desglose_entradas || {};
+        vtDesg.innerHTML = getTunelVTDesglosePrendasHoraHtml(de, mode);
+      }
+    }
+
+    // 3. Historial (Genérico para todas las máquinas)
+    const histEl = document.querySelector(`.hist-kpi-prendas-hora[data-machine="${machineId}"]`);
+    if (histEl) {
+      histEl.textContent = (mode === 'dist') ? (histEl.dataset.distVal || histEl.dataset.genVal) : histEl.dataset.genVal;
+    }
+    const histSub = document.querySelector(`.hist-sub-prendas-hora[data-machine="${machineId}"]`);
+    if (histSub) {
+      histSub.textContent = (mode === 'dist') ? (histSub.dataset.distSub || 'Cadencia efectiva (con descuento descanso)') : (histSub.dataset.genSub || 'Cadencia promedio horaria');
+    }
+    const histDesg = document.querySelector(`.hist-desglose-prendas-hora[data-machine="${machineId}"]`);
+    if (histDesg && window.lastHistorialData) {
+      const ind = window.lastHistorialData.indicadores_dashboard || {};
+      if (machineId.includes('CALANDRA_2')) {
+        histDesg.innerHTML = getCalandraDesglosePrendasHoraHtml(true, ind, mode);
+      } else if (machineId.includes('TUNEL_VT')) {
+        histDesg.innerHTML = getTunelVTDesglosePrendasHoraHtml(ind.desglose_entradas || {}, mode);
+      }
+    }
+  } else if (indicatorType === 'kg') {
+    // 1. Calandras Live
+    const calEl = document.getElementById(`cal-kpi-kg-hora-${machineId}`);
+    if (calEl) {
+      calEl.textContent = (mode === 'dist') ? (calEl.dataset.distVal || calEl.dataset.genVal) : calEl.dataset.genVal;
+    }
+    const calCad = document.getElementById(`cal-cadencia-kg-hora-${machineId}`);
+    if (calCad) {
+      calCad.textContent = (mode === 'dist') ? (calCad.dataset.distVal || calCad.dataset.genVal) : calCad.dataset.genVal;
+    }
+    const calSub = document.getElementById(`cal-sub-kg-hora-${machineId}`);
+    if (calSub) {
+      calSub.innerHTML = `<i class="fas fa-calculator"></i> ${(mode === 'dist') ? (calSub.dataset.distSub || 'Ritmo efectivo descontando descanso') : (calSub.dataset.genSub || 'Ritmo ponderado de kilogramos en tiempo productivo')}`;
+    }
+    const calDesg = document.getElementById(`cal-desglose-kg-hora-${machineId}`);
+    if (calDesg && window.lastDashboardData && window.lastDashboardData[machineId]) {
+      const ind = window.lastDashboardData[machineId];
+      calDesg.innerHTML = getCalandraDesgloseKgHoraHtml(machineId === 'CALANDRA_2', ind, mode);
+    }
+
+    // 2. Túnel VT Live
+    if (machineId === 'TUNEL_VT') {
+      const vtEl = document.getElementById('vt-kpi-kg-hora');
+      if (vtEl) {
+        vtEl.textContent = (mode === 'dist') ? (vtEl.dataset.distVal || vtEl.dataset.genVal) : vtEl.dataset.genVal;
+      }
+      const vtCad = document.getElementById('vt-cadencia-kg-hora');
+      if (vtCad) {
+        vtCad.textContent = (mode === 'dist') ? (vtCad.dataset.distVal || vtCad.dataset.genVal) : vtCad.dataset.genVal;
+      }
+      const vtSub = document.getElementById('vt-sub-kg-hora');
+      if (vtSub) {
+        vtSub.textContent = (mode === 'dist') ? (vtSub.dataset.distSub || 'Ritmo efectivo descontando descanso') : (vtSub.dataset.genSub || 'Ritmo ponderado por turno');
+      }
+    }
+
+    // 3. Túnel de Lavado Live (Productividad hProd)
+    if (machineId === 'TUNEL_LAVADO') {
+      const hprodEl = document.getElementById('dash-kpi-hprod');
+      if (hprodEl) {
+        hprodEl.textContent = (mode === 'dist') ? (hprodEl.dataset.distVal || hprodEl.dataset.genVal) : hprodEl.dataset.genVal;
+      }
+      const hprodSub = document.getElementById('dash-sub-hprod');
+      if (hprodSub) {
+        hprodSub.textContent = (mode === 'dist') ? (hprodSub.dataset.distSub || 'Productividad efectiva descontando descanso') : (hprodSub.dataset.genSub || 'Productividad horaria general');
+      }
+    }
+
+    // 4. Historial (Genérico para todas las máquinas)
+    const histEl = document.querySelector(`.hist-kpi-kg-hora[data-machine="${machineId}"]`);
+    if (histEl) {
+      histEl.textContent = (mode === 'dist') ? (histEl.dataset.distVal || histEl.dataset.genVal) : histEl.dataset.genVal;
+    }
+    const histCad = document.querySelector(`.hist-cadencia-kg-hora[data-machine="${machineId}"]`);
+    if (histCad) {
+      histCad.textContent = (mode === 'dist') ? (histCad.dataset.distVal || histCad.dataset.genVal) : histCad.dataset.genVal;
+    }
+    const histSub = document.querySelector(`.hist-sub-kg-hora[data-machine="${machineId}"]`);
+    if (histSub) {
+      histSub.innerHTML = `<i class="fas fa-calculator"></i> ${(mode === 'dist') ? (histSub.dataset.distSub || 'Ritmo efectivo descontando descanso') : (histSub.dataset.genSub || 'Ritmo ponderado de kilogramos')}`;
+    }
+    const histDesg = document.querySelector(`.hist-desglose-kg-hora[data-machine="${machineId}"]`);
+    if (histDesg && window.lastHistorialData) {
+      const ind = window.lastHistorialData.indicadores_dashboard || {};
+      if (machineId.includes('CALANDRA_2')) {
+        histDesg.innerHTML = getCalandraDesgloseKgHoraHtml(true, ind, mode);
+      }
+    }
+  }
+};
+
+function getCalandraDesglosePrendasHoraHtml(isCal2, ind, mode = 'gen') {
   if (!isCal2 || !ind.desglose_calandra2) return '';
+  const d = ind.desglose_calandra2;
+  const gStr = (mode === 'dist' && d.prendas_grandes_hora_dist_str) ? d.prendas_grandes_hora_dist_str : d.prendas_grandes_hora_str;
+  const pStr = (mode === 'dist' && d.prendas_pequenas_hora_dist_str) ? d.prendas_pequenas_hora_dist_str : d.prendas_pequenas_hora_str;
   return `
     <div class="calandra-pill-row" style="margin-top: 10px; justify-content: flex-start; gap: 8px;">
-      <span class="cal-badge-g" style="font-size: 1.05rem; padding: 4px 10px;">${ind.desglose_calandra2.prendas_grandes_hora_str}</span>
-      <span class="cal-badge-p" style="font-size: 1.05rem; padding: 4px 10px;">${ind.desglose_calandra2.prendas_pequenas_hora_str}</span>
+      <span class="cal-badge-g" style="font-size: 1.05rem; padding: 4px 10px;" title="Grandes por hora">${gStr}</span>
+      <span class="cal-badge-p" style="font-size: 1.05rem; padding: 4px 10px;" title="Pequeñas por hora">${pStr}</span>
     </div>
   `;
 }
 
-function getCalandraDesgloseKgHoraHtml(isCal2, ind) {
+function getCalandraDesgloseKgHoraHtml(isCal2, ind, mode = 'gen') {
   if (isCal2 && ind.desglose_calandra2) {
+    const d = ind.desglose_calandra2;
+    const gCad = (mode === 'dist' && d.prendas_grandes_hora_dist_str) ? d.prendas_grandes_hora_dist_str : d.prendas_grandes_hora_str;
+    const pCad = (mode === 'dist' && d.prendas_pequenas_hora_dist_str) ? d.prendas_pequenas_hora_dist_str : d.prendas_pequenas_hora_str;
     return `
       <div style="display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 8px; margin-bottom: 8px; flex-wrap: wrap;">
         <span style="font-size: 1.05rem; font-weight: 700; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(168, 85, 247, 0.35);" title="Kg Grandes por hora">
-          <i class="fas fa-expand-alt"></i> ${ind.desglose_calandra2.kg_grandes_str}
+          <i class="fas fa-expand-alt"></i> ${d.kg_grandes_str}
         </span>
         <span style="font-size: 1.05rem; font-weight: 700; color: #60a5fa; background: rgba(59, 130, 246, 0.15); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(59, 130, 246, 0.35);" title="Kg Pequeñas por hora">
-          <i class="fas fa-compress-alt"></i> ${ind.desglose_calandra2.kg_pequenas_str}
+          <i class="fas fa-compress-alt"></i> ${d.kg_pequenas_str}
         </span>
       </div>
       <div style="display: flex; gap: 8px; justify-content: center; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
         <span style="font-size: 1.02rem; font-weight: 700; color: #c084fc; background: rgba(168, 85, 247, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(168, 85, 247, 0.25);" title="Cadencia Grandes">
-          ${ind.desglose_calandra2.prendas_grandes_hora_str}
+          ${gCad}
         </span>
         <span style="font-size: 1.02rem; font-weight: 700; color: #60a5fa; background: rgba(59, 130, 246, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(59, 130, 246, 0.25);" title="Cadencia Pequeñas">
-          ${ind.desglose_calandra2.prendas_pequenas_hora_str}
+          ${pCad}
         </span>
       </div>
     `;
   } else {
+    const cad = (mode === 'dist' && ind.prendas_hora_dist_str) ? ind.prendas_hora_dist_str : ind.prendas_hora_str;
     return `
       <div style="display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 8px; margin-bottom: 12px; flex-wrap: wrap;">
         <span style="font-size: 1.05rem; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3);">
-          <i class="fas fa-tshirt"></i> ${ind.prendas_hora_str}
+          <i class="fas fa-tshirt"></i> ${cad}
         </span>
         <span style="font-size: 1.05rem; font-weight: 700; color: #34d399; background: rgba(52, 211, 153, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(52, 211, 153, 0.3);">
           <i class="fas fa-weight-hanging"></i> ${ind.kgs_totales_str}
@@ -1400,6 +1555,18 @@ function getCalandraDesgloseKgHoraHtml(isCal2, ind) {
       </div>
     `;
   }
+}
+
+function getTunelVTDesglosePrendasHoraHtml(de, mode = 'gen') {
+  if (!de) return '';
+  const e1 = (mode === 'dist' && de.prendas_e1_hora_dist_str) ? de.prendas_e1_hora_dist_str : (de.prendas_e1_hora_str || '0 p/h');
+  const e2 = (mode === 'dist' && de.prendas_e2_hora_dist_str) ? de.prendas_e2_hora_dist_str : (de.prendas_e2_hora_str || '0 p/h');
+  const e3 = (mode === 'dist' && de.prendas_e3_hora_dist_str) ? de.prendas_e3_hora_dist_str : (de.prendas_e3_hora_str || '0 p/h');
+  return `
+    <span class="cal-badge-g" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E1">E1: ${e1}</span>
+    <span class="cal-badge-p" style="background: rgba(52, 211, 153, 0.15); color: #34d399; border-color: rgba(52, 211, 153, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E2">E2: ${e2}</span>
+    <span class="cal-badge-g" style="background: rgba(192, 132, 252, 0.15); color: #c084fc; border-color: rgba(192, 132, 252, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E3">E3: ${e3}</span>
+  `;
 }
 
 function getCalandraPesoBannerText(isCal2, ind) {
@@ -1429,6 +1596,14 @@ async function loadCalandraDashboard(maquinaId) {
     const turno = data.turno_info;
     const canvasId = `chart-dashboard-${maquinaId.toLowerCase()}`;
     const canvasExists = document.getElementById(canvasId);
+
+    window.lastDashboardData = window.lastDashboardData || {};
+    window.lastDashboardData[maquinaId] = ind;
+    const rateModePrendas = (window.activeRateModes && window.activeRateModes[`${maquinaId}_prendas`]) || 'gen';
+    const rateModeKg = (window.activeRateModes && window.activeRateModes[`${maquinaId}_kg`]) || 'gen';
+    const valPrendas = rateModePrendas === 'dist' ? (ind.prendas_hora_dist_str || ind.prendas_hora_str) : ind.prendas_hora_str;
+    const valKg = rateModeKg === 'dist' ? (ind.kg_hora_dist_str || ind.kg_hora_str) : ind.kg_hora_str;
+    const valCad = rateModeKg === 'dist' ? (ind.prendas_hora_dist_str || ind.prendas_hora_str) : ind.prendas_hora_str;
 
     if (!canvasExists) {
       let html = `
@@ -1511,12 +1686,24 @@ async function loadCalandraDashboard(maquinaId) {
           <div class="kpi-card-striking kpi-card-purple" style="grid-column: 4; grid-row: 1;">
             <div class="kpi-card-header">
               <h4><i class="fas fa-tachometer-alt"></i> Prendas / Hora</h4>
-              <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <div class="rate-toggle-pills" data-machine="${maquinaId}" data-indicator="prendas">
+                  <button type="button" class="rate-pill-btn ${rateModePrendas === 'gen' ? 'active' : ''}" data-mode="gen" onclick="setMachineRateMode('${maquinaId}', 'prendas', 'gen', event)">Gen</button>
+                  <button type="button" class="rate-pill-btn ${rateModePrendas === 'dist' ? 'active' : ''}" data-mode="dist" onclick="setMachineRateMode('${maquinaId}', 'prendas', 'dist', event)">Dist</button>
+                </div>
+                <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
+              </div>
             </div>
-            <div id="cal-kpi-prendas-hora-${maquinaId}" class="kpi-big-number">${ind.prendas_hora_str}</div>
-            <div class="kpi-card-subtext">Cadencia promedio horaria</div>
+            <div id="cal-kpi-prendas-hora-${maquinaId}" class="kpi-big-number"
+                 data-gen-val="${ind.prendas_hora_str}"
+                 data-dist-val="${ind.prendas_hora_dist_str || ind.prendas_hora_str}">${valPrendas}</div>
+            <div id="cal-sub-prendas-hora-${maquinaId}" class="kpi-card-subtext"
+                 data-gen-sub="Cadencia promedio horaria"
+                 data-dist-sub="Cadencia efectiva (${ind.tiempo_descanso_min || ind.descanso_descontado_min || 0} min desc.)">
+              ${rateModePrendas === 'dist' ? `Cadencia efectiva (${ind.tiempo_descanso_min || ind.descanso_descontado_min || 0} min desc.)` : 'Cadencia promedio horaria'}
+            </div>
             <div id="cal-desglose-prendas-hora-${maquinaId}">
-              ${getCalandraDesglosePrendasHoraHtml(isCal2, ind)}
+              ${getCalandraDesglosePrendasHoraHtml(isCal2, ind, rateModePrendas)}
             </div>
           </div>
 
@@ -1525,21 +1712,33 @@ async function loadCalandraDashboard(maquinaId) {
             <div>
               <div class="kpi-card-header">
                 <h4 style="color: #f8fafc;"><i class="fas fa-balance-scale"></i> KG / HORA</h4>
-                <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <div class="rate-toggle-pills" data-machine="${maquinaId}" data-indicator="kg">
+                    <button type="button" class="rate-pill-btn ${rateModeKg === 'gen' ? 'active' : ''}" data-mode="gen" onclick="setMachineRateMode('${maquinaId}', 'kg', 'gen', event)">Gen</button>
+                    <button type="button" class="rate-pill-btn ${rateModeKg === 'dist' ? 'active' : ''}" data-mode="dist" onclick="setMachineRateMode('${maquinaId}', 'kg', 'dist', event)">Dist</button>
+                  </div>
+                  <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+                </div>
               </div>
-              <div id="cal-kpi-kg-hora-${maquinaId}" class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);">${ind.kg_hora_str}</div>
+              <div id="cal-kpi-kg-hora-${maquinaId}" class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);"
+                   data-gen-val="${ind.kg_hora_str}"
+                   data-dist-val="${ind.kg_hora_dist_str || ind.kg_hora_str}">${valKg}</div>
               <div id="cal-desglose-kg-hora-${maquinaId}">
-                ${getCalandraDesgloseKgHoraHtml(isCal2, ind)}
+                ${getCalandraDesgloseKgHoraHtml(isCal2, ind, rateModeKg)}
               </div>
             </div>
 
             <div>
               <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="color: #818cf8;"><i class="fas fa-tachometer-alt"></i> Cadencia Turno</span>
-                <span id="cal-cadencia-kg-hora-${maquinaId}" style="color: #38bdf8;">${ind.prendas_hora_str}</span>
+                <span id="cal-cadencia-kg-hora-${maquinaId}" style="color: #38bdf8;"
+                      data-gen-val="${ind.prendas_hora_str}"
+                      data-dist-val="${ind.prendas_hora_dist_str || ind.prendas_hora_str}">${valCad}</span>
               </div>
-              <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
-                <i class="fas fa-calculator"></i> Ritmo ponderado de kilogramos en tiempo productivo
+              <div id="cal-sub-kg-hora-${maquinaId}" style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;"
+                   data-gen-sub="Ritmo ponderado de kilogramos en tiempo productivo"
+                   data-dist-sub="Ritmo efectivo descontando descanso (${ind.tiempo_descanso_min || ind.descanso_descontado_min || 0} min)">
+                <i class="fas fa-calculator"></i> ${rateModeKg === 'dist' ? `Ritmo efectivo descontando descanso (${ind.tiempo_descanso_min || ind.descanso_descontado_min || 0} min)` : 'Ritmo ponderado de kilogramos en tiempo productivo'}
               </div>
             </div>
           </div>
@@ -1607,17 +1806,41 @@ async function loadCalandraDashboard(maquinaId) {
       const desgValle = document.getElementById(`cal-desglose-valle-${maquinaId}`);
       if (desgValle) desgValle.innerHTML = getCalandraDesgloseValleHtml(isCal2, ind);
 
+      const rateModePrendas = (window.activeRateModes && window.activeRateModes[`${maquinaId}_prendas`]) || 'gen';
       const prendasHoraEl = document.getElementById(`cal-kpi-prendas-hora-${maquinaId}`);
-      if (prendasHoraEl) prendasHoraEl.textContent = ind.prendas_hora_str;
+      if (prendasHoraEl) {
+        prendasHoraEl.dataset.genVal = ind.prendas_hora_str;
+        prendasHoraEl.dataset.distVal = ind.prendas_hora_dist_str || ind.prendas_hora_str;
+        prendasHoraEl.textContent = (rateModePrendas === 'dist') ? prendasHoraEl.dataset.distVal : prendasHoraEl.dataset.genVal;
+      }
+      const subPrendas = document.getElementById(`cal-sub-prendas-hora-${maquinaId}`);
+      if (subPrendas) {
+        subPrendas.dataset.distSub = `Cadencia efectiva (${ind.tiempo_descanso_min || ind.descanso_descontado_min || 0} min desc.)`;
+        subPrendas.textContent = (rateModePrendas === 'dist') ? subPrendas.dataset.distSub : subPrendas.dataset.genSub;
+      }
       const desgPrendasHora = document.getElementById(`cal-desglose-prendas-hora-${maquinaId}`);
-      if (desgPrendasHora) desgPrendasHora.innerHTML = getCalandraDesglosePrendasHoraHtml(isCal2, ind);
+      if (desgPrendasHora) desgPrendasHora.innerHTML = getCalandraDesglosePrendasHoraHtml(isCal2, ind, rateModePrendas);
 
+      const rateModeKg = (window.activeRateModes && window.activeRateModes[`${maquinaId}_kg`]) || 'gen';
       const kgHoraEl = document.getElementById(`cal-kpi-kg-hora-${maquinaId}`);
-      if (kgHoraEl) kgHoraEl.textContent = ind.kg_hora_str;
+      if (kgHoraEl) {
+        kgHoraEl.dataset.genVal = ind.kg_hora_str;
+        kgHoraEl.dataset.distVal = ind.kg_hora_dist_str || ind.kg_hora_str;
+        kgHoraEl.textContent = (rateModeKg === 'dist') ? kgHoraEl.dataset.distVal : kgHoraEl.dataset.genVal;
+      }
       const desgKgHora = document.getElementById(`cal-desglose-kg-hora-${maquinaId}`);
-      if (desgKgHora) desgKgHora.innerHTML = getCalandraDesgloseKgHoraHtml(isCal2, ind);
+      if (desgKgHora) desgKgHora.innerHTML = getCalandraDesgloseKgHoraHtml(isCal2, ind, rateModeKg);
       const cadenciaEl = document.getElementById(`cal-cadencia-kg-hora-${maquinaId}`);
-      if (cadenciaEl) cadenciaEl.textContent = ind.prendas_hora_str;
+      if (cadenciaEl) {
+        cadenciaEl.dataset.genVal = ind.prendas_hora_str;
+        cadenciaEl.dataset.distVal = ind.prendas_hora_dist_str || ind.prendas_hora_str;
+        cadenciaEl.textContent = (rateModeKg === 'dist') ? cadenciaEl.dataset.distVal : cadenciaEl.dataset.genVal;
+      }
+      const subKg = document.getElementById(`cal-sub-kg-hora-${maquinaId}`);
+      if (subKg) {
+        subKg.dataset.distSub = `Ritmo efectivo descontando descanso (${ind.tiempo_descanso_min || ind.descanso_descontado_min || 0} min)`;
+        subKg.innerHTML = `<i class="fas fa-calculator"></i> ${(rateModeKg === 'dist') ? subKg.dataset.distSub : subKg.dataset.genSub}`;
+      }
     }
 
     // Renderizar / Actualizar gráfica dual axis
@@ -1642,6 +1865,14 @@ async function loadTunelVTDashboard() {
     const de = ind.desglose_entradas || {};
     const canvasId = 'chart-dashboard-tunel-vt';
     const canvasExists = document.getElementById(canvasId);
+
+    window.lastDashboardData = window.lastDashboardData || {};
+    window.lastDashboardData['TUNEL_VT'] = ind;
+    const rateModeVtPrendas = (window.activeRateModes && window.activeRateModes['TUNEL_VT_prendas']) || 'gen';
+    const rateModeVtKg = (window.activeRateModes && window.activeRateModes['TUNEL_VT_kg']) || 'gen';
+    const valVtPrendas = rateModeVtPrendas === 'dist' ? (ind.prendas_hora_dist_str || ind.prendas_hora_str) : ind.prendas_hora_str;
+    const valVtKg = rateModeVtKg === 'dist' ? (ind.kg_hora_dist_str || ind.kg_hora_str) : ind.kg_hora_str;
+    const valVtCad = rateModeVtKg === 'dist' ? (ind.prendas_hora_dist_str || ind.prendas_hora_str) : ind.prendas_hora_str;
 
     if (!canvasExists) {
       let html = `
@@ -1727,14 +1958,18 @@ async function loadTunelVTDashboard() {
           <div class="kpi-card-striking kpi-card-purple" style="grid-column: 4; grid-row: 1;">
             <div class="kpi-card-header">
               <h4><i class="fas fa-tachometer-alt"></i> Prendas / Hora</h4>
-              <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="rate-toggle-pills" data-machine="TUNEL_VT" data-indicator="prendas">
+                  <button type="button" class="rate-pill-btn ${rateModeVtPrendas === 'gen' ? 'active' : ''}" data-mode="gen" onclick="window.setMachineRateMode('TUNEL_VT', 'prendas', 'gen', event)">Gen</button>
+                  <button type="button" class="rate-pill-btn ${rateModeVtPrendas === 'dist' ? 'active' : ''}" data-mode="dist" onclick="window.setMachineRateMode('TUNEL_VT', 'prendas', 'dist', event)">Dist</button>
+                </div>
+                <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
+              </div>
             </div>
-            <div id="vt-kpi-prendas-hora" class="kpi-big-number">${ind.prendas_hora_str}</div>
-            <div class="kpi-card-subtext">Cadencia combinada horaria</div>
+            <div id="vt-kpi-prendas-hora" class="kpi-big-number" data-gen-val="${ind.prendas_hora_str}" data-dist-val="${ind.prendas_hora_dist_str || ind.prendas_hora_str}">${valVtPrendas}</div>
+            <div class="kpi-card-subtext" id="vt-subtext-prendas-hora">${rateModeVtPrendas === 'dist' ? 'Cadencia con desc. descanso' : 'Cadencia combinada horaria'}</div>
             <div id="vt-desglose-prendas-hora" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
-              <span class="cal-badge-g" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E1">E1: ${de.prendas_e1_hora_str || '0 p/h'}</span>
-              <span class="cal-badge-p" style="background: rgba(52, 211, 153, 0.15); color: #34d399; border-color: rgba(52, 211, 153, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E2">E2: ${de.prendas_e2_hora_str || '0 p/h'}</span>
-              <span class="cal-badge-g" style="background: rgba(192, 132, 252, 0.15); color: #c084fc; border-color: rgba(192, 132, 252, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E3">E3: ${de.prendas_e3_hora_str || '0 p/h'}</span>
+              ${getTunelVTDesglosePrendasHoraHtml(de, rateModeVtPrendas)}
             </div>
           </div>
 
@@ -1743,16 +1978,22 @@ async function loadTunelVTDashboard() {
             <div>
               <div class="kpi-card-header">
                 <h4 style="color: #f8fafc;"><i class="fas fa-balance-scale"></i> KG / HORA</h4>
-                <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div class="rate-toggle-pills" data-machine="TUNEL_VT" data-indicator="kg">
+                    <button type="button" class="rate-pill-btn ${rateModeVtKg === 'gen' ? 'active' : ''}" data-mode="gen" onclick="window.setMachineRateMode('TUNEL_VT', 'kg', 'gen', event)">Gen</button>
+                    <button type="button" class="rate-pill-btn ${rateModeVtKg === 'dist' ? 'active' : ''}" data-mode="dist" onclick="window.setMachineRateMode('TUNEL_VT', 'kg', 'dist', event)">Dist</button>
+                  </div>
+                  <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+                </div>
               </div>
-              <div id="vt-kpi-kg-hora" class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);">${ind.kg_hora_str}</div>
-              <div class="kpi-card-subtext" style="color: #94a3b8;">Ritmo ponderado por turno</div>
+              <div id="vt-kpi-kg-hora" class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);" data-gen-val="${ind.kg_hora_str}" data-dist-val="${ind.kg_hora_dist_str || ind.kg_hora_str}">${valVtKg}</div>
+              <div class="kpi-card-subtext" id="vt-subtext-kg-hora" style="color: #94a3b8;">${rateModeVtKg === 'dist' ? 'Ritmo con descuento descanso' : 'Ritmo ponderado por turno'}</div>
             </div>
 
             <div>
               <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="color: #818cf8;"><i class="fas fa-tachometer-alt"></i> Cadencia Total</span>
-                <span id="vt-cadencia-kg-hora" style="color: #38bdf8;">${ind.prendas_hora_str}</span>
+                <span id="vt-cadencia-kg-hora" style="color: #38bdf8;">${valVtCad}</span>
               </div>
               <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
                 <i class="fas fa-calculator"></i> Productividad ponderada en tiempo de oreado
@@ -1841,20 +2082,30 @@ async function loadTunelVTDashboard() {
       }
 
       const prendasHoraEl = document.getElementById('vt-kpi-prendas-hora');
-      if (prendasHoraEl) prendasHoraEl.textContent = ind.prendas_hora_str;
+      if (prendasHoraEl) {
+        prendasHoraEl.setAttribute('data-gen-val', ind.prendas_hora_str);
+        prendasHoraEl.setAttribute('data-dist-val', ind.prendas_hora_dist_str || ind.prendas_hora_str);
+        prendasHoraEl.textContent = (rateModeVtPrendas === 'dist') ? (ind.prendas_hora_dist_str || ind.prendas_hora_str) : ind.prendas_hora_str;
+      }
+      const subPrendas = document.getElementById('vt-subtext-prendas-hora');
+      if (subPrendas) subPrendas.textContent = (rateModeVtPrendas === 'dist') ? 'Cadencia con desc. descanso' : 'Cadencia combinada horaria';
+
       const desgPrendasHora = document.getElementById('vt-desglose-prendas-hora');
       if (desgPrendasHora) {
-        desgPrendasHora.innerHTML = `
-          <span class="cal-badge-g" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E1">E1: ${de.prendas_e1_hora_str || '0 p/h'}</span>
-          <span class="cal-badge-p" style="background: rgba(52, 211, 153, 0.15); color: #34d399; border-color: rgba(52, 211, 153, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E2">E2: ${de.prendas_e2_hora_str || '0 p/h'}</span>
-          <span class="cal-badge-g" style="background: rgba(192, 132, 252, 0.15); color: #c084fc; border-color: rgba(192, 132, 252, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E3">E3: ${de.prendas_e3_hora_str || '0 p/h'}</span>
-        `;
+        desgPrendasHora.innerHTML = getTunelVTDesglosePrendasHoraHtml(de, rateModeVtPrendas);
       }
 
       const kgHoraEl = document.getElementById('vt-kpi-kg-hora');
-      if (kgHoraEl) kgHoraEl.textContent = ind.kg_hora_str;
+      if (kgHoraEl) {
+        kgHoraEl.setAttribute('data-gen-val', ind.kg_hora_str);
+        kgHoraEl.setAttribute('data-dist-val', ind.kg_hora_dist_str || ind.kg_hora_str);
+        kgHoraEl.textContent = (rateModeVtKg === 'dist') ? (ind.kg_hora_dist_str || ind.kg_hora_str) : ind.kg_hora_str;
+      }
+      const subKg = document.getElementById('vt-subtext-kg-hora');
+      if (subKg) subKg.textContent = (rateModeVtKg === 'dist') ? 'Ritmo con descuento descanso' : 'Ritmo ponderado por turno';
+
       const cadenciaEl = document.getElementById('vt-cadencia-kg-hora');
-      if (cadenciaEl) cadenciaEl.textContent = ind.prendas_hora_str;
+      if (cadenciaEl) cadenciaEl.textContent = (rateModeVtKg === 'dist') ? (ind.prendas_hora_dist_str || ind.prendas_hora_str) : ind.prendas_hora_str;
     }
 
     renderTunelVTHourlyChart(canvasId, ind);
@@ -2282,6 +2533,12 @@ async function loadTunelLavadoDashboard() {
       }
     }
 
+    window.lastDashboardData = window.lastDashboardData || {};
+    window.lastDashboardData['TUNEL_LAVADO'] = data.indicadores_destacados;
+    const rateModeHprod = (window.activeRateModes && window.activeRateModes['TUNEL_LAVADO_kg']) || 'gen';
+    const valHprod = rateModeHprod === 'dist' ? (hprodInfo.valor_dist || hprodInfo.valor) : hprodInfo.valor;
+    const subHprod = rateModeHprod === 'dist' ? (hprodInfo.subtexto_dist || 'Productividad con descuento descanso') : hprodInfo.subtexto;
+
     const canvasExists = document.getElementById('chart-avance-turno');
     if (!canvasExists) {
       container.innerHTML = `
@@ -2349,10 +2606,16 @@ async function loadTunelLavadoDashboard() {
           <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 3; grid-row: 1; background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
             <div class="kpi-card-header">
               <h4>${hprodInfo.titulo}</h4>
-              <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="rate-toggle-pills" data-machine="TUNEL_LAVADO" data-indicator="kg">
+                  <button type="button" class="rate-pill-btn ${rateModeHprod === 'gen' ? 'active' : ''}" data-mode="gen" onclick="window.setMachineRateMode('TUNEL_LAVADO', 'kg', 'gen', event)">Gen</button>
+                  <button type="button" class="rate-pill-btn ${rateModeHprod === 'dist' ? 'active' : ''}" data-mode="dist" onclick="window.setMachineRateMode('TUNEL_LAVADO', 'kg', 'dist', event)">Dist</button>
+                </div>
+                <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
+              </div>
             </div>
-            <div id="dash-kpi-hprod" class="kpi-big-number">${hprodInfo.valor}</div>
-            <div id="dash-sub-hprod" class="kpi-card-subtext">${hprodInfo.subtexto}</div>
+            <div id="dash-kpi-hprod" class="kpi-big-number" data-gen-val="${hprodInfo.valor}" data-dist-val="${hprodInfo.valor_dist || hprodInfo.valor}">${valHprod}</div>
+            <div id="dash-sub-hprod" class="kpi-card-subtext" data-gen-sub="${hprodInfo.subtexto}" data-dist-sub="${hprodInfo.subtexto_dist || 'Productividad con descuento descanso'}">${subHprod}</div>
           </div>
 
           <!-- Columna 4, Fila 1: Clientes y Programas (stacked verticalmente) -->
@@ -2410,9 +2673,17 @@ async function loadTunelLavadoDashboard() {
       if (subCargasEl) subCargasEl.textContent = cargasInfo.subtexto;
 
       const hprodEl = document.getElementById('dash-kpi-hprod');
-      if (hprodEl) hprodEl.textContent = hprodInfo.valor;
+      if (hprodEl) {
+        hprodEl.setAttribute('data-gen-val', hprodInfo.valor);
+        hprodEl.setAttribute('data-dist-val', hprodInfo.valor_dist || hprodInfo.valor);
+        hprodEl.textContent = (rateModeHprod === 'dist') ? (hprodInfo.valor_dist || hprodInfo.valor) : hprodInfo.valor;
+      }
       const subHprodEl = document.getElementById('dash-sub-hprod');
-      if (subHprodEl) subHprodEl.textContent = hprodInfo.subtexto;
+      if (subHprodEl) {
+        subHprodEl.setAttribute('data-gen-sub', hprodInfo.subtexto);
+        subHprodEl.setAttribute('data-dist-sub', hprodInfo.subtexto_dist || 'Productividad con descuento descanso');
+        subHprodEl.textContent = (rateModeHprod === 'dist') ? (hprodInfo.subtexto_dist || 'Productividad con descuento descanso') : hprodInfo.subtexto;
+      }
 
       const ikprodEl = document.getElementById('dash-kpi-ikprod');
       if (ikprodEl) {
@@ -3962,6 +4233,7 @@ async function loadReconstructedShiftDashboard(shiftKey) {
     const res = await fetch(endpoint);
     if (!res.ok) throw new Error('No se pudo cargar el paquete JSON del turno');
     const pkg = await res.json();
+    window.lastHistorialData = pkg;
 
     if (placeholder) placeholder.style.display = 'none';
 
@@ -3986,12 +4258,19 @@ async function loadReconstructedShiftDashboard(shiftKey) {
         icono: 'fa-boxes'
       };
 
+      const rateModeHprod = (window.activeRateModes && window.activeRateModes['TUNEL_LAVADO_kg']) || 'gen';
+      const hprodDistVal = ind.productividad_hprod?.valor_dist_str || ind.productividad_hprod?.valor_str || '0 kg/h';
+      const hprodDistDesc = ind.productividad_hprod?.descanso_min !== undefined ? ind.productividad_hprod.descanso_min : 0;
+      const hprodDistSub = `Ritmo con desc. descanso (${hprodDistDesc} min desc.)`;
+
       const hprodInfo = {
         titulo: 'Productividad (hProd)',
         valor: ind.productividad_hprod?.valor_str || '0 kg/h',
         subtexto: `Tiempo prom: ${tot.promedio_tiempo_entre_cargas_min || 0} min (${tot.promedio_tiempo_entre_cargas_seg || 0}s)`,
         icono: 'fa-tachometer-alt'
       };
+      const valHprod = rateModeHprod === 'dist' ? hprodDistVal : hprodInfo.valor;
+      const subHprod = rateModeHprod === 'dist' ? hprodDistSub : hprodInfo.subtexto;
 
       const ikprodInfo = ind.indice_eficiencia_ikprod || {
         pct_str: '0.0%',
@@ -4078,10 +4357,16 @@ async function loadReconstructedShiftDashboard(shiftKey) {
           <div class="kpi-card-striking kpi-card-cyan" style="grid-column: 3; grid-row: 1; background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #0f172a 100%);">
             <div class="kpi-card-header">
               <h4>${hprodInfo.titulo}</h4>
-              <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="rate-toggle-pills" data-machine="TUNEL_LAVADO" data-indicator="kg">
+                  <button type="button" class="rate-pill-btn ${rateModeHprod === 'gen' ? 'active' : ''}" data-mode="gen" onclick="window.setMachineRateMode('TUNEL_LAVADO', 'kg', 'gen', event)">Gen</button>
+                  <button type="button" class="rate-pill-btn ${rateModeHprod === 'dist' ? 'active' : ''}" data-mode="dist" onclick="window.setMachineRateMode('TUNEL_LAVADO', 'kg', 'dist', event)">Dist</button>
+                </div>
+                <div class="kpi-icon-circle"><i class="fas ${hprodInfo.icono}"></i></div>
+              </div>
             </div>
-            <div class="kpi-big-number">${hprodInfo.valor}</div>
-            <div class="kpi-card-subtext">${hprodInfo.subtexto}</div>
+            <div class="kpi-big-number hist-kpi-kg-hora" data-machine="TUNEL_LAVADO" data-gen-val="${hprodInfo.valor}" data-dist-val="${hprodDistVal}">${valHprod}</div>
+            <div class="kpi-card-subtext hist-sub-kg-hora" data-machine="TUNEL_LAVADO" data-gen-sub="${hprodInfo.subtexto}" data-dist-sub="${hprodDistSub}">${subHprod}</div>
           </div>
 
           <div class="col-secondary-kpis" style="grid-column: 4; grid-row: 1;">
@@ -4140,6 +4425,12 @@ async function loadReconstructedShiftDashboard(shiftKey) {
         fecha: meta.fecha_formateada || meta.fecha || pkg.fecha || ''
       };
       const g = pkg.desglose_hora_a_hora || pkg.grafica_hora_a_hora || ind.grafica_hora_a_hora || {};
+
+      const rateModeCalPrendas = (window.activeRateModes && window.activeRateModes[currentHistorialMachine + '_prendas']) || 'gen';
+      const rateModeCalKg = (window.activeRateModes && window.activeRateModes[currentHistorialMachine + '_kg']) || 'gen';
+      const valCalPrendas = rateModeCalPrendas === 'dist' ? (ind.prendas_hora_dist_str || ind.prendas_hora_str || '0 p/h') : (ind.prendas_hora_str || '0 p/h');
+      const valCalKg = rateModeCalKg === 'dist' ? (ind.kg_hora_dist_str || ind.kg_hora_dist_str || ind.kg_hora_str || '0,0 kg/h') : (ind.kg_hora_str || '0,0 kg/h');
+      const valCalCad = rateModeCalKg === 'dist' ? (ind.prendas_hora_dist_str || ind.prendas_hora_str || '0 p/h') : (ind.prendas_hora_str || '0 p/h');
 
       dashboardContainer.innerHTML = `
         <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; padding: 12px 18px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
@@ -4200,12 +4491,18 @@ async function loadReconstructedShiftDashboard(shiftKey) {
           <div class="kpi-card-striking kpi-card-purple" style="grid-column: 4; grid-row: 1;">
             <div class="kpi-card-header">
               <h4><i class="fas fa-tachometer-alt"></i> Prendas / Hora</h4>
-              <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="rate-toggle-pills" data-machine="${currentHistorialMachine}" data-indicator="prendas">
+                  <button type="button" class="rate-pill-btn ${rateModeCalPrendas === 'gen' ? 'active' : ''}" data-mode="gen" onclick="window.setMachineRateMode('${currentHistorialMachine}', 'prendas', 'gen', event)">Gen</button>
+                  <button type="button" class="rate-pill-btn ${rateModeCalPrendas === 'dist' ? 'active' : ''}" data-mode="dist" onclick="window.setMachineRateMode('${currentHistorialMachine}', 'prendas', 'dist', event)">Dist</button>
+                </div>
+                <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
+              </div>
             </div>
-            <div class="kpi-big-number">${ind.prendas_hora_str || '0 p/h'}</div>
-            <div class="kpi-card-subtext">Cadencia promedio horaria</div>
-            <div>
-              ${getCalandraDesglosePrendasHoraHtml(isCal2, ind)}
+            <div class="kpi-big-number hist-kpi-prendas-hora" data-machine="${currentHistorialMachine}" data-gen-val="${ind.prendas_hora_str || '0 p/h'}" data-dist-val="${ind.prendas_hora_dist_str || ind.prendas_hora_str || '0 p/h'}">${valCalPrendas}</div>
+            <div class="kpi-card-subtext hist-sub-prendas-hora" data-machine="${currentHistorialMachine}" data-gen-sub="Cadencia promedio horaria" data-dist-sub="Cadencia efectiva (con descuento descanso)">${rateModeCalPrendas === 'dist' ? 'Cadencia efectiva (con descuento descanso)' : 'Cadencia promedio horaria'}</div>
+            <div class="hist-desglose-prendas-hora" data-machine="${currentHistorialMachine}">
+              ${getCalandraDesglosePrendasHoraHtml(isCal2, ind, rateModeCalPrendas)}
             </div>
           </div>
 
@@ -4214,21 +4511,27 @@ async function loadReconstructedShiftDashboard(shiftKey) {
             <div>
               <div class="kpi-card-header">
                 <h4 style="color: #f8fafc;"><i class="fas fa-balance-scale"></i> KG / HORA</h4>
-                <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div class="rate-toggle-pills" data-machine="${currentHistorialMachine}" data-indicator="kg">
+                    <button type="button" class="rate-pill-btn ${rateModeCalKg === 'gen' ? 'active' : ''}" data-mode="gen" onclick="window.setMachineRateMode('${currentHistorialMachine}', 'kg', 'gen', event)">Gen</button>
+                    <button type="button" class="rate-pill-btn ${rateModeCalKg === 'dist' ? 'active' : ''}" data-mode="dist" onclick="window.setMachineRateMode('${currentHistorialMachine}', 'kg', 'dist', event)">Dist</button>
+                  </div>
+                  <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+                </div>
               </div>
-              <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);">${ind.kg_hora_str || '0,0 kg/h'}</div>
-              <div>
-                ${getCalandraDesgloseKgHoraHtml(isCal2, ind)}
+              <div class="kpi-big-number hist-kpi-kg-hora" data-machine="${currentHistorialMachine}" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);" data-gen-val="${ind.kg_hora_str || '0,0 kg/h'}" data-dist-val="${ind.kg_hora_dist_str || ind.kg_hora_str || '0,0 kg/h'}">${valCalKg}</div>
+              <div class="hist-desglose-kg-hora" data-machine="${currentHistorialMachine}">
+                ${getCalandraDesgloseKgHoraHtml(isCal2, ind, rateModeCalKg)}
               </div>
             </div>
 
             <div>
               <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="color: #818cf8;"><i class="fas fa-tachometer-alt"></i> Cadencia Turno</span>
-                <span style="color: #38bdf8;">${ind.prendas_hora_str || '0 p/h'}</span>
+                <span class="hist-cadencia-kg-hora" data-machine="${currentHistorialMachine}" style="color: #38bdf8;" data-gen-val="${ind.prendas_hora_str || '0 p/h'}" data-dist-val="${ind.prendas_hora_dist_str || ind.prendas_hora_str || '0 p/h'}">${valCalCad}</span>
               </div>
-              <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
-                <i class="fas fa-calculator"></i> Ritmo ponderado de kilogramos en tiempo productivo
+              <div class="hist-sub-kg-hora" data-machine="${currentHistorialMachine}" style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;" data-gen-sub="Ritmo ponderado de kilogramos en tiempo productivo" data-dist-sub="Ritmo efectivo descontando descanso">
+                <i class="fas fa-calculator"></i> ${rateModeCalKg === 'dist' ? 'Ritmo efectivo descontando descanso' : 'Ritmo ponderado de kilogramos en tiempo productivo'}
               </div>
             </div>
           </div>
@@ -4391,6 +4694,12 @@ async function loadReconstructedShiftDashboard(shiftKey) {
       const de = ind.desglose_entradas || {};
       const g = pkg.desglose_hora_a_hora || pkg.grafica_hora_a_hora || ind.grafica_hora_a_hora || {};
 
+      const rateModeVtPrendas = (window.activeRateModes && window.activeRateModes['TUNEL_VT_prendas']) || 'gen';
+      const rateModeVtKg = (window.activeRateModes && window.activeRateModes['TUNEL_VT_kg']) || 'gen';
+      const valVtPrendas = rateModeVtPrendas === 'dist' ? (ind.prendas_hora_dist_str || ind.prendas_hora_str || '0 p/h') : (ind.prendas_hora_str || '0 p/h');
+      const valVtKg = rateModeVtKg === 'dist' ? (ind.kg_hora_dist_str || ind.kg_hora_str || '0,0 kg/h') : (ind.kg_hora_str || '0,0 kg/h');
+      const valVtCad = rateModeVtKg === 'dist' ? (ind.prendas_hora_dist_str || ind.prendas_hora_str || '0 p/h') : (ind.prendas_hora_str || '0 p/h');
+
       dashboardContainer.innerHTML = `
         <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; padding: 12px 18px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
           <div style="display: flex; align-items: center; gap: 12px;">
@@ -4457,14 +4766,18 @@ async function loadReconstructedShiftDashboard(shiftKey) {
           <div class="kpi-card-striking kpi-card-purple" style="grid-column: 4; grid-row: 1;">
             <div class="kpi-card-header">
               <h4><i class="fas fa-tachometer-alt"></i> Prendas / Hora</h4>
-              <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="rate-toggle-pills" data-machine="TUNEL_VT" data-indicator="prendas">
+                  <button type="button" class="rate-pill-btn ${rateModeVtPrendas === 'gen' ? 'active' : ''}" data-mode="gen" onclick="window.setMachineRateMode('TUNEL_VT', 'prendas', 'gen', event)">Gen</button>
+                  <button type="button" class="rate-pill-btn ${rateModeVtPrendas === 'dist' ? 'active' : ''}" data-mode="dist" onclick="window.setMachineRateMode('TUNEL_VT', 'prendas', 'dist', event)">Dist</button>
+                </div>
+                <div class="kpi-icon-circle"><i class="fas fa-bolt"></i></div>
+              </div>
             </div>
-            <div class="kpi-big-number">${ind.prendas_hora_str || '0 p/h'}</div>
-            <div class="kpi-card-subtext">Cadencia horaria total</div>
-            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-              <span class="cal-badge-g" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E1">E1: ${de.prendas_e1_hora_str || '0 p/h'}</span>
-              <span class="cal-badge-p" style="background: rgba(52, 211, 153, 0.15); color: #34d399; border-color: rgba(52, 211, 153, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E2">E2: ${de.prendas_e2_hora_str || '0 p/h'}</span>
-              <span class="cal-badge-g" style="background: rgba(192, 132, 252, 0.15); color: #c084fc; border-color: rgba(192, 132, 252, 0.3); font-size: 1.05rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;" title="Cadencia E3">E3: ${de.prendas_e3_hora_str || '0 p/h'}</span>
+            <div class="kpi-big-number hist-kpi-prendas-hora" data-machine="TUNEL_VT" data-gen-val="${ind.prendas_hora_str || '0 p/h'}" data-dist-val="${ind.prendas_hora_dist_str || ind.prendas_hora_str || '0 p/h'}">${valVtPrendas}</div>
+            <div class="kpi-card-subtext hist-sub-prendas-hora" data-machine="TUNEL_VT" data-gen-sub="Cadencia horaria total" data-dist-sub="Cadencia con desc. descanso">${rateModeVtPrendas === 'dist' ? 'Cadencia con desc. descanso' : 'Cadencia horaria total'}</div>
+            <div class="hist-desglose-prendas-hora" data-machine="TUNEL_VT" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+              ${getTunelVTDesglosePrendasHoraHtml(de, rateModeVtPrendas)}
             </div>
           </div>
 
@@ -4473,9 +4786,15 @@ async function loadReconstructedShiftDashboard(shiftKey) {
             <div>
               <div class="kpi-card-header">
                 <h4 style="color: #f8fafc;"><i class="fas fa-balance-scale"></i> KG / HORA</h4>
-                <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div class="rate-toggle-pills" data-machine="TUNEL_VT" data-indicator="kg">
+                    <button type="button" class="rate-pill-btn ${rateModeVtKg === 'gen' ? 'active' : ''}" data-mode="gen" onclick="window.setMachineRateMode('TUNEL_VT', 'kg', 'gen', event)">Gen</button>
+                    <button type="button" class="rate-pill-btn ${rateModeVtKg === 'dist' ? 'active' : ''}" data-mode="dist" onclick="window.setMachineRateMode('TUNEL_VT', 'kg', 'dist', event)">Dist</button>
+                  </div>
+                  <div class="kpi-icon-circle" style="background: rgba(129, 140, 248, 0.15); color: #818cf8;"><i class="fas fa-chart-line"></i></div>
+                </div>
               </div>
-              <div class="kpi-big-number" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);">${ind.kg_hora_str || '0,0 kg/h'}</div>
+              <div class="kpi-big-number hist-kpi-kg-hora" data-machine="TUNEL_VT" style="font-size: 2.5rem; font-weight: 900; color: #818cf8; text-shadow: 0 0 16px rgba(129, 140, 248, 0.4);" data-gen-val="${ind.kg_hora_str || '0,0 kg/h'}" data-dist-val="${ind.kg_hora_dist_str || ind.kg_hora_str || '0,0 kg/h'}">${valVtKg}</div>
               <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 4px;">
                 Cálculo basado en cadencia real y peso configurado
               </div>
@@ -4484,10 +4803,10 @@ async function loadReconstructedShiftDashboard(shiftKey) {
             <div>
               <div style="font-size: 0.8rem; font-weight: 700; color: #ffffff; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); padding: 6px 10px; border-radius: 6px; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="color: #818cf8;"><i class="fas fa-tachometer-alt"></i> Cadencia Turno</span>
-                <span style="color: #38bdf8;">${ind.prendas_hora_str || '0 p/h'}</span>
+                <span class="hist-cadencia-kg-hora" data-machine="TUNEL_VT" style="color: #38bdf8;" data-gen-val="${ind.prendas_hora_str || '0 p/h'}" data-dist-val="${ind.prendas_hora_dist_str || ind.prendas_hora_str || '0 p/h'}">${valVtCad}</span>
               </div>
-              <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;">
-                <i class="fas fa-calculator"></i> Ritmo ponderado de kilogramos en tiempo productivo
+              <div class="hist-sub-kg-hora" data-machine="TUNEL_VT" style="font-size: 0.68rem; color: #94a3b8; margin-top: 6px; font-weight: 600;" data-gen-sub="Ritmo ponderado de kilogramos en tiempo productivo" data-dist-sub="Ritmo efectivo descontando descanso">
+                <i class="fas fa-calculator"></i> ${rateModeVtKg === 'dist' ? 'Ritmo efectivo descontando descanso' : 'Ritmo ponderado de kilogramos en tiempo productivo'}
               </div>
             </div>
           </div>

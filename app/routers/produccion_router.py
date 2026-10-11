@@ -174,10 +174,20 @@ def calculate_tunel_metrics(turno_act: dict = None):
             promedio_tiempo_min = round(promedio_tiempo_seg / 60.0, 2)
             total_kg = round(row["total_kg"], 1)
 
-            # Productividad hProd (kg/h)
+            # Productividad hProd (kg/h) - Modo General (Gen)
             horas_trans = max(minutos_transcurridos / 60.0, 0.2)
             hprod_kgh = int(round(total_kg / horas_trans))
             hprod_str = f"{hprod_kgh:,} kg/h".replace(",", ".")
+
+            # Productividad hProd (kg/h) - Modo Dist (descontando tiempo de descanso)
+            try:
+                breaks_list = get_shift_breaks(turno_act)
+                tot_descanso = sum(float(b.get("durationMinutes") or b.get("duracion_min") or 0.0) for b in breaks_list) if breaks_list else 30.0
+            except Exception:
+                tot_descanso = 30.0
+            horas_trans_dist = max((minutos_transcurridos - tot_descanso) / 60.0, 0.2)
+            hprod_kgh_dist = int(round(total_kg / horas_trans_dist))
+            hprod_dist_str = f"{hprod_kgh_dist:,} kg/h".replace(",", ".")
 
             # Indicador ikProd: (Promedio Kgs / Promedio Tiempos min)
             ikprod_neto = round(promedio_peso / max(promedio_tiempo_min, 0.01), 2)
@@ -223,6 +233,11 @@ def calculate_tunel_metrics(turno_act: dict = None):
                 "total_kg_num": total_kg,
                 "hprod": hprod_str,
                 "hprod_num": hprod_kgh,
+                "hprod_dist": hprod_dist_str,
+                "hprod_dist_num": hprod_kgh_dist,
+                "tiempo_descanso_min": tot_descanso,
+                "horas_trans_gen": round(horas_trans, 2),
+                "horas_trans_dist": round(horas_trans_dist, 2),
                 "grafica_labels": grafica_labels,
                 "grafica_kg_hora": grafica_kg_hora,
                 "grafica_kg_acumulado": grafica_kg_acumulado,
@@ -260,6 +275,11 @@ def calculate_tunel_metrics(turno_act: dict = None):
         "total_kg_num": 0,
         "hprod": "0 kg/h",
         "hprod_num": 0,
+        "hprod_dist": "0 kg/h",
+        "hprod_dist_num": 0,
+        "tiempo_descanso_min": 0.0,
+        "horas_trans_gen": 0.0,
+        "horas_trans_dist": 0.0,
         "grafica_labels": ["06:00 - 07:00", "07:00 - 08:00", "08:00 - 09:00", "09:00 - 10:00", "10:00 - 11:00", "11:00 - 12:00", "12:00 - 13:00", "13:00 - 14:00"],
         "grafica_kg_hora": [0.0]*8,
         "grafica_kg_acumulado": [0.0]*8,
@@ -733,6 +753,80 @@ def get_break_overlap_for_slot(s_start_iso: str, s_end_iso: str, breaks: list) -
     return round(total_break_min, 1)
 
 
+def enrich_shift_package_dist(pkg: dict, machine_id: str = None) -> dict:
+    """Enriquece un paquete JSON de turno persistido con los indicadores en modo Dist (descuento de descanso) si no están presentes."""
+    if not isinstance(pkg, dict):
+        return pkg
+    try:
+        # 1. Túnel de Lavado (indicadores_ampliados)
+        if "indicadores_ampliados" in pkg:
+            ind = pkg.get("indicadores_ampliados", {})
+            hprod = ind.get("productividad_hprod", {})
+            if "valor_dist_str" not in hprod:
+                tot_kg = float(ind.get("kg_totales_turno", {}).get("valor_num", 0.0) or 0.0)
+                desg = pkg.get("desglose_horario", {})
+                n_labels = max(len(desg.get("labels", [])), 1)
+                dur_horas = float(n_labels)
+                descanso_raw = ind.get("tiempo_descanso_min", 30.0)
+                descanso_min = float(descanso_raw.get("valor_num", 30.0) if isinstance(descanso_raw, dict) else (descanso_raw or 30.0))
+                horas_dist = max(dur_horas - (descanso_min / 60.0), 0.2)
+                hprod_dist_num = int(round(tot_kg / horas_dist)) if horas_dist > 0 else 0
+                hprod["valor_dist_num"] = hprod_dist_num
+                hprod["valor_dist_str"] = f"{hprod_dist_num:,} kg/h".replace(",", ".")
+                hprod["horas_dist"] = round(horas_dist, 2)
+                hprod["tiempo_descanso_min"] = descanso_min
+
+        # 2. Calandras o Túnel VT (indicadores_dashboard)
+        if "indicadores_dashboard" in pkg:
+            ind = pkg.get("indicadores_dashboard", {})
+            if "kg_hora_dist_str" not in ind or "prendas_hora_dist_str" not in ind:
+                p_tot = float(ind.get("prendas_totales", 0) or 0.0)
+                kg_tot = float(ind.get("kgs_totales", 0.0) or 0.0)
+                descanso_min = float(ind.get("tiempo_descanso_min", 0.0) or 0.0)
+                if descanso_min <= 0:
+                    descanso_min = 30.0
+                dur_h = 8.0
+                g = pkg.get("desglose_hora_a_hora", {})
+                if g and "labels" in g and len(g["labels"]) > 0:
+                    dur_h = float(len(g["labels"]))
+                horas_dist = max(dur_h - (descanso_min / 60.0), 0.1)
+
+                kg_dist = round(kg_tot / horas_dist, 1) if horas_dist > 0 else 0.0
+                prendas_dist = int(round(p_tot / horas_dist)) if horas_dist > 0 else 0
+
+                ind["kg_hora_dist"] = kg_dist
+                ind["kg_hora_dist_str"] = f"{kg_dist:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+                ind["prendas_hora_dist"] = prendas_dist
+                ind["prendas_hora_dist_str"] = f"{prendas_dist:,}".replace(",", ".") + " prendas/h"
+                ind["horas_gen"] = dur_h
+                ind["horas_dist"] = round(horas_dist, 2)
+                ind["descanso_descontado_min"] = descanso_min
+
+                desg_c2 = ind.get("desglose_calandra2")
+                if desg_c2:
+                    g_tot = float(desg_c2.get("prendas_grandes", 0) or 0)
+                    p_tot_c2 = float(desg_c2.get("prendas_pequenas", 0) or 0)
+                    desg_c2["prendas_grandes_hora_dist"] = int(round(g_tot / horas_dist)) if horas_dist > 0 else 0
+                    desg_c2["prendas_grandes_hora_dist_str"] = f"{desg_c2['prendas_grandes_hora_dist']:,} g/h".replace(",", ".")
+                    desg_c2["prendas_pequenas_hora_dist"] = int(round(p_tot_c2 / horas_dist)) if horas_dist > 0 else 0
+                    desg_c2["prendas_pequenas_hora_dist_str"] = f"{desg_c2['prendas_pequenas_hora_dist']:,} p/h".replace(",", ".")
+
+                desg_vt = ind.get("desglose_entradas")
+                if desg_vt:
+                    e1 = float(desg_vt.get("entrada_1", 0) or 0)
+                    e2 = float(desg_vt.get("entrada_2", 0) or 0)
+                    e3 = float(desg_vt.get("entrada_3", 0) or 0)
+                    desg_vt["prendas_e1_hora_dist"] = int(round(e1 / horas_dist)) if horas_dist > 0 else 0
+                    desg_vt["prendas_e1_hora_dist_str"] = f"{desg_vt['prendas_e1_hora_dist']:,} p/h".replace(",", ".")
+                    desg_vt["prendas_e2_hora_dist"] = int(round(e2 / horas_dist)) if horas_dist > 0 else 0
+                    desg_vt["prendas_e2_hora_dist_str"] = f"{desg_vt['prendas_e2_hora_dist']:,} p/h".replace(",", ".")
+                    desg_vt["prendas_e3_hora_dist"] = int(round(e3 / horas_dist)) if horas_dist > 0 else 0
+                    desg_vt["prendas_e3_hora_dist_str"] = f"{desg_vt['prendas_e3_hora_dist']:,} p/h".replace(",", ".")
+    except Exception as e:
+        logger.warning(f"Error enriqueciendo shift package con dist: {e}")
+    return pkg
+
+
 def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: dict = None, turno_numero: int = None) -> dict:
     """
     Construye el paquete JSON completo de un turno para Calandra 2 o Calandra 3,
@@ -816,15 +910,28 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
     prendas_h = int(round(tot_prendas / horas_calc)) if horas_calc > 0 else 0
     kg_h = round(tot_kg / horas_calc, 1) if horas_calc > 0 else 0.0
 
+    descanso_a_descontar = prod_live.get("tiempo_descanso_min", 0.0)
+    if descanso_a_descontar <= 0:
+        b_list = get_shift_breaks(shift_data)
+        descanso_a_descontar = sum(float(b.get("durationMinutes") or b.get("duracion_min") or 0.0) for b in b_list) if b_list else 30.0
+
+    horas_dist = max(horas_calc - (descanso_a_descontar / 60.0), 0.1)
+    prendas_h_dist = int(round(tot_prendas / horas_dist)) if horas_dist > 0 else 0
+    kg_h_dist = round(tot_kg / horas_dist, 1) if horas_dist > 0 else 0.0
+
     prendas_totales_str = f"{tot_prendas:,}".replace(",", ".") + " prendas"
     kgs_totales_str = f"{tot_kg:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg"
     tiempo_valle_str = f"{tot_valle:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min"
     prendas_hora_str = f"{prendas_h:,}".replace(",", ".") + " prendas/h"
+    prendas_hora_dist_str = f"{prendas_h_dist:,}".replace(",", ".") + " prendas/h"
     kg_hora_str = f"{kg_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+    kg_hora_dist_str = f"{kg_h_dist:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
     desglose_cal2 = None
     if m_id == "CALANDRA_2":
         g_h = int(round(tot_grandes / horas_calc)) if horas_calc > 0 else 0
         p_h = int(round(tot_pequenas / horas_calc)) if horas_calc > 0 else 0
+        g_h_dist = int(round(tot_grandes / horas_dist)) if horas_dist > 0 else 0
+        p_h_dist = int(round(tot_pequenas / horas_dist)) if horas_dist > 0 else 0
         p_gra_unit = float(desg.get("peso_unitario_grandes") or 0.780)
         p_peq_unit = float(desg.get("peso_unitario_pequenas") or 0.470)
         desglose_cal2 = {
@@ -846,8 +953,12 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
             "tiempo_valle_pequenas_str": f"{tot_valle:.1f} min",
             "prendas_grandes_hora": g_h,
             "prendas_grandes_hora_str": f"{g_h:,} g/h".replace(",", "."),
+            "prendas_grandes_hora_dist": g_h_dist,
+            "prendas_grandes_hora_dist_str": f"{g_h_dist:,} g/h".replace(",", "."),
             "prendas_pequenas_hora": p_h,
-            "prendas_pequenas_hora_str": f"{p_h:,} p/h".replace(",", ".")
+            "prendas_pequenas_hora_str": f"{p_h:,} p/h".replace(",", "."),
+            "prendas_pequenas_hora_dist": p_h_dist,
+            "prendas_pequenas_hora_dist_str": f"{p_h_dist:,} p/h".replace(",", ".")
         }
 
     p_c3_unit = float(prod_live.get("peso_unitario") or 1.180)
@@ -863,8 +974,15 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
         "tiempo_descanso_str": prod_live.get("tiempo_descanso_str", "0,0 min"),
         "prendas_hora": prendas_h,
         "prendas_hora_str": prendas_hora_str,
+        "prendas_hora_dist": prendas_h_dist,
+        "prendas_hora_dist_str": prendas_hora_dist_str,
         "kg_hora": kg_h,
         "kg_hora_str": kg_hora_str,
+        "kg_hora_dist": kg_h_dist,
+        "kg_hora_dist_str": kg_hora_dist_str,
+        "horas_gen": round(horas_calc, 2),
+        "horas_dist": round(horas_dist, 2),
+        "descanso_descontado_min": descanso_a_descontar,
         "en_valle": False,
         "desglose_calandra2": desglose_cal2
     }
@@ -1169,16 +1287,18 @@ def get_calandras_turno_json_detalle(
     m_id = maquina_id.upper()
     table_name = "calandra_2_turnos_persistencia" if m_id == "CALANDRA_2" else "calandra_3_turnos_persistencia"
     conn = get_db_connection()
-    row = conn.execute(f"SELECT data_json FROM {table_name} WHERE shift_key = ?", (shift_key,)).fetchone()
+    alt_key = shift_key.replace(f"{m_id}_", "") if shift_key.startswith(f"{m_id}_") else f"{m_id}_{shift_key}"
+    row = conn.execute(f"SELECT data_json FROM {table_name} WHERE shift_key IN (?, ?) OR shift_key LIKE ?", (shift_key, alt_key, f"%{shift_key}%")).fetchone()
     if not row:
-        row = conn.execute("SELECT data_json FROM calandras_turnos_persistencia WHERE maquina = ? AND shift_key = ?", (m_id, shift_key)).fetchone()
+        row = conn.execute(f"SELECT data_json FROM calandras_turnos_persistencia WHERE maquina = ? AND (shift_key IN (?, ?) OR shift_key LIKE ?)", (m_id, shift_key, alt_key, f"%{shift_key}%")).fetchone()
     conn.close()
 
     if not row or not row["data_json"]:
         raise HTTPException(status_code=404, detail="Turno no encontrado en persistencia")
 
     try:
-        return json.loads(row["data_json"])
+        pkg = json.loads(row["data_json"])
+        return enrich_shift_package_dist(pkg, m_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error parseando JSON: {e}")
 
@@ -1466,8 +1586,14 @@ def get_tunel_vt_production(turno_act: dict = None) -> dict:
             "tiempo_descanso_str": "0,0 min",
             "prendas_hora": 0,
             "prendas_hora_str": "0 prendas/h",
+            "prendas_hora_dist": 0,
+            "prendas_hora_dist_str": "0 prendas/h",
             "kg_hora": 0.0,
-            "kg_hora_str": "0,0 kg/h",
+            "kg_hora_dist": 0.0,
+            "kg_hora_dist_str": "0,0 kg/h",
+            "horas_gen": 0.0,
+            "horas_dist": 0.0,
+            "descanso_descontado_min": 0.0,
             "peso_unitario": peso_u,
             "peso_unitario_str": f"{peso_u:,.3f} kg/u".replace(".", ","),
             "desglose_entradas": {
@@ -1481,8 +1607,11 @@ def get_tunel_vt_production(turno_act: dict = None) -> dict:
                 "tiempo_valle_e2": 0.0, "tiempo_valle_e2_str": "0,0 min",
                 "tiempo_valle_e3": 0.0, "tiempo_valle_e3_str": "0,0 min",
                 "prendas_e1_hora": 0, "prendas_e1_hora_str": "0 p/h",
+                "prendas_e1_hora_dist": 0, "prendas_e1_hora_dist_str": "0 p/h",
                 "prendas_e2_hora": 0, "prendas_e2_hora_str": "0 p/h",
-                "prendas_e3_hora": 0, "prendas_e3_hora_str": "0 p/h"
+                "prendas_e2_hora_dist": 0, "prendas_e2_hora_dist_str": "0 p/h",
+                "prendas_e3_hora": 0, "prendas_e3_hora_str": "0 p/h",
+                "prendas_e3_hora_dist": 0, "prendas_e3_hora_dist_str": "0 p/h"
             },
             "grafica_hora_a_hora": {
                 "labels": default_labels,
@@ -1687,11 +1816,20 @@ def get_tunel_vt_production(turno_act: dict = None) -> dict:
     prendas_h = int(round(p_totales / horas_transcurridas))
     kg_h = round(w_totales / horas_transcurridas, 1)
 
+    shift_total_break_min = sum(float(b.get("durationMinutes") or b.get("duracion_min") or 0.0) for b in breaks_list) if breaks_list else 30.0
+    descanso_a_descontar = tot_descanso if tot_descanso > 0 else (shift_total_break_min if not shift_active else 0.0)
+    horas_dist = max(horas_transcurridas - (descanso_a_descontar / 60.0), 0.1)
+
+    prendas_h_dist = int(round(p_totales / horas_dist)) if horas_dist > 0 else 0
+    kg_h_dist = round(w_totales / horas_dist, 1) if horas_dist > 0 else 0.0
+
     prendas_totales_str = f"{p_totales:,}".replace(",", ".") + " prendas"
     kgs_totales_str = f"{w_totales:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg"
     tiempo_valle_str = f"{v_total:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min"
     prendas_hora_str = f"{prendas_h:,}".replace(",", ".") + " prendas/h"
+    prendas_hora_dist_str = f"{prendas_h_dist:,}".replace(",", ".") + " prendas/h"
     kg_hora_str = f"{kg_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+    kg_hora_dist_str = f"{kg_h_dist:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
 
     return {
         "maquina": "TUNEL_VT",
@@ -1709,8 +1847,15 @@ def get_tunel_vt_production(turno_act: dict = None) -> dict:
         "tiempo_descanso_str": f"{tot_descanso:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
         "prendas_hora": prendas_h,
         "prendas_hora_str": prendas_hora_str,
+        "prendas_hora_dist": prendas_h_dist,
+        "prendas_hora_dist_str": prendas_hora_dist_str,
         "kg_hora": kg_h,
         "kg_hora_str": kg_hora_str,
+        "kg_hora_dist": kg_h_dist,
+        "kg_hora_dist_str": kg_hora_dist_str,
+        "horas_gen": round(horas_transcurridas, 2),
+        "horas_dist": round(horas_dist, 2),
+        "descanso_descontado_min": descanso_a_descontar,
         "peso_unitario": peso_u,
         "peso_unitario_str": f"{peso_u:,.3f} kg/u".replace(".", ","),
         "desglose_entradas": {
@@ -1734,10 +1879,16 @@ def get_tunel_vt_production(turno_act: dict = None) -> dict:
             "tiempo_valle_e3_str": f"{latest_v3:.1f} min",
             "prendas_e1_hora": int(round(latest_e1 / horas_transcurridas)),
             "prendas_e1_hora_str": f"{int(round(latest_e1 / horas_transcurridas)):,} p/h".replace(",", "."),
+            "prendas_e1_hora_dist": int(round(latest_e1 / horas_dist)) if horas_dist > 0 else 0,
+            "prendas_e1_hora_dist_str": f"{int(round(latest_e1 / horas_dist)):,} p/h".replace(",", ".") if horas_dist > 0 else "0 p/h",
             "prendas_e2_hora": int(round(latest_e2 / horas_transcurridas)),
             "prendas_e2_hora_str": f"{int(round(latest_e2 / horas_transcurridas)):,} p/h".replace(",", "."),
+            "prendas_e2_hora_dist": int(round(latest_e2 / horas_dist)) if horas_dist > 0 else 0,
+            "prendas_e2_hora_dist_str": f"{int(round(latest_e2 / horas_dist)):,} p/h".replace(",", ".") if horas_dist > 0 else "0 p/h",
             "prendas_e3_hora": int(round(latest_e3 / horas_transcurridas)),
-            "prendas_e3_hora_str": f"{int(round(latest_e3 / horas_transcurridas)):,} p/h".replace(",", ".")
+            "prendas_e3_hora_str": f"{int(round(latest_e3 / horas_transcurridas)):,} p/h".replace(",", "."),
+            "prendas_e3_hora_dist": int(round(latest_e3 / horas_dist)) if horas_dist > 0 else 0,
+            "prendas_e3_hora_dist_str": f"{int(round(latest_e3 / horas_dist)):,} p/h".replace(",", ".") if horas_dist > 0 else "0 p/h"
         },
         "grafica_hora_a_hora": {
             "labels": labels,
@@ -1948,11 +2099,17 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             "tiempo_valle_min": 0.0,
             "tiempo_valle_str": "0,0 min",
             "tiempo_descanso_min": 0.0,
-            "tiempo_descanso_str": "0,0 min",
             "prendas_hora": 0,
             "prendas_hora_str": "0 prendas/h",
+            "prendas_hora_dist": 0,
+            "prendas_hora_dist_str": "0 prendas/h",
             "kg_hora": 0.0,
             "kg_hora_str": "0,0 kg/h",
+            "kg_hora_dist": 0.0,
+            "kg_hora_dist_str": "0,0 kg/h",
+            "horas_gen": 0.0,
+            "horas_dist": 0.0,
+            "descanso_descontado_min": 0.0,
             "desglose_calandra2": {
                 "prendas_grandes": 0,
                 "prendas_grandes_str": "0 grandes",
@@ -1972,8 +2129,12 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
                 "tiempo_valle_pequenas_str": "0.0 min",
                 "prendas_grandes_hora": 0,
                 "prendas_grandes_hora_str": "0 g/h",
+                "prendas_grandes_hora_dist": 0,
+                "prendas_grandes_hora_dist_str": "0 g/h",
                 "prendas_pequenas_hora": 0,
-                "prendas_pequenas_hora_str": "0 p/h"
+                "prendas_pequenas_hora_str": "0 p/h",
+                "prendas_pequenas_hora_dist": 0,
+                "prendas_pequenas_hora_dist_str": "0 p/h"
             } if maquina_id == "CALANDRA_2" else None,
             "peso_pequenas": p_def_peq if maquina_id == "CALANDRA_2" else None,
             "peso_pequenas_gr": int(round(p_def_peq * 1000)) if maquina_id == "CALANDRA_2" else None,
@@ -2205,11 +2366,20 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
     prendas_h = int(round(p_totales / horas_transcurridas))
     kg_h = round(w_totales / horas_transcurridas, 1)
 
+    shift_total_break_min = sum(float(b.get("durationMinutes") or b.get("duracion_min") or 0.0) for b in breaks_list) if breaks_list else 30.0
+    descanso_a_descontar = tot_descanso_remoto if tot_descanso_remoto > 0 else (shift_total_break_min if not shift_active else 0.0)
+    horas_dist = max(horas_transcurridas - (descanso_a_descontar / 60.0), 0.1)
+
+    prendas_h_dist = int(round(p_totales / horas_dist)) if horas_dist > 0 else 0
+    kg_h_dist = round(w_totales / horas_dist, 1) if horas_dist > 0 else 0.0
+
     prendas_totales_str = f"{p_totales:,}".replace(",", ".") + " prendas"
     kgs_totales_str = f"{w_totales:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg"
     tiempo_valle_str = f"{v_total:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min"
     prendas_hora_str = f"{prendas_h:,}".replace(",", ".") + " prendas/h"
+    prendas_hora_dist_str = f"{prendas_h_dist:,}".replace(",", ".") + " prendas/h"
     kg_hora_str = f"{kg_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+    kg_hora_dist_str = f"{kg_h_dist:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
 
     res_prod = {
         "maquina": maquina_id,
@@ -2226,8 +2396,15 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
         "tiempo_descanso_str": f"{tot_descanso_remoto:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
         "prendas_hora": prendas_h,
         "prendas_hora_str": prendas_hora_str,
+        "prendas_hora_dist": prendas_h_dist,
+        "prendas_hora_dist_str": prendas_hora_dist_str,
         "kg_hora": kg_h,
         "kg_hora_str": kg_hora_str,
+        "kg_hora_dist": kg_h_dist,
+        "kg_hora_dist_str": kg_hora_dist_str,
+        "horas_gen": round(horas_transcurridas, 2),
+        "horas_dist": round(horas_dist, 2),
+        "descanso_descontado_min": descanso_a_descontar,
         "desglose_calandra2": {
             "prendas_grandes": p_grandes,
             "prendas_grandes_str": f"{p_grandes:,}".replace(",", ".") + " grandes",
@@ -2247,8 +2424,12 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             "tiempo_valle_pequenas_str": f"{v_pequenas:.1f} min",
             "prendas_grandes_hora": int(round(p_grandes / horas_transcurridas)),
             "prendas_grandes_hora_str": f"{int(round(p_grandes / horas_transcurridas)):,} g/h".replace(",", "."),
+            "prendas_grandes_hora_dist": int(round(p_grandes / horas_dist)) if horas_dist > 0 else 0,
+            "prendas_grandes_hora_dist_str": f"{int(round(p_grandes / horas_dist)):,} g/h".replace(",", ".") if horas_dist > 0 else "0 g/h",
             "prendas_pequenas_hora": int(round(p_pequenas / horas_transcurridas)),
-            "prendas_pequenas_hora_str": f"{int(round(p_pequenas / horas_transcurridas)):,} p/h".replace(",", ".")
+            "prendas_pequenas_hora_str": f"{int(round(p_pequenas / horas_transcurridas)):,} p/h".replace(",", "."),
+            "prendas_pequenas_hora_dist": int(round(p_pequenas / horas_dist)) if horas_dist > 0 else 0,
+            "prendas_pequenas_hora_dist_str": f"{int(round(p_pequenas / horas_dist)):,} p/h".replace(",", ".") if horas_dist > 0 else "0 p/h"
         } if maquina_id == "CALANDRA_2" else None,
         "peso_pequenas": p_peq_unit if maquina_id == "CALANDRA_2" else None,
         "peso_pequenas_gr": int(round(p_peq_unit * 1000)) if maquina_id == "CALANDRA_2" else None,
@@ -2477,6 +2658,8 @@ def get_tunel_lavado_dashboard(user: dict = Depends(check_produccion_permission)
             "hprod": {
                 "titulo": "Productividad hProd",
                 "valor": tunel_kpis["hprod"],
+                "valor_dist": tunel_kpis.get("hprod_dist", tunel_kpis["hprod"]),
+                "descanso_min": tunel_kpis.get("tiempo_descanso_min", 30.0),
                 "subtexto": f"Tiempo prom: {tunel_kpis['promedio_tiempo_carga']}",
                 "color_gradiente": "linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)",
                 "icono": "fa-tachometer-alt"
@@ -2903,7 +3086,10 @@ def build_shift_json_package(turno_act: dict = None):
             },
             "productividad_hprod": {
                 "valor_num": tunel_kpis.get("hprod_num", 0),
-                "valor_str": tunel_kpis.get("hprod", "0 kg/h")
+                "valor_str": tunel_kpis.get("hprod", "0 kg/h"),
+                "valor_dist_num": tunel_kpis.get("hprod_dist_num", tunel_kpis.get("hprod_num", 0)),
+                "valor_dist_str": tunel_kpis.get("hprod_dist", tunel_kpis.get("hprod", "0 kg/h")),
+                "tiempo_descanso_min": tunel_kpis.get("tiempo_descanso_min", 30.0)
             },
             "indice_eficiencia_ikprod": {
                 "pct_num": ikprod.get("pct", 0.0),
@@ -3068,7 +3254,7 @@ def get_shift_json_by_key(shift_key: str, user: dict = Depends(check_produccion_
     if not row or not row["data_json"]:
         raise HTTPException(status_code=404, detail="Paquete JSON de turno no encontrado")
 
-    return json.loads(row["data_json"])
+    return enrich_shift_package_dist(json.loads(row["data_json"]), "TUNEL_LAVADO")
 
 
 @router.post("/turnos/force-sync")
@@ -4651,10 +4837,11 @@ def get_tunel_vt_turno_json_detalle(
 ):
     """Retorna el paquete JSON completo de un turno persistido para Túnel VT."""
     conn = get_db_connection()
+    alt_key = shift_key.replace("TUNEL_VT_", "") if shift_key.startswith("TUNEL_VT_") else f"TUNEL_VT_{shift_key}"
     row = conn.execute("""
         SELECT data_json, fecha, turno_identificador, hora_inicio, hora_fin FROM tunel_vt_turnos_persistencia
-        WHERE shift_key = ?
-    """, (shift_key,)).fetchone()
+        WHERE shift_key IN (?, ?) OR shift_key LIKE ?
+    """, (shift_key, alt_key, f"%{shift_key}%")).fetchone()
     conn.close()
 
     if not row or not row["data_json"]:
@@ -4686,7 +4873,8 @@ def get_tunel_vt_turno_json_detalle(
         logger.warning(f"Error refrescando turno activo VT en historial: {ex}")
 
     try:
-        return json.loads(row["data_json"])
+        pkg = json.loads(row["data_json"])
+        return enrich_shift_package_dist(pkg, "TUNEL_VT")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error parseando JSON: {e}")
 

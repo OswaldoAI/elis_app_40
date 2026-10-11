@@ -5,8 +5,11 @@ from pathlib import Path
 DB_PATH = Path(os.getenv("DB_PATH", "elis_40.db"))
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=15)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=10000;")
     return conn
 
 def init_db():
@@ -94,6 +97,8 @@ def init_db():
             substr(timestamp, 12)
         WHERE (timestamp_iso IS NULL OR timestamp_iso = '') AND timestamp LIKE '%/%/% %'
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tunel_cargas_ts ON tunel_cargas(timestamp_iso);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tunel_cargas_id ON tunel_cargas(id);")
     
     # Tabla de Persistencia de Paquetes JSON de Turnos
     cursor.execute("""
@@ -244,24 +249,176 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cal_turnos_maq_fecha ON calandras_turnos_persistencia(maquina, fecha, turno_identificador);")
 
+    # Tabla separada de Persistencia de Turnos para CALANDRA 2
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS calandra_2_turnos_persistencia (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shift_key TEXT UNIQUE NOT NULL,
+        fecha TEXT NOT NULL,
+        turno_identificador TEXT NOT NULL,
+        nombre_turno TEXT NOT NULL,
+        hora_inicio TEXT NOT NULL,
+        hora_fin TEXT NOT NULL,
+        rango_horario TEXT NOT NULL,
+        prendas_totales INTEGER DEFAULT 0,
+        prendas_grandes INTEGER DEFAULT 0,
+        prendas_pequenas INTEGER DEFAULT 0,
+        kgs_totales REAL DEFAULT 0.0,
+        kg_grandes REAL DEFAULT 0.0,
+        kg_pequenas REAL DEFAULT 0.0,
+        tiempo_valle_min REAL DEFAULT 0.0,
+        tiempo_valle_grandes_min REAL DEFAULT 0.0,
+        tiempo_valle_pequenas_min REAL DEFAULT 0.0,
+        prendas_hora INTEGER DEFAULT 0,
+        kg_hora REAL DEFAULT 0.0,
+        data_json TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cal2_turnos_fecha ON calandra_2_turnos_persistencia(fecha, turno_identificador);")
+
+    # Tabla separada de Persistencia de Turnos para CALANDRA 3
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS calandra_3_turnos_persistencia (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shift_key TEXT UNIQUE NOT NULL,
+        fecha TEXT NOT NULL,
+        turno_identificador TEXT NOT NULL,
+        nombre_turno TEXT NOT NULL,
+        hora_inicio TEXT NOT NULL,
+        hora_fin TEXT NOT NULL,
+        rango_horario TEXT NOT NULL,
+        prendas_totales INTEGER DEFAULT 0,
+        kgs_totales REAL DEFAULT 0.0,
+        tiempo_valle_min REAL DEFAULT 0.0,
+        peso_unitario REAL DEFAULT 1.180,
+        prendas_hora INTEGER DEFAULT 0,
+        kg_hora REAL DEFAULT 0.0,
+        data_json TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cal3_turnos_fecha ON calandra_3_turnos_persistencia(fecha, turno_identificador);")
+
     # Tabla de Configuración de Peso Unitario por Calandra
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS calandras_peso_unitario (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         maquina TEXT UNIQUE NOT NULL,
-        peso_unitario REAL DEFAULT 0.400,
-        peso_pequenas REAL DEFAULT 0.080,
-        peso_grandes REAL DEFAULT 0.350,
+        peso_unitario REAL DEFAULT 1.180,
+        peso_pequenas REAL DEFAULT 0.470,
+        peso_grandes REAL DEFAULT 0.780,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
     cursor.execute("""
         INSERT OR IGNORE INTO calandras_peso_unitario (maquina, peso_unitario, peso_pequenas, peso_grandes)
-        VALUES ('CALANDRA_3', 0.400, 0.000, 0.400)
+        VALUES ('CALANDRA_3', 1.180, 0.000, 1.180)
     """)
     cursor.execute("""
         INSERT OR IGNORE INTO calandras_peso_unitario (maquina, peso_unitario, peso_pequenas, peso_grandes)
-        VALUES ('CALANDRA_2', 0.000, 0.080, 0.350)
+        VALUES ('CALANDRA_2', 0.000, 0.470, 0.780)
+    """)
+
+    # Actualización/Migración de registros existentes en la BD con valores por defecto antiguos
+    cursor.execute("""
+        UPDATE calandras_peso_unitario 
+        SET peso_unitario = 1.180, peso_grandes = 1.180, updated_at = CURRENT_TIMESTAMP 
+        WHERE maquina = 'CALANDRA_3' AND (peso_unitario = 0.400 OR peso_unitario IS NULL OR peso_unitario = 0.0);
+    """)
+    cursor.execute("""
+        UPDATE calandras_peso_unitario 
+        SET peso_pequenas = 0.470, peso_grandes = 0.780, updated_at = CURRENT_TIMESTAMP 
+        WHERE maquina = 'CALANDRA_2' AND (peso_pequenas = 0.080 OR peso_pequenas IS NULL OR peso_pequenas = 0.0);
+    """)
+
+    # Tablas de Producción de Túnel VT (MQTT datos_vt)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tunel_vt_produccion (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        device_id TEXT,
+        shift_name TEXT,
+        entrada_1 INTEGER DEFAULT 0,
+        entrada_2 INTEGER DEFAULT 0,
+        entrada_3 INTEGER DEFAULT 0,
+        count_total INTEGER DEFAULT 0,
+        gas_pulsos INTEGER DEFAULT 0,
+        tiempo_valle_e1_min REAL DEFAULT 0.0,
+        tiempo_valle_e2_min REAL DEFAULT 0.0,
+        tiempo_valle_e3_min REAL DEFAULT 0.0,
+        tiempo_valle_total_min REAL DEFAULT 0.0,
+        peso_unitario_kg REAL DEFAULT 0.260,
+        weight_total_kg REAL DEFAULT 0.0,
+        raw_json TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tunel_vt_prod_ts ON tunel_vt_produccion(timestamp_iso);")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tunel_vt_turnos_persistencia (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shift_key TEXT UNIQUE NOT NULL,
+        fecha TEXT NOT NULL,
+        turno_identificador TEXT NOT NULL,
+        nombre_turno TEXT NOT NULL,
+        hora_inicio TEXT NOT NULL,
+        hora_fin TEXT NOT NULL,
+        rango_horario TEXT NOT NULL,
+        prendas_totales INTEGER DEFAULT 0,
+        entrada_1 INTEGER DEFAULT 0,
+        entrada_2 INTEGER DEFAULT 0,
+        entrada_3 INTEGER DEFAULT 0,
+        tiempo_valle_e1_min REAL DEFAULT 0.0,
+        tiempo_valle_e2_min REAL DEFAULT 0.0,
+        tiempo_valle_e3_min REAL DEFAULT 0.0,
+        tiempo_valle_total_min REAL DEFAULT 0.0,
+        kgs_totales REAL DEFAULT 0.0,
+        peso_unitario REAL DEFAULT 0.260,
+        prendas_hora INTEGER DEFAULT 0,
+        kg_hora REAL DEFAULT 0.0,
+        data_json TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_vt_turnos_fecha ON tunel_vt_turnos_persistencia(fecha, turno_identificador);")
+
+    # Tabla de Configuración de Peso Unitario Túnel VT (por defecto 0.260 kg / 260 gr)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tunel_vt_peso_unitario (
+        id INTEGER PRIMARY KEY,
+        peso_unitario REAL DEFAULT 0.260,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+        INSERT OR IGNORE INTO tunel_vt_peso_unitario (id, peso_unitario)
+        VALUES (1, 0.260)
+    """)
+
+    # Limpieza automática de turnos inválidos o fuera de turno en todas las máquinas
+    cursor.execute("""
+        DELETE FROM calandra_2_turnos_persistencia 
+        WHERE UPPER(nombre_turno) LIKE '%FUERA%' 
+           OR UPPER(shift_key) LIKE '%FUERA%' 
+           OR UPPER(nombre_turno) LIKE '%SIN TURNO%';
+    """)
+    cursor.execute("""
+        DELETE FROM calandra_3_turnos_persistencia 
+        WHERE UPPER(nombre_turno) LIKE '%FUERA%' 
+           OR UPPER(shift_key) LIKE '%FUERA%' 
+           OR UPPER(nombre_turno) LIKE '%SIN TURNO%';
+    """)
+    cursor.execute("""
+        DELETE FROM tunel_vt_turnos_persistencia 
+        WHERE UPPER(nombre_turno) LIKE '%FUERA%' 
+           OR UPPER(shift_key) LIKE '%FUERA%' 
+           OR UPPER(nombre_turno) LIKE '%SIN TURNO%';
     """)
 
     conn.commit()

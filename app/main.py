@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, Response
+from typing import Optional
 import os
+import json
 from pathlib import Path
 import urllib.request
 
@@ -58,6 +60,123 @@ async def websocket_tunel_endpoint(websocket: WebSocket):
 
 import re
 
+def process_tabla_horaria_payload(data: dict) -> dict:
+    try:
+        hour_slots = data.get("hour_slots", [])
+        cells = data.get("cells", {})
+        if not hour_slots or not cells:
+            return data
+
+        h_start_first = hour_slots[0].get("h_start", 0)
+        
+        # Slots que ocurren tras medianoche (ej: 00:00, 01:00 en Turno 3 de 21:00 a 02:10)
+        midnight_slots = [s["index"] for s in hour_slots if s.get("h_start", 0) < h_start_first]
+        if not midnight_slots:
+            return data
+
+        corrected_cells = {}
+        for d in range(7):
+            for s in hour_slots:
+                s_idx = s["index"]
+                
+                if s_idx in midnight_slots:
+                    # El Turno 3 del día `d` finaliza en la madrugada del día `d + 1`.
+                    # En 5002, esa producción se guardó en la celda del día `d + 1`.
+                    source_day = d + 1
+                    source_key = f"{source_day}_{s_idx}"
+                    raw_c = cells.get(source_key, {}) if source_day < 7 else {}
+                else:
+                    orig_key = f"{d}_{s_idx}"
+                    raw_c = cells.get(orig_key, {})
+
+                sm = int(raw_c.get("small", 0) or 0)
+                lg = int(raw_c.get("large", 0) or 0)
+                tot_c = raw_c.get("total")
+                idle = float(raw_c.get("idle_min", 0.0) or 0.0)
+
+                # Sanitizar desbordamientos anómalos de contadores absolutos de 5002
+                if sm > 5000: sm = 0
+                if lg > 5000: lg = 0
+                if tot_c is not None and tot_c > 5000: tot_c = 0
+                if idle > 300: idle = 0.0
+
+                if tot_c is None:
+                    tot_c = sm + lg
+
+                corrected_cells[f"{d}_{s_idx}"] = {
+                    "small": sm,
+                    "large": lg,
+                    "total": tot_c,
+                    "idle_min": round(idle, 1)
+                }
+
+        data["cells"] = corrected_cells
+
+        totals_by_day = []
+        grand_total_p = 0
+        grand_total_v = 0.0
+
+        for d in range(7):
+            day_small = 0
+            day_large = 0
+            day_v = 0.0
+            for s in hour_slots:
+                s_idx = s["index"]
+                c = corrected_cells.get(f"{d}_{s_idx}", {})
+                sm = int(c.get("small", 0) or 0)
+                lg = int(c.get("large", 0) or 0)
+                tot_c = c.get("total")
+                if tot_c is not None and sm == 0 and lg == 0:
+                    sm = int(tot_c)
+                v = float(c.get("idle_min", 0.0) or 0.0)
+                day_small += sm
+                day_large += lg
+                day_v += v
+
+            day_v = round(day_v, 1)
+            day_tot = day_small + day_large
+            grand_total_p += day_tot
+            grand_total_v += day_v
+
+            totals_by_day.append({
+                "day": d,
+                "small": day_small,
+                "large": day_large,
+                "total_prendas": day_tot,
+                "idle_min": day_v,
+                "total_idle_min": day_v
+            })
+
+        data["totals_by_day"] = totals_by_day
+        data["grand_total"] = {
+            "total_prendas": grand_total_p,
+            "total_idle_min": round(grand_total_v, 1),
+            "idle_min": round(grand_total_v, 1)
+        }
+
+    except Exception as ex:
+        print(f"Error procesando payload tabla-horaria: {ex}")
+    return data
+
+# Proxy para APIs en tiempo real y configuración de Jetson Server 1 (5002)
+from app.routers.produccion_router import get_tabla_horaria_data
+
+# Route para servir /api/tabla-horaria directamente desde SQLite (calandra_2_turnos_persistencia y calandra_3_turnos_persistencia)
+@app.api_route("/api/tabla-horaria", methods=["GET", "POST"])
+async def api_tabla_horaria_native(request: Request, machine_id: str = "calandra_3", shift_index: Optional[int] = None):
+    m_id = request.query_params.get("machine_id") or machine_id
+    s_idx = request.query_params.get("shift_index")
+    if s_idx is not None:
+        try:
+            s_idx = int(s_idx)
+        except Exception:
+            s_idx = shift_index
+    else:
+        s_idx = shift_index
+
+    data = get_tabla_horaria_data(machine_id=m_id, shift_index=s_idx)
+    return Response(content=json.dumps(data, ensure_ascii=False), media_type="application/json")
+
 # Proxy para APIs en tiempo real y configuración de Jetson Server 1 (5002)
 @app.api_route("/api/conteo_live", methods=["GET", "POST"])
 @app.api_route("/api/calandra2/conteo_live", methods=["GET", "POST"])
@@ -104,7 +223,8 @@ async def proxy_5002_api(request: Request):
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as response:
-            return Response(content=response.read(), status_code=response.status, media_type=response.headers.get("content-type", "application/json"))
+            res_body = response.read()
+            return Response(content=res_body, status_code=response.status, media_type=response.headers.get("content-type", "application/json"))
     except Exception as e:
         return Response(content=f'{{"error": "{str(e)}"}}', status_code=502, media_type="application/json")
 
@@ -152,8 +272,8 @@ def proxy_tabla_produccion(request: Request, path: str = ""):
                 if "font-awesome" not in html and "</head>" in html:
                     html = html.replace("</head>", f"{fa_link}\n</head>")
                 
-                # Caso Dashboard Principal (Monitoreo 5002): Inyectar botón y modal para Calandra 2 si no están presentes
-                if "CALANDRA 2 (GRANDES Y PEQUEÑAS)" in html and "openWeightModalCalandra2" not in html:
+                # Caso Dashboard Principal (Monitoreo 5002): Inyectar botón y modal para Calandra 2 si no están presentes (solo en monitoreo principal, no en tablas)
+                if "CALANDRA 2 (GRANDES Y PEQUEÑAS)" in html and not req_path.lower().startswith("/tabla") and "openWeightModalCalandra2" not in html:
                     target_header = """<div class="panel-title">
                         ⚙️ CALANDRA 2 (GRANDES Y PEQUEÑAS)
                         <span class="panel-badge" id="c2Shift">TURNO 1</span>
@@ -259,121 +379,81 @@ def proxy_tabla_produccion(request: Request, path: str = ""):
                     if "</body>" in html:
                         html = html.replace("</body>", f"{modal_c2_dash}\n</body>")
                 
-                btn_html = '<button class="btn-action btn-blue" onclick="openPesoModal()"><i class="fas fa-balance-scale"></i> Peso x Unidad</button>'
+                # Redirigir el enlace/botón Volver al Dashboard a /inicio
+                html = html.replace('href="/"', 'href="/inicio"')
+                html = html.replace('href=""', 'href="/inicio"')
                 
-                if "calandra3" in path.lower():
-                    modal_html = """
-                    <div id="modalPeso" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:99999; justify-content:center; align-items:center;">
-                      <div style="background:#0f172a; border:1px solid #334155; border-radius:14px; width:380px; padding:1.5rem; color:#fff; box-shadow: 0 20px 40px rgba(0,0,0,0.8); font-family: 'Plus Jakarta Sans', sans-serif;">
-                        <h3 style="margin-top:0; font-size:1.15rem; color:#60a5fa; display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
-                          <i class="fas fa-balance-scale"></i> Peso Unitario - Calandra 3
-                        </h3>
-                        <p style="font-size:0.8rem; color:#94a3b8; margin-bottom:1.2rem;">Configure el peso medio por prenda (Sábanas) en Kilogramos:</p>
-                        <div style="margin-bottom:1.2rem;">
-                          <label style="font-size:0.82rem; font-weight:700; color:#cbd5e1; display:block; margin-bottom:0.4rem;">Peso Unitario Sábanas (kg):</label>
-                          <input type="number" id="pesoUnitarioSabanas" step="0.001" min="0.001" placeholder="Ej. 0.400" style="width:100%; background:#1e293b; border:1px solid #475569; border-radius:8px; padding:0.65rem; color:#fff; font-weight:700; font-size:1rem; outline:none;">
-                        </div>
-                        <div style="display:flex; justify-content:flex-end; gap:0.6rem; margin-top:1.5rem;">
-                          <button onclick="closePesoModal()" style="background:#334155; color:#fff; border:none; padding:0.55rem 1.1rem; border-radius:8px; font-weight:700; cursor:pointer;">Cancelar</button>
-                          <button onclick="savePesoUnitario('CALANDRA_3')" style="background:#2563eb; color:#fff; border:none; padding:0.55rem 1.3rem; border-radius:8px; font-weight:700; cursor:pointer;">Guardar</button>
-                        </div>
-                      </div>
-                    </div>
-                    <script>
-                    async function openPesoModal() {
-                      document.getElementById('modalPeso').style.display = 'flex';
-                      try {
-                        const res = await fetch('/api/produccion/calandras/CALANDRA_3/peso-unitario');
-                        const data = await res.json();
-                        if (data.peso_unitario !== undefined) {
-                          document.getElementById('pesoUnitarioSabanas').value = data.peso_unitario;
-                        }
-                      } catch(e) { console.error('Error cargando peso:', e); }
-                    }
-                    function closePesoModal() { document.getElementById('modalPeso').style.display = 'none'; }
-                    async function savePesoUnitario(mId) {
-                      const val = parseFloat(document.getElementById('pesoUnitarioSabanas').value);
-                      if (isNaN(val) || val <= 0) { alert('Por favor ingrese un peso válido en kg (ej. 0.400)'); return; }
-                      try {
-                        const res = await fetch('/api/produccion/calandras/' + mId + '/peso-unitario', {
-                          method: 'POST',
-                          headers: {'Content-Type': 'application/json'},
-                          body: JSON.stringify({peso_unitario: val})
-                        });
-                        const data = await res.json();
-                        alert('✅ Peso unitario de Calandra 3 guardado correctamente (' + val + ' kg)');
-                        closePesoModal();
-                      } catch(e) { alert('Error guardando peso: ' + e); }
-                    }
-                    </script>
-                    """
-                    if '<div class="action-btns">' in html:
-                        html = html.replace('<div class="action-btns">', f'<div class="action-btns">\n{btn_html}')
-                    if "</body>" in html:
-                        html = html.replace("</body>", f"{modal_html}\n</body>")
-
-                elif "calandra2" in path.lower():
-                    modal_html = """
-                    <div id="modalPeso" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:99999; justify-content:center; align-items:center;">
-                      <div style="background:#0f172a; border:1px solid #334155; border-radius:14px; width:400px; padding:1.5rem; color:#fff; box-shadow: 0 20px 40px rgba(0,0,0,0.8); font-family: 'Plus Jakarta Sans', sans-serif;">
-                        <h3 style="margin-top:0; font-size:1.15rem; color:#60a5fa; display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
-                          <i class="fas fa-balance-scale"></i> Peso Unitario - Calandra 2
-                        </h3>
-                        <p style="font-size:0.8rem; color:#94a3b8; margin-bottom:1.2rem;">Configure el peso medio en Kilogramos para cada tipo de prenda:</p>
-                        <div style="margin-bottom:1rem;">
-                          <label style="font-size:0.82rem; font-weight:700; color:#cbd5e1; display:block; margin-bottom:0.4rem;">Prendas Pequeñas (Servilletas) (kg):</label>
-                          <input type="number" id="pesoUnitarioPequenas" step="0.001" min="0.001" placeholder="Ej. 0.080" style="width:100%; background:#1e293b; border:1px solid #475569; border-radius:8px; padding:0.65rem; color:#fff; font-weight:700; font-size:1rem; outline:none;">
-                        </div>
-                        <div style="margin-bottom:1.2rem;">
-                          <label style="font-size:0.82rem; font-weight:700; color:#cbd5e1; display:block; margin-bottom:0.4rem;">Prendas Grandes (Manteles) (kg):</label>
-                          <input type="number" id="pesoUnitarioGrandes" step="0.001" min="0.001" placeholder="Ej. 0.350" style="width:100%; background:#1e293b; border:1px solid #475569; border-radius:8px; padding:0.65rem; color:#fff; font-weight:700; font-size:1rem; outline:none;">
-                        </div>
-                        <div style="display:flex; justify-content:flex-end; gap:0.6rem; margin-top:1.5rem;">
-                          <button onclick="closePesoModal()" style="background:#334155; color:#fff; border:none; padding:0.55rem 1.1rem; border-radius:8px; font-weight:700; cursor:pointer;">Cancelar</button>
-                          <button onclick="savePesoUnitario('CALANDRA_2')" style="background:#2563eb; color:#fff; border:none; padding:0.55rem 1.3rem; border-radius:8px; font-weight:700; cursor:pointer;">Guardar</button>
-                        </div>
-                      </div>
-                    </div>
-                    <script>
-                    async function openPesoModal() {
-                      document.getElementById('modalPeso').style.display = 'flex';
-                      try {
-                        const res = await fetch('/api/produccion/calandras/CALANDRA_2/peso-unitario');
-                        const data = await res.json();
-                        if (data.peso_pequenas !== undefined) {
-                          document.getElementById('pesoUnitarioPequenas').value = data.peso_pequenas;
-                        }
-                        if (data.peso_grandes !== undefined) {
-                          document.getElementById('pesoUnitarioGrandes').value = data.peso_grandes;
-                        }
-                      } catch(e) { console.error('Error cargando pesos:', e); }
-                    }
-                    function closePesoModal() { document.getElementById('modalPeso').style.display = 'none'; }
-                    async function savePesoUnitario(mId) {
-                      const peq = parseFloat(document.getElementById('pesoUnitarioPequenas').value);
-                      const gra = parseFloat(document.getElementById('pesoUnitarioGrandes').value);
-                      if (isNaN(peq) || peq <= 0 || isNaN(gra) || gra <= 0) {
-                        alert('Por favor ingrese valores de peso válidos en kg para prendas pequeñas y grandes');
-                        return;
+                # Inyectar auto-refresco de tabla cada 15 segundos y escucha de visibilidad de pestaña
+                refresh_script = """
+                <script>
+                (function() {
+                  if (window.EventSource && !window._eventSourcePatched) {
+                    window._eventSourcePatched = true;
+                    const OrigES = window.EventSource;
+                    window.EventSource = function(url, options) {
+                      if (url && (url.includes('tabla-stream') || url.includes('stream'))) {
+                        return {
+                          addEventListener: function() {},
+                          removeEventListener: function() {},
+                          close: function() {},
+                          onerror: null, onmessage: null, onopen: null
+                        };
                       }
-                      try {
-                        const res = await fetch('/api/produccion/calandras/' + mId + '/peso-unitario', {
-                          method: 'POST',
-                          headers: {'Content-Type': 'application/json'},
-                          body: JSON.stringify({peso_pequenas: peq, peso_grandes: gra})
-                        });
-                        const data = await res.json();
-                        alert('✅ Pesos unitarios de Calandra 2 guardados correctamente');
-                        closePesoModal();
-                      } catch(e) { alert('Error guardando pesos: ' + e); }
+                      return new OrigES(url, options);
+                    };
+                  }
+
+                  window._userSelectedShift = null;
+
+                  function patchLoadTableData() {
+                    if (typeof window.loadTableData === 'function' && !window.loadTableData._isPatched) {
+                      const origLoadTableData = window.loadTableData;
+                      window.loadTableData = function(shiftIndex, isExplicit) {
+                        if (isExplicit !== undefined) {
+                          window._userSelectedShift = isExplicit ? shiftIndex : null;
+                        } else if (shiftIndex !== undefined && shiftIndex !== null) {
+                          window._userSelectedShift = shiftIndex;
+                        }
+                        let targetShift = window._userSelectedShift;
+                        return origLoadTableData(targetShift !== null ? targetShift : undefined);
+                      };
+                      window.loadTableData._isPatched = true;
                     }
-                    </script>
-                    """
-                    if '<div class="action-btns">' in html:
-                        html = html.replace('<div class="action-btns">', f'<div class="action-btns">\n{btn_html}')
-                    if "</body>" in html:
-                        html = html.replace("</body>", f"{modal_html}\n</body>")
-                
+                  }
+
+                  patchLoadTableData();
+                  document.addEventListener('DOMContentLoaded', patchLoadTableData);
+                  window.addEventListener('load', patchLoadTableData);
+
+                  setInterval(() => {
+                    patchLoadTableData();
+                    if (typeof window.loadTableData === 'function') {
+                      window.loadTableData();
+                    }
+                  }, 15000);
+
+                  const triggerInstantRefresh = () => {
+                    patchLoadTableData();
+                    if (typeof window.loadTableData === 'function') {
+                      window.loadTableData();
+                    }
+                  };
+
+                  document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') {
+                      triggerInstantRefresh();
+                    }
+                  });
+
+                  window.addEventListener('focus', triggerInstantRefresh);
+                })();
+                </script>
+                """
+                if "font-awesome" not in html and "</head>" in html:
+                    html = html.replace("</head>", f"{fa_link}\n{refresh_script}\n</head>")
+                elif "</head>" in html:
+                    html = html.replace("</head>", f"{refresh_script}\n</head>")
+
                 return Response(content=html.encode("utf-8"), status_code=status_code, media_type=content_type)
             
             return Response(content=raw_content, status_code=status_code, media_type=content_type)
@@ -390,6 +470,23 @@ def read_root():
 def read_inicio():
     return FileResponse(BASE_DIR / "static" / "index.html")
 
+# 8. Rutas Públicas Web Funnel para Versión Móvil y Tablet (Producción)
+@app.get("/funnel")
+def redirect_funnel():
+    return RedirectResponse(url="/funnel/produccion")
+
+@app.get("/funnel/produccion")
+def read_funnel_produccion():
+    return FileResponse(BASE_DIR / "static" / "funnel_produccion.html")
+
+@app.get("/movil")
+@app.get("/mobile")
+@app.get("/movil/produccion")
+@app.get("/mobile/produccion")
+def redirect_mobile_aliases():
+    return RedirectResponse(url="/funnel/produccion")
+
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return FileResponse(BASE_DIR / "static" / "images" / "elis_logo.png")
+

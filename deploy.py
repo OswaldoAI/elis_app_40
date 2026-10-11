@@ -71,8 +71,11 @@ def deploy():
         "app/routers/produccion_router.py",
         "app/routers/consumos_router.py",
         "app/static/index.html",
+        "app/static/funnel_produccion.html",
         "app/static/css/styles.css",
+        "app/static/css/funnel.css",
         "app/static/js/app.js",
+        "app/static/js/funnel.js",
         "app/static/images/elis_logo.png",
         "app/static/images/industria_40.png"
     ]
