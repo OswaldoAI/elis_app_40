@@ -3,7 +3,7 @@ from typing import Optional
 import json
 from app.auth import get_current_user
 from app.database import get_db_connection
-from app.turnos_sync import get_cached_turnos, sync_turnos_from_server_1
+from app.turnos_sync import get_cached_turnos, sync_turnos_from_server_1, get_shifts_for_date
 
 router = APIRouter(prefix="/api/produccion", tags=["Producción"])
 
@@ -69,34 +69,14 @@ def get_shift_start_end_iso(fecha: str, hora_inicio: str, hora_fin: str) -> tupl
     end_iso = f"{end_date_str} {hora_fin}:00"
     return start_iso, end_iso
 
-def get_jornada_shifts_template() -> list[dict]:
+def get_jornada_shifts_template(fecha: Optional[str] = None) -> list[dict]:
     """
-    Retorna la lista de turnos programados para la jornada según la aplicación
-    de programación de turnos (http://192.168.0.137:5001).
-    Solo incluye los turnos que están realmente programados (no se agregan turnos inexistentes como Turno 4).
+    Retorna la lista de turnos programados según el módulo de turnos (http://192.168.0.137:5001).
+    El criterio único para determinar la ocurrencia de turnos es la consulta a este módulo.
+    Si se proporciona una fecha específica, retorna los turnos programados para esa fecha.
     """
-    turnos_cache = get_cached_turnos()
-    cached_shifts = turnos_cache.get("shifts") or []
-
-    if cached_shifts:
-        shifts = []
-        for idx, s in enumerate(cached_shifts):
-            nombre = s.get("name") or s.get("nombre") or f"Turno {idx + 1}"
-            h_start = s.get("start") or s.get("hora_inicio") or "06:00"
-            h_end = s.get("end") or s.get("hora_fin") or "14:00"
-            shifts.append({
-                "nombre": nombre,
-                "hora_inicio": str(h_start)[:5],
-                "hora_fin": str(h_end)[:5]
-            })
-        return shifts
-
-    # Fallback predeterminado estándar de la planta (3 turnos) si la API no estuviese accesible
-    return [
-        {"nombre": "Turno 1", "hora_inicio": "06:00", "hora_fin": "14:00"},
-        {"nombre": "Turno 2", "hora_inicio": "14:00", "hora_fin": "21:00"},
-        {"nombre": "Turno 3", "hora_inicio": "21:00", "hora_fin": "02:00"}
-    ]
+    target_fecha = fecha or get_current_jornada_date()
+    return get_shifts_for_date(target_fecha)
 
 def calculate_tunel_metrics(turno_act: dict = None):
     """Calcula indicadores reales agregados filtrando strictly por el turno activo o especificado."""
@@ -512,8 +492,8 @@ def get_turnos_sync_status(user: dict = Depends(check_produccion_permission)):
     return {
         "status": "success",
         "fuente_principal": "http://192.168.0.137:5001",
-        "intervalo_sincronizacion_seg": 1800,
-        "intervalo_sincronizacion_min": 30,
+        "intervalo_sincronizacion_seg": 30,
+        "intervalo_sincronizacion_min": 0.5,
         "cache_actualizado_el": cached.get("cache_updated_at"),
         "sincronizado_desde": cached.get("synced_from_url") or "http://192.168.0.137:5001",
         "jornada": cached.get("jornada"),
@@ -1251,7 +1231,7 @@ def get_calandra_shifts_by_date(
     is_current_jornada = (fecha == current_jornada)
     now_dt = get_local_now().replace(tzinfo=None)
 
-    shifts_template = get_jornada_shifts_template()
+    shifts_template = get_jornada_shifts_template(fecha)
     result = []
     seen_keys = set()
 
@@ -1381,10 +1361,9 @@ def sync_all_historical_calandra_shifts(maquina_id: str) -> int:
     conn.close()
 
     fechas = [r["f"] for r in rows if r["f"]]
-    turnos_plantilla = get_jornada_shifts_template()
-
     total_synced = 0
     for fecha in fechas:
+        turnos_plantilla = get_jornada_shifts_template(fecha)
         for idx, t_info in enumerate(turnos_plantilla):
             h_start = t_info["hora_inicio"]
             h_end = t_info["hora_fin"]
@@ -3129,7 +3108,7 @@ def get_shifts_by_date(fecha: str, user: dict = Depends(check_produccion_permiss
     is_current_jornada = (fecha == current_jornada)
     now_dt = get_local_now().replace(tzinfo=None)
 
-    shifts_template = get_jornada_shifts_template()
+    shifts_template = get_jornada_shifts_template(fecha)
     result = []
     seen_keys = set()
 
@@ -3313,8 +3292,6 @@ def sync_all_historical_shifts():
     conn.close()
 
     fechas = [r["f"] for r in rows if r["f"]]
-    turnos_plantilla = get_jornada_shifts_template()
-
     total_synced = 0
     for fecha in fechas:
         try:
@@ -3322,6 +3299,7 @@ def sync_all_historical_shifts():
         except Exception:
             continue
             
+        turnos_plantilla = get_jornada_shifts_template(fecha)
         for t_info in turnos_plantilla:
             nombre = t_info["nombre"]
             h_start = t_info["hora_inicio"]
@@ -4726,7 +4704,7 @@ def get_tunel_vt_shifts_by_date(
     is_current_jornada = (fecha == current_jornada)
     now_dt = get_local_now().replace(tzinfo=None)
 
-    shifts_template = get_jornada_shifts_template()
+    shifts_template = get_jornada_shifts_template(fecha)
     result = []
     seen_keys = set()
 
@@ -4884,10 +4862,9 @@ def sync_all_historical_tunel_vt_shifts() -> int:
     conn.close()
 
     fechas = [r["f"] for r in rows if r["f"]]
-    turnos_plantilla = get_jornada_shifts_template()
-
     total_synced = 0
     for fecha in fechas:
+        turnos_plantilla = get_jornada_shifts_template(fecha)
         for idx, t_info in enumerate(turnos_plantilla):
             h_start = t_info["hora_inicio"]
             h_end = t_info["hora_fin"]
