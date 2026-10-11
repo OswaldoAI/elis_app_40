@@ -70,32 +70,33 @@ def get_shift_start_end_iso(fecha: str, hora_inicio: str, hora_fin: str) -> tupl
     return start_iso, end_iso
 
 def get_jornada_shifts_template() -> list[dict]:
-    """Retorna los 4 posibles turnos de una jornada completa."""
+    """
+    Retorna la lista de turnos programados para la jornada según la aplicación
+    de programación de turnos (http://192.168.0.137:5001).
+    Solo incluye los turnos que están realmente programados (no se agregan turnos inexistentes como Turno 4).
+    """
     turnos_cache = get_cached_turnos()
     cached_shifts = turnos_cache.get("shifts") or []
-    
-    # Plantilla base de los 4 turnos posibles por jornada
-    default_shifts = [
+
+    if cached_shifts:
+        shifts = []
+        for idx, s in enumerate(cached_shifts):
+            nombre = s.get("name") or s.get("nombre") or f"Turno {idx + 1}"
+            h_start = s.get("start") or s.get("hora_inicio") or "06:00"
+            h_end = s.get("end") or s.get("hora_fin") or "14:00"
+            shifts.append({
+                "nombre": nombre,
+                "hora_inicio": str(h_start)[:5],
+                "hora_fin": str(h_end)[:5]
+            })
+        return shifts
+
+    # Fallback predeterminado estándar de la planta (3 turnos) si la API no estuviese accesible
+    return [
         {"nombre": "Turno 1", "hora_inicio": "06:00", "hora_fin": "14:00"},
         {"nombre": "Turno 2", "hora_inicio": "14:00", "hora_fin": "21:00"},
-        {"nombre": "Turno 3", "hora_inicio": "21:00", "hora_fin": "02:00"},
-        {"nombre": "Turno 4", "hora_inicio": "02:00", "hora_fin": "06:00"}
+        {"nombre": "Turno 3", "hora_inicio": "21:00", "hora_fin": "02:00"}
     ]
-    
-    if cached_shifts:
-        merged = []
-        for s in cached_shifts:
-            merged.append({
-                "nombre": s.get("name") or s.get("nombre"),
-                "hora_inicio": s.get("start") or s.get("hora_inicio"),
-                "hora_fin": s.get("end") or s.get("hora_fin")
-            })
-        for ds in default_shifts:
-            if not any(m["nombre"] == ds["nombre"] for m in merged):
-                merged.append(ds)
-        return merged[:4]
-    
-    return default_shifts
 
 def calculate_tunel_metrics(turno_act: dict = None):
     """Calcula indicadores reales agregados filtrando strictly por el turno activo o especificado."""
@@ -136,7 +137,7 @@ def calculate_tunel_metrics(turno_act: dict = None):
                 COUNT(DISTINCT cliente) as clientes_unicos,
                 COUNT(DISTINCT categoria) as programas_unicos
             FROM tunel_cargas
-            WHERE timestamp_iso >= ? AND timestamp_iso <= ?
+            WHERE timestamp_iso >= ? AND timestamp_iso <= ? AND load_id IS NOT NULL AND peso_kg > 0
         """, (start_iso, end_iso)).fetchone()
         
         # Generar desglose horario desde inicio hasta fin del turno activo para la gráfica de avance
@@ -166,7 +167,7 @@ def calculate_tunel_metrics(turno_act: dict = None):
                     COUNT(*) as num_cargas,
                     COALESCE(SUM(peso_kg), 0) as kg_hora
                 FROM tunel_cargas
-                WHERE timestamp_iso >= ? AND timestamp_iso < ?
+                WHERE timestamp_iso >= ? AND timestamp_iso < ? AND load_id IS NOT NULL AND peso_kg > 0
             """, (h_start_str, h_end_str)).fetchone()
             
             kg_val = round(row_h["kg_hora"], 1) if row_h else 0.0
@@ -223,7 +224,7 @@ def calculate_tunel_metrics(turno_act: dict = None):
                 border_color = "#10b981"
 
             conn = get_db_connection()
-            last_carga = conn.execute("SELECT cliente, categoria, peso_kg, timestamp FROM tunel_cargas ORDER BY id DESC LIMIT 1").fetchone()
+            last_carga = conn.execute("SELECT cliente, categoria, peso_kg, timestamp FROM tunel_cargas WHERE load_id IS NOT NULL AND peso_kg > 0 ORDER BY id DESC LIMIT 1").fetchone()
             conn.close()
 
             last_prog_str = f"Categoría #{last_carga['categoria']} — Cliente #{last_carga['cliente']} (Carga: {last_carga['peso_kg']} kg)" if last_carga else "Prog 04 - Sábanas y Mantelería Hostelería"
@@ -319,11 +320,69 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
     tunel_kpis = calculate_tunel_metrics(turno_act)
     cal2_data = get_calandra_production("CALANDRA_2", turno_act)
     cal3_data = get_calandra_production("CALANDRA_3", turno_act)
+    vt_data = get_tunel_vt_production(turno_act)
+
+    # Consolidado del día completo (desde el inicio de la jornada a las 06:00)
+    inicio_jornada = f"{fecha_raw} 06:00:00"
+    conn_sum = get_db_connection()
+    try:
+        row_kl_hoy = conn_sum.execute("""
+            SELECT COALESCE(SUM(peso_kg), 0)
+            FROM tunel_cargas
+            WHERE timestamp_iso >= ? AND load_id IS NOT NULL AND peso_kg > 0
+        """, (inicio_jornada,)).fetchone()
+        kilos_lavados_hoy = round(float(row_kl_hoy[0])) if row_kl_hoy and row_kl_hoy[0] else int(tunel_kpis.get("total_kg_num", 0))
+
+        # Sincronizar turno actual de calandras para que persista
+        try:
+            if is_shift_active(turno_act):
+                pkg2 = build_calandra_shift_json("CALANDRA_2", fecha_raw, turno_act)
+                save_calandra_shift_json(pkg2)
+                pkg3 = build_calandra_shift_json("CALANDRA_3", fecha_raw, turno_act)
+                save_calandra_shift_json(pkg3)
+        except Exception:
+            pass
+
+        row_c2 = conn_sum.execute("""
+            SELECT COALESCE(SUM(kgs_totales), 0)
+            FROM calandra_2_turnos_persistencia
+            WHERE fecha = ? AND UPPER(nombre_turno) NOT LIKE '%FUERA%' AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+        """, (fecha_raw,)).fetchone()
+        kg_c2_hoy = round(float(row_c2[0]), 1) if row_c2 else 0.0
+
+        row_c3 = conn_sum.execute("""
+            SELECT COALESCE(SUM(kgs_totales), 0)
+            FROM calandra_3_turnos_persistencia
+            WHERE fecha = ? AND UPPER(nombre_turno) NOT LIKE '%FUERA%' AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+        """, (fecha_raw,)).fetchone()
+        kg_c3_hoy = round(float(row_c3[0]), 1) if row_c3 else 0.0
+
+        kilos_calandras_hoy = round(kg_c2_hoy + kg_c3_hoy, 1)
+
+        def _fmt_kg_str(val: float) -> str:
+            p = f"{val:,.1f}".split(".")
+            int_part = p[0].replace(",", ".")
+            dec_part = p[1]
+            return f"{int_part} kg" if dec_part == "0" else f"{int_part},{dec_part} kg"
+
+        kilos_cal2_hoy_str = _fmt_kg_str(kg_c2_hoy)
+        kilos_cal3_hoy_str = _fmt_kg_str(kg_c3_hoy)
+    except Exception as e:
+        logger.error(f"Error calculando consolidados hoy en summary: {e}")
+        kilos_lavados_hoy = int(tunel_kpis.get("total_kg_num", 0))
+        kilos_calandras_hoy = 0
+        kilos_cal2_hoy_str = "0 kg"
+        kilos_cal3_hoy_str = "0 kg"
+    finally:
+        conn_sum.close()
 
     return {
         "status": "online",
         "planta": "ELIS NÁJERA 4.0",
-        "kilos_lavados_hoy": int(tunel_kpis["total_kg_num"]),
+        "kilos_lavados_hoy": kilos_lavados_hoy,
+        "kilos_calandras_hoy": kilos_calandras_hoy,
+        "kilos_cal2_hoy_str": kilos_cal2_hoy_str,
+        "kilos_cal3_hoy_str": kilos_cal3_hoy_str,
         "objetivo_diario": 18000,
         "eficiencia_global_oee": 89.85,
         "maquinas": [
@@ -358,18 +417,26 @@ def get_produccion_summary(user: dict = Depends(check_produccion_permission)):
                 "id": "TUNEL_VT",
                 "nombre": "TÚNEL VT",
                 "tipo": "Secado y Oreado Continuo VT",
-                "estado": "Operativa",
+                "estado": ("En Tiempo Valle" if vt_data["en_valle"] else "Operativa") if vt_data.get("is_turno_activo") else "Sin Turno Activo",
                 "icono": "fa-wind",
                 "oee": 88.7,
-                "clickable": False,
+                "clickable": True,
+                "dashboard_url": "#tunel_vt",
+                "turno_info": {
+                    "nombre": nombre_turno if vt_data.get("is_turno_activo") else "Sin Turno Activo",
+                    "horario": horario_con_fecha if vt_data.get("is_turno_activo") else f"Fuera de Turno | {fecha_formateada}",
+                    "fecha": fecha_formateada,
+                    "is_active": vt_data.get("is_turno_activo", False)
+                },
+                "produccion_tunel_vt": vt_data,
                 "metricas_clave": [
-                    {"label": "Rendimiento", "val": "1.100 kg/h"},
-                    {"label": "Temp. Secado", "val": "118 °C"},
-                    {"label": "Humedad Residual", "val": "2,8 %"},
-                    {"label": "Caudal Aire", "val": "3.400 m³/h"}
+                    {"label": "Prendas Totales", "val": vt_data["prendas_totales_str"]},
+                    {"label": "Kgs Totales", "val": vt_data["kgs_totales_str"]},
+                    {"label": "Cadencia", "val": vt_data["prendas_hora_str"]},
+                    {"label": "Tiempo Valle", "val": vt_data["tiempo_valle_total_str"]}
                 ],
-                "progreso_carga": 78,
-                "programa_actual": "Prog 02 - Secado Rápido VT High-Speed"
+                "progreso_carga": 82,
+                "programa_actual": "Conteo 3 Vías + Tiempos Valles (MQTT)" if vt_data.get("is_turno_activo") else "Sin Turno en Proceso"
             },
             {
                 "id": "CALANDRA_2",
@@ -440,15 +507,15 @@ def is_shift_active(turno_act: dict = None) -> bool:
 
 @router.get("/turnos/sync-status")
 def get_turnos_sync_status(user: dict = Depends(check_produccion_permission)):
-    """Informa sobre el estado de la sincronización de turnos desde http://100.127.85.111:5001."""
+    """Informa sobre el estado de la sincronización de turnos desde http://192.168.0.137:5001."""
     cached = get_cached_turnos()
     return {
         "status": "success",
-        "fuente_principal": "http://100.127.85.111:5001",
+        "fuente_principal": "http://192.168.0.137:5001",
         "intervalo_sincronizacion_seg": 1800,
         "intervalo_sincronizacion_min": 30,
         "cache_actualizado_el": cached.get("cache_updated_at"),
-        "sincronizado_desde": cached.get("synced_from_url") or "http://100.127.85.111:5001",
+        "sincronizado_desde": cached.get("synced_from_url") or "http://192.168.0.137:5001",
         "jornada": cached.get("jornada"),
         "turno_actual": cached.get("turno_actual"),
         "is_shift_active": is_shift_active(cached.get("turno_actual", {})),
@@ -457,12 +524,12 @@ def get_turnos_sync_status(user: dict = Depends(check_produccion_permission)):
 
 @router.post("/turnos/sync-now")
 def trigger_turnos_sync_now(user: dict = Depends(check_produccion_permission)):
-    """Fuerza una sincronización inmediata desde la aplicación de turnos (http://100.127.85.111:5001)."""
+    """Fuerza una sincronización inmediata desde la aplicación de turnos (http://192.168.0.137:5001)."""
     ok = sync_turnos_from_server_1()
     cached = get_cached_turnos()
     return {
         "status": "success" if ok else "warning",
-        "message": "Turnos sincronizados correctamente desde http://100.127.85.111:5001" if ok else "No se pudo contactar http://100.127.85.111:5001, usando caché",
+        "message": "Turnos sincronizados correctamente desde http://192.168.0.137:5001" if ok else "No se pudo contactar http://192.168.0.137:5001, usando caché",
         "timestamp": get_local_now_str(),
         "turno_actual": cached.get("turno_actual"),
         "turnos_jornada": cached.get("shifts", [])
@@ -575,6 +642,117 @@ def get_turno_identificador(turno_dict: dict, shifts_list: list = None) -> tuple
     return "Turno 1", 1
 
 
+def get_shift_breaks(turno_data: dict = None) -> list:
+    """
+    Obtiene la lista de descansos programados consultando dinámicamente
+    la caché de la aplicación de turnos (http://192.168.0.137:5001/api/turnos/jornada).
+    Los descansos NO son fijos y se adaptan automáticamente a cualquier cambio semanal.
+    """
+    turnos_cache = get_cached_turnos()
+    cached_breaks = turnos_cache.get("breaks", [])
+
+    if cached_breaks:
+        cleaned = []
+        for b in cached_breaks:
+            b_copy = dict(b)
+            start_str = b_copy.get("start") or b_copy.get("inicio")
+            end_str = b_copy.get("end") or b_copy.get("fin")
+            dur = b_copy.get("durationMinutes") or b_copy.get("duracion_min")
+
+            if not start_str:
+                continue
+
+            try:
+                sh, sm = map(int, start_str.split(":")[:2])
+                if dur and float(dur) > 0:
+                    dur_min = float(dur)
+                    tot_m = sm + int(round(dur_min))
+                    eh = (sh + (tot_m // 60)) % 24
+                    em = tot_m % 60
+                    b_copy["durationMinutes"] = dur_min
+                    b_copy["end"] = f"{eh:02d}:{em:02d}"
+                elif end_str:
+                    eh, em = map(int, end_str.split(":")[:2])
+                    dur_min = (eh * 60 + em) - (sh * 60 + sm)
+                    if dur_min <= 0:
+                        dur_min += 24 * 60
+                    b_copy["durationMinutes"] = float(dur_min)
+                    b_copy["end"] = end_str
+                else:
+                    b_copy["durationMinutes"] = 30.0
+                    b_copy["end"] = f"{sh:02d}:{(sm+30)%60:02d}"
+
+                cleaned.append(b_copy)
+            except Exception:
+                cleaned.append(b_copy)
+
+        if cleaned:
+            return cleaned
+
+    # Fallback secundario de respaldo únicamente si la API de turnos no responde o no devuelve descansos
+    return [
+        {"name": "Descanso 1", "start": "10:00", "end": "10:30", "durationMinutes": 30, "shiftIndex": 0},
+        {"name": "Descanso 2", "start": "18:00", "end": "18:20", "durationMinutes": 20, "shiftIndex": 1}
+    ]
+
+
+def get_break_overlap_for_slot(s_start_iso: str, s_end_iso: str, breaks: list) -> float:
+    """Calcula los minutos de descanso programado que caen dentro del slot horario."""
+    if not s_start_iso or not s_end_iso or not breaks:
+        return 0.0
+
+    dt_start = None
+    dt_end = None
+    clean_start = s_start_iso.replace('T', ' ')
+    clean_end = s_end_iso.replace('T', ' ')
+
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            if not dt_start:
+                dt_start = datetime.strptime(clean_start[:19], fmt)
+        except Exception:
+            pass
+        try:
+            if not dt_end:
+                dt_end = datetime.strptime(clean_end[:19], fmt)
+        except Exception:
+            pass
+
+    if not dt_start or not dt_end:
+        return 0.0
+
+    total_break_min = 0.0
+    for b in breaks:
+        b_start_str = b.get("start") or b.get("inicio") or b.get("hora_inicio")
+        b_end_str = b.get("end") or b.get("fin") or b.get("hora_fin")
+        dur = b.get("durationMinutes") or b.get("duracion_min")
+
+        if not b_start_str:
+            continue
+
+        try:
+            bh, bm = map(int, b_start_str.split(":")[:2])
+            b_start_dt = dt_start.replace(hour=bh, minute=bm, second=0, microsecond=0)
+
+            if dur and dur > 0:
+                b_end_dt = b_start_dt + timedelta(minutes=float(dur))
+            elif b_end_str:
+                eh, em = map(int, b_end_str.split(":")[:2])
+                b_end_dt = dt_start.replace(hour=eh, minute=em, second=0, microsecond=0)
+                if b_end_dt <= b_start_dt:
+                    b_end_dt += timedelta(days=1)
+            else:
+                continue
+
+            o_start = max(dt_start, b_start_dt)
+            o_end = min(dt_end, b_end_dt)
+            if o_end > o_start:
+                total_break_min += (o_end - o_start).total_seconds() / 60.0
+        except Exception:
+            pass
+    return round(total_break_min, 1)
+
+
 def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: dict = None, turno_numero: int = None) -> dict:
     """
     Construye el paquete JSON completo de un turno para Calandra 2 o Calandra 3,
@@ -623,6 +801,8 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
     labels = prod_live.get("grafica_hora_a_hora", {}).get("labels", [])
     prendas = prod_live.get("grafica_hora_a_hora", {}).get("prendas", [])
     valle = prod_live.get("grafica_hora_a_hora", {}).get("tiempo_valle", [])
+    descanso = prod_live.get("grafica_hora_a_hora", {}).get("tiempo_descanso", [0.0] * len(labels))
+    valle_raw = prod_live.get("grafica_hora_a_hora", {}).get("tiempo_valle_raw", valle)
     grandes = prod_live.get("grafica_hora_a_hora", {}).get("grandes") or [0] * len(labels)
     pequenas = prod_live.get("grafica_hora_a_hora", {}).get("pequenas") or [0] * len(labels)
 
@@ -661,11 +841,12 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
     tiempo_valle_str = f"{tot_valle:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min"
     prendas_hora_str = f"{prendas_h:,}".replace(",", ".") + " prendas/h"
     kg_hora_str = f"{kg_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
-
     desglose_cal2 = None
     if m_id == "CALANDRA_2":
         g_h = int(round(tot_grandes / horas_calc)) if horas_calc > 0 else 0
         p_h = int(round(tot_pequenas / horas_calc)) if horas_calc > 0 else 0
+        p_gra_unit = float(desg.get("peso_unitario_grandes") or 0.780)
+        p_peq_unit = float(desg.get("peso_unitario_pequenas") or 0.470)
         desglose_cal2 = {
             "prendas_grandes": tot_grandes,
             "prendas_grandes_str": f"{tot_grandes:,}".replace(",", ".") + " grandes",
@@ -675,6 +856,10 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
             "kg_grandes_str": f"{kg_grandes:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
             "kg_pequenas": kg_pequenas,
             "kg_pequenas_str": f"{kg_pequenas:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "peso_unitario_grandes": p_gra_unit,
+            "peso_unitario_grandes_str": f"{int(round(p_gra_unit * 1000))} gr ({p_gra_unit:.3f} kg)",
+            "peso_unitario_pequenas": p_peq_unit,
+            "peso_unitario_pequenas_str": f"{int(round(p_peq_unit * 1000))} gr ({p_peq_unit:.3f} kg)",
             "tiempo_valle_grandes": tot_valle,
             "tiempo_valle_grandes_str": f"{tot_valle:.1f} min",
             "tiempo_valle_pequenas": tot_valle,
@@ -684,6 +869,35 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
             "prendas_pequenas_hora": p_h,
             "prendas_pequenas_hora_str": f"{p_h:,} p/h".replace(",", ".")
         }
+
+    p_c3_unit = float(prod_live.get("peso_unitario") or 1.180)
+
+    indicadores_res = {
+        "prendas_totales": tot_prendas,
+        "prendas_totales_str": prendas_totales_str,
+        "kgs_totales": tot_kg,
+        "kgs_totales_str": kgs_totales_str,
+        "tiempo_valle_min": tot_valle,
+        "tiempo_valle_str": tiempo_valle_str,
+        "tiempo_descanso_min": prod_live.get("tiempo_descanso_min", 0.0),
+        "tiempo_descanso_str": prod_live.get("tiempo_descanso_str", "0,0 min"),
+        "prendas_hora": prendas_h,
+        "prendas_hora_str": prendas_hora_str,
+        "kg_hora": kg_h,
+        "kg_hora_str": kg_hora_str,
+        "en_valle": False,
+        "desglose_calandra2": desglose_cal2
+    }
+
+    if m_id == "CALANDRA_2":
+        indicadores_res["peso_grandes"] = p_gra_unit
+        indicadores_res["peso_grandes_gr"] = int(round(p_gra_unit * 1000))
+        indicadores_res["peso_pequenas"] = p_peq_unit
+        indicadores_res["peso_pequenas_gr"] = int(round(p_peq_unit * 1000))
+    else:
+        indicadores_res["peso_unitario"] = p_c3_unit
+        indicadores_res["peso_unitario_gr"] = int(round(p_c3_unit * 1000))
+        indicadores_res["peso_unitario_str"] = f"{int(round(p_c3_unit * 1000))} gr ({p_c3_unit:.3f} kg)"
 
     return {
         "shift_key": shift_key,
@@ -706,24 +920,16 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
             "rango_horario": rango_horario,
             "timestamp_actualizacion": get_local_now_str()
         },
-        "indicadores_dashboard": {
-            "prendas_totales": tot_prendas,
-            "prendas_totales_str": prendas_totales_str,
-            "kgs_totales": tot_kg,
-            "kgs_totales_str": kgs_totales_str,
-            "tiempo_valle_min": tot_valle,
-            "tiempo_valle_str": tiempo_valle_str,
-            "prendas_hora": prendas_h,
-            "prendas_hora_str": prendas_hora_str,
-            "kg_hora": kg_h,
-            "kg_hora_str": kg_hora_str,
-            "en_valle": False,
-            "desglose_calandra2": desglose_cal2
-        },
+        "indicadores_dashboard": indicadores_res,
         "desglose_hora_a_hora": {
             "labels": labels,
             "prendas": prendas,
+            "tiempo_valle": valle,
             "tiempo_valle_min": valle,
+            "tiempo_descanso": descanso,
+            "tiempo_descanso_min": descanso,
+            "tiempo_valle_raw": valle_raw,
+            "tiempo_valle_raw_min": valle_raw,
             "grandes": grandes if m_id == "CALANDRA_2" else None,
             "pequenas": pequenas if m_id == "CALANDRA_2" else None
         }
@@ -731,9 +937,9 @@ def build_calandra_shift_json(maquina_id: str, fecha: str = None, shift_data: di
 
 
 def save_calandra_shift_json(shift_package: dict) -> bool:
-    """Almacena o actualiza un paquete JSON de turno para Calandras en SQLite."""
+    """Almacena o actualiza un paquete JSON de turno para Calandras en SQLite, en tablas separadas por máquina."""
     shift_key = shift_package["shift_key"]
-    maquina = shift_package["maquina"]
+    maquina = shift_package["maquina"].upper()
     fecha = shift_package["fecha"]
     turno_identificador = shift_package["turno_identificador"]
     meta = shift_package.get("meta_info", {})
@@ -741,6 +947,12 @@ def save_calandra_shift_json(shift_package: dict) -> bool:
     hora_inicio = shift_package["hora_inicio"]
     hora_fin = shift_package["hora_fin"]
     rango_horario = shift_package.get("rango_horario", f"{hora_inicio} - {hora_fin}")
+
+    # Validación estricta: NO persistir registros inválidos de 'fuera de turno', 'sin turno' o inactivos
+    nombre_upper = (nombre_turno or "").upper()
+    key_upper = (shift_key or "").upper()
+    if any(x in nombre_upper or x in key_upper for x in ["FUERA", "SIN TURNO", "SIN_TURNO", "INACTIVO"]):
+        return False
 
     ind = shift_package.get("indicadores_dashboard", {})
     prendas_totales = int(ind.get("prendas_totales", 0))
@@ -754,6 +966,85 @@ def save_calandra_shift_json(shift_package: dict) -> bool:
 
     conn = get_db_connection()
     cursor = conn.cursor()
+
+    if maquina == "CALANDRA_2":
+        desg = ind.get("desglose_calandra2") or {}
+        p_grandes = int(desg.get("prendas_grandes", 0))
+        p_pequenas = int(desg.get("prendas_pequenas", 0))
+        kg_grandes = float(desg.get("kg_grandes", 0.0))
+        kg_pequenas = float(desg.get("kg_pequenas", 0.0))
+        v_grandes = float(desg.get("tiempo_valle_grandes", tiempo_valle_min))
+        v_pequenas = float(desg.get("tiempo_valle_pequenas", tiempo_valle_min))
+
+        cursor.execute("""
+            INSERT INTO calandra_2_turnos_persistencia (
+                shift_key, fecha, turno_identificador, nombre_turno,
+                hora_inicio, hora_fin, rango_horario,
+                prendas_totales, prendas_grandes, prendas_pequenas,
+                kgs_totales, kg_grandes, kg_pequenas,
+                tiempo_valle_min, tiempo_valle_grandes_min, tiempo_valle_pequenas_min,
+                prendas_hora, kg_hora, data_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(shift_key) DO UPDATE SET
+                fecha = excluded.fecha,
+                turno_identificador = excluded.turno_identificador,
+                nombre_turno = excluded.nombre_turno,
+                hora_inicio = excluded.hora_inicio,
+                hora_fin = excluded.hora_fin,
+                rango_horario = excluded.rango_horario,
+                prendas_totales = excluded.prendas_totales,
+                prendas_grandes = excluded.prendas_grandes,
+                prendas_pequenas = excluded.prendas_pequenas,
+                kgs_totales = excluded.kgs_totales,
+                kg_grandes = excluded.kg_grandes,
+                kg_pequenas = excluded.kg_pequenas,
+                tiempo_valle_min = excluded.tiempo_valle_min,
+                tiempo_valle_grandes_min = excluded.tiempo_valle_grandes_min,
+                tiempo_valle_pequenas_min = excluded.tiempo_valle_pequenas_min,
+                prendas_hora = excluded.prendas_hora,
+                kg_hora = excluded.kg_hora,
+                data_json = excluded.data_json,
+                updated_at = excluded.updated_at
+        """, (
+            shift_key, fecha, turno_identificador, nombre_turno,
+            hora_inicio, hora_fin, rango_horario,
+            prendas_totales, p_grandes, p_pequenas,
+            kgs_totales, kg_grandes, kg_pequenas,
+            tiempo_valle_min, v_grandes, v_pequenas,
+            prendas_hora, kg_hora, data_json, now_local
+        ))
+    elif maquina == "CALANDRA_3":
+        peso_u = float(ind.get("peso_unitario") or 1.180)
+        cursor.execute("""
+            INSERT INTO calandra_3_turnos_persistencia (
+                shift_key, fecha, turno_identificador, nombre_turno,
+                hora_inicio, hora_fin, rango_horario,
+                prendas_totales, kgs_totales, tiempo_valle_min,
+                peso_unitario, prendas_hora, kg_hora, data_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(shift_key) DO UPDATE SET
+                fecha = excluded.fecha,
+                turno_identificador = excluded.turno_identificador,
+                nombre_turno = excluded.nombre_turno,
+                hora_inicio = excluded.hora_inicio,
+                hora_fin = excluded.hora_fin,
+                rango_horario = excluded.rango_horario,
+                prendas_totales = excluded.prendas_totales,
+                kgs_totales = excluded.kgs_totales,
+                tiempo_valle_min = excluded.tiempo_valle_min,
+                peso_unitario = excluded.peso_unitario,
+                prendas_hora = excluded.prendas_hora,
+                kg_hora = excluded.kg_hora,
+                data_json = excluded.data_json,
+                updated_at = excluded.updated_at
+        """, (
+            shift_key, fecha, turno_identificador, nombre_turno,
+            hora_inicio, hora_fin, rango_horario,
+            prendas_totales, kgs_totales, tiempo_valle_min,
+            peso_u, prendas_hora, kg_hora, data_json, now_local
+        ))
+
+    # Guardar también en tabla unificada de compatibilidad
     cursor.execute("""
         INSERT INTO calandras_turnos_persistencia (
             shift_key, maquina, fecha, turno_identificador, nombre_turno,
@@ -781,6 +1072,7 @@ def save_calandra_shift_json(shift_package: dict) -> bool:
         prendas_totales, kgs_totales, tiempo_valle_min,
         prendas_hora, kg_hora, data_json, now_local
     ))
+
     conn.commit()
     conn.close()
     return True
@@ -821,39 +1113,45 @@ def get_calandras_turnos_historial(
     fecha: Optional[str] = None,
     user: dict = Depends(check_produccion_permission)
 ):
-    """Consulta la lista de turnos guardados en SQLite para Calandra 2 o Calandra 3."""
+    """Consulta la lista de turnos guardados en SQLite para Calandra 2 o Calandra 3 desde su tabla separada."""
     m_id = maquina_id.upper()
     if m_id not in ["CALANDRA_2", "CALANDRA_3"]:
         raise HTTPException(status_code=404, detail="Máquina no válida")
 
+    table_name = "calandra_2_turnos_persistencia" if m_id == "CALANDRA_2" else "calandra_3_turnos_persistencia"
     conn = get_db_connection()
     if fecha:
-        rows = conn.execute("""
-            SELECT shift_key, maquina, fecha, turno_identificador, nombre_turno,
+        rows = conn.execute(f"""
+            SELECT shift_key, fecha, turno_identificador, nombre_turno,
                    hora_inicio, hora_fin, rango_horario,
                    prendas_totales, kgs_totales, tiempo_valle_min,
                    prendas_hora, kg_hora, updated_at
-            FROM calandras_turnos_persistencia
-            WHERE maquina = ? AND fecha = ?
+            FROM {table_name}
+            WHERE fecha = ?
+              AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+              AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+              AND UPPER(shift_key) NOT LIKE '%FUERA%'
             ORDER BY hora_inicio ASC
-        """, (m_id, fecha)).fetchall()
+        """, (fecha,)).fetchall()
     else:
-        rows = conn.execute("""
-            SELECT shift_key, maquina, fecha, turno_identificador, nombre_turno,
+        rows = conn.execute(f"""
+            SELECT shift_key, fecha, turno_identificador, nombre_turno,
                    hora_inicio, hora_fin, rango_horario,
                    prendas_totales, kgs_totales, tiempo_valle_min,
                    prendas_hora, kg_hora, updated_at
-            FROM calandras_turnos_persistencia
-            WHERE maquina = ?
+            FROM {table_name}
+            WHERE UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+              AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+              AND UPPER(shift_key) NOT LIKE '%FUERA%'
             ORDER BY fecha DESC, hora_inicio ASC
-        """, (m_id,)).fetchall()
+        """).fetchall()
     conn.close()
 
     results = []
     for r in rows:
         results.append({
             "shift_key": r["shift_key"],
-            "maquina": r["maquina"],
+            "maquina": m_id,
             "fecha": r["fecha"],
             "turno_identificador": r["turno_identificador"],
             "nombre_turno": r["nombre_turno"],
@@ -889,11 +1187,11 @@ def get_calandras_turno_json_detalle(
 ):
     """Retorna el paquete JSON completo de un turno persistido para Calandra 2 o Calandra 3."""
     m_id = maquina_id.upper()
+    table_name = "calandra_2_turnos_persistencia" if m_id == "CALANDRA_2" else "calandra_3_turnos_persistencia"
     conn = get_db_connection()
-    row = conn.execute("""
-        SELECT data_json FROM calandras_turnos_persistencia
-        WHERE maquina = ? AND shift_key = ?
-    """, (m_id, shift_key)).fetchone()
+    row = conn.execute(f"SELECT data_json FROM {table_name} WHERE shift_key = ?", (shift_key,)).fetchone()
+    if not row:
+        row = conn.execute("SELECT data_json FROM calandras_turnos_persistencia WHERE maquina = ? AND shift_key = ?", (m_id, shift_key)).fetchone()
     conn.close()
 
     if not row or not row["data_json"]:
@@ -910,21 +1208,717 @@ def get_calandras_turnos_fechas_disponibles(
     maquina_id: str,
     user: dict = Depends(check_produccion_permission)
 ):
-    """Retorna la lista de fechas disponibles con turnos guardados en SQLite."""
+    """Retorna la lista de fechas disponibles con registros de producción o turnos guardados en SQLite."""
     m_id = maquina_id.upper()
+    if m_id not in ["CALANDRA_2", "CALANDRA_3"]:
+        raise HTTPException(status_code=404, detail="Máquina no válida")
+
+    table_name = "calandra_2_turnos_persistencia" if m_id == "CALANDRA_2" else "calandra_3_turnos_persistencia"
     conn = get_db_connection()
-    rows = conn.execute("""
-        SELECT DISTINCT fecha FROM calandras_turnos_persistencia
-        WHERE maquina = ?
-        ORDER BY fecha DESC
-    """, (m_id,)).fetchall()
+    rows_prod = conn.execute("SELECT DISTINCT substr(timestamp_iso, 1, 10) as f FROM calandras_produccion WHERE maquina = ? ORDER BY f DESC", (m_id,)).fetchall()
+    rows_turnos = conn.execute(f"SELECT DISTINCT fecha as f FROM {table_name} ORDER BY f DESC").fetchall()
     conn.close()
+
+    fechas = sorted(list(set([r["f"] for r in rows_prod if r["f"]] + [r["f"] for r in rows_turnos if r["f"]])), reverse=True)
+    jornada_hoy = get_current_jornada_date()
+    if jornada_hoy not in fechas:
+        fechas.insert(0, jornada_hoy)
 
     return {
         "status": "success",
         "maquina": m_id,
-        "fechas": [r["fecha"] for r in rows]
+        "fechas": fechas,
+        "hoy": jornada_hoy
     }
+
+
+@router.get("/calandras/{maquina_id}/turnos-por-fecha/{fecha}")
+def get_calandra_shifts_by_date(
+    maquina_id: str,
+    fecha: str,
+    user: dict = Depends(check_produccion_permission)
+):
+    """
+    Obtiene la lista de turnos de la jornada especificada para Calandra 2 o Calandra 3.
+    Reconstruye los indicadores y guarda/actualiza el paquete JSON en la tabla separada de la máquina.
+    """
+    m_id = maquina_id.upper()
+    if m_id not in ["CALANDRA_2", "CALANDRA_3"]:
+        raise HTTPException(status_code=404, detail="Máquina no válida")
+
+    table_name = "calandra_2_turnos_persistencia" if m_id == "CALANDRA_2" else "calandra_3_turnos_persistencia"
+    current_jornada = get_current_jornada_date()
+    is_current_jornada = (fecha == current_jornada)
+    now_dt = get_local_now().replace(tzinfo=None)
+
+    shifts_template = get_jornada_shifts_template()
+    result = []
+    seen_keys = set()
+
+    conn = get_db_connection()
+
+    for idx, s_info in enumerate(shifts_template):
+        nombre = s_info["nombre"]
+        nombre_upper = (nombre or "").upper()
+        if any(x in nombre_upper for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            continue
+
+        h_start = s_info["hora_inicio"]
+        h_end = s_info["hora_fin"]
+        turno_id = f"Turno {idx + 1}"
+        shift_key = f"{m_id}_{fecha}_{turno_id.replace(' ', '_')}"
+
+        start_iso, end_iso = get_shift_start_end_iso(fecha, h_start, h_end)
+        try:
+            dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+            dt_end = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            continue
+
+        is_in_process = (dt_start <= now_dt < dt_end) and is_current_jornada
+
+        # Contar producción en la BD para el intervalo del turno
+        row_prod = conn.execute("""
+            SELECT COUNT(*), COALESCE(SUM(delta_total), 0)
+            FROM calandras_produccion
+            WHERE maquina = ? AND timestamp_iso >= ? AND timestamp_iso < ?
+        """, (m_id, start_iso, end_iso)).fetchone()
+
+        num_records = row_prod[0] if row_prod else 0
+        total_prendas_db = row_prod[1] if row_prod else 0
+
+        # Criterio: Se incluye si tiene producción registrada o está en proceso actualmente
+        should_include = (total_prendas_db > 0) or is_in_process
+
+        if should_include:
+            turno_dict = {
+                "nombre": turno_id,
+                "fecha": fecha,
+                "hora_inicio": h_start,
+                "hora_fin": h_end,
+                "is_active": is_in_process
+            }
+            pkg = build_calandra_shift_json(m_id, fecha=fecha, shift_data=turno_dict, turno_numero=idx+1)
+            save_calandra_shift_json(pkg)
+
+            ind = pkg.get("indicadores_dashboard", {})
+            p_tot = ind.get("prendas_totales", 0)
+            kg_tot = ind.get("kgs_totales", 0.0)
+            valle_min = ind.get("tiempo_valle_min", 0.0)
+
+            result.append({
+                "shift_key": shift_key,
+                "maquina": m_id,
+                "fecha": fecha,
+                "turno_identificador": turno_id,
+                "nombre_turno": nombre,
+                "horario": f"{h_start} - {h_end}",
+                "prendas_totales": p_tot,
+                "prendas_totales_str": ind.get("prendas_totales_str", f"{p_tot} prendas"),
+                "kgs_totales": kg_tot,
+                "kgs_totales_str": ind.get("kgs_totales_str", f"{kg_tot} kg"),
+                "tiempo_valle_min": valle_min,
+                "tiempo_valle_str": ind.get("tiempo_valle_str", f"{valle_min} min"),
+                "prendas_hora": ind.get("prendas_hora", 0),
+                "kg_hora": ind.get("kg_hora", 0.0),
+                "is_in_progress": is_in_process,
+                "estado": "En proceso" if is_in_process else "Procesado",
+                "updated_at": pkg.get("meta_info", {}).get("timestamp_actualizacion")
+            })
+            seen_keys.add(shift_key)
+
+    # Revisar si hay otros registros persistidos previamente para esa fecha en la tabla separada
+    persisted_rows = conn.execute(f"""
+        SELECT shift_key, fecha, turno_identificador, nombre_turno, hora_inicio, hora_fin,
+               prendas_totales, kgs_totales, tiempo_valle_min, prendas_hora, kg_hora, updated_at
+        FROM {table_name}
+        WHERE fecha = ?
+          AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
+          AND prendas_totales > 0
+        ORDER BY hora_inicio ASC, id ASC
+    """, (fecha,)).fetchall()
+    valid_turno_ids = {f"Turno {i+1}" for i in range(len(shifts_template))}
+    for r in persisted_rows:
+        if r["shift_key"] not in seen_keys and r["turno_identificador"] in valid_turno_ids:
+            result.append({
+                "shift_key": r["shift_key"],
+                "maquina": m_id,
+                "fecha": r["fecha"],
+                "turno_identificador": r["turno_identificador"],
+                "nombre_turno": r["nombre_turno"],
+                "horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+                "prendas_totales": r["prendas_totales"],
+                "prendas_totales_str": f"{r['prendas_totales']:,}".replace(",", ".") + " prendas",
+                "kgs_totales": r["kgs_totales"],
+                "kgs_totales_str": f"{r['kgs_totales']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+                "tiempo_valle_min": r["tiempo_valle_min"],
+                "tiempo_valle_str": f"{r['tiempo_valle_min']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
+                "prendas_hora": r["prendas_hora"],
+                "kg_hora": r["kg_hora"],
+                "is_in_progress": False,
+                "estado": "Procesado",
+                "updated_at": r["updated_at"]
+            })
+
+    return {"status": "success", "maquina": m_id, "fecha": fecha, "turnos": result}
+
+
+def sync_all_historical_calandra_shifts(maquina_id: str) -> int:
+    """
+    Recorre todas las fechas con registros en calandras_produccion para la máquina indicada
+    y genera/actualiza los paquetes JSON para todos los turnos que tuvieron producción.
+    """
+    m_id = maquina_id.upper()
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT DISTINCT substr(timestamp_iso, 1, 10) as f
+        FROM calandras_produccion
+        WHERE maquina = ? AND timestamp_iso IS NOT NULL AND timestamp_iso != ''
+        ORDER BY f ASC
+    """, (m_id,)).fetchall()
+    conn.close()
+
+    fechas = [r["f"] for r in rows if r["f"]]
+    turnos_plantilla = get_jornada_shifts_template()
+
+    total_synced = 0
+    for fecha in fechas:
+        for idx, t_info in enumerate(turnos_plantilla):
+            h_start = t_info["hora_inicio"]
+            h_end = t_info["hora_fin"]
+
+            start_iso, end_iso = get_shift_start_end_iso(fecha, h_start, h_end)
+
+            conn_check = get_db_connection()
+            count_prod = conn_check.execute("""
+                SELECT COUNT(*), COALESCE(SUM(delta_total), 0)
+                FROM calandras_produccion
+                WHERE maquina = ? AND timestamp_iso >= ? AND timestamp_iso < ?
+            """, (m_id, start_iso, end_iso)).fetchone()
+            conn_check.close()
+
+            num_rec = count_prod[0] if count_prod else 0
+            tot_p = count_prod[1] if count_prod else 0
+
+            if num_rec > 0 or tot_p > 0:
+                t_dict = {
+                    "nombre": f"Turno {idx + 1}",
+                    "fecha": fecha,
+                    "hora_inicio": h_start,
+                    "hora_fin": h_end,
+                    "is_active": False
+                }
+                pkg = build_calandra_shift_json(m_id, fecha=fecha, shift_data=t_dict, turno_numero=idx+1)
+                save_calandra_shift_json(pkg)
+                total_synced += 1
+
+    return total_synced
+
+
+def get_tunel_vt_production(turno_act: dict = None) -> dict:
+    """
+    Calcula los indicadores y la matriz hora a hora para el Túnel VT
+    a partir de los mensajes MQTT (tópico 'datos_vt'), la base de datos SQLite
+    tunel_vt_produccion y la configuración de peso unitario tunel_vt_peso_unitario.
+    Si no hay turno activo en curso, todos los valores se devuelven en cero.
+    """
+    from app.mqtt_subscriber import get_tunel_vt_live_cache, get_peso_unitario_tunel_vt_db
+    import urllib.request
+
+    live_cache = get_tunel_vt_live_cache() or {}
+
+    # Fallback rápido si live_cache aún no tiene datos recibidos por MQTT (ej. arranque en frío)
+    if not live_cache.get("count_total") and not live_cache.get("entrada_1") and not live_cache.get("entrada_2") and not live_cache.get("entrada_3"):
+        for url_vt in ["http://100.127.85.111:8000/api/conteo_vt_data", "http://192.168.0.137:8000/api/conteo_vt_data"]:
+            try:
+                req = urllib.request.Request(url_vt, headers={"User-Agent": "Elis4.0"})
+                with urllib.request.urlopen(req, timeout=1.2) as resp:
+                    if resp.status == 200:
+                        vt_remote = json.loads(resp.read().decode("utf-8"))
+                        c1 = int(vt_remote.get("e1Count", 0) or 0)
+                        c2 = int(vt_remote.get("e2Count", 0) or 0)
+                        c3 = int(vt_remote.get("e3Count", 0) or 0)
+                        v1 = float(vt_remote.get("e1Idle", 0.0) or 0.0)
+                        v2 = float(vt_remote.get("e2Idle", 0.0) or 0.0)
+                        v3 = float(vt_remote.get("e3Idle", 0.0) or 0.0)
+                        tot_c = c1 + c2 + c3
+                        peso_u = get_peso_unitario_tunel_vt_db()
+                        live_cache.update({
+                            "entrada_1": c1, "entrada_2": c2, "entrada_3": c3,
+                            "count_total": tot_c,
+                            "tiempo_valle_e1_min": v1, "tiempo_valle_e2_min": v2, "tiempo_valle_e3_min": v3,
+                            "tiempo_valle_total_min": round(max(v1, v2, v3), 1),
+                            "peso_unitario_kg": peso_u,
+                            "weight_total_kg": round(tot_c * peso_u, 2),
+                            "updated_at": get_local_now_str()
+                        })
+                        break
+            except Exception:
+                continue
+
+    if not turno_act:
+        turnos_cache = get_cached_turnos()
+        turno_act = turnos_cache.get("turno_actual", {})
+
+    shift_active = is_shift_active(turno_act)
+    peso_u = get_peso_unitario_tunel_vt_db()
+
+    default_labels = ["06:00 - 07:00", "07:00 - 08:00", "08:00 - 09:00", "09:00 - 10:00", "10:00 - 11:00", "11:00 - 12:00", "12:00 - 13:00", "13:00 - 14:00"]
+    n_lbl = len(default_labels)
+
+    nombre_act = str(turno_act.get("nombre") or "").upper()
+    is_fuera = any(x in nombre_act for x in ["FUERA", "SIN TURNO", "INACTIVO"])
+
+    if not turno_act or is_fuera:
+        return {
+            "maquina": "TUNEL_VT",
+            "is_turno_activo": False,
+            "en_valle": False,
+            "prendas_totales": 0,
+            "prendas_totales_str": "0 prendas",
+            "kgs_totales": 0.0,
+            "kgs_totales_str": "0,0 kg",
+            "tiempo_valle_min": 0.0,
+            "tiempo_valle_str": "0,0 min",
+            "tiempo_valle_total_str": "0,0 min",
+            "tiempo_descanso_min": 0.0,
+            "tiempo_descanso_str": "0,0 min",
+            "prendas_hora": 0,
+            "prendas_hora_str": "0 prendas/h",
+            "kg_hora": 0.0,
+            "kg_hora_str": "0,0 kg/h",
+            "peso_unitario": peso_u,
+            "peso_unitario_str": f"{peso_u:,.3f} kg/u".replace(".", ","),
+            "desglose_entradas": {
+                "entrada_1": 0, "entrada_1_str": "0 prendas",
+                "entrada_2": 0, "entrada_2_str": "0 prendas",
+                "entrada_3": 0, "entrada_3_str": "0 prendas",
+                "kg_e1": 0.0, "kg_e1_str": "0,0 kg",
+                "kg_e2": 0.0, "kg_e2_str": "0,0 kg",
+                "kg_e3": 0.0, "kg_e3_str": "0,0 kg",
+                "tiempo_valle_e1": 0.0, "tiempo_valle_e1_str": "0,0 min",
+                "tiempo_valle_e2": 0.0, "tiempo_valle_e2_str": "0,0 min",
+                "tiempo_valle_e3": 0.0, "tiempo_valle_e3_str": "0,0 min",
+                "prendas_e1_hora": 0, "prendas_e1_hora_str": "0 p/h",
+                "prendas_e2_hora": 0, "prendas_e2_hora_str": "0 p/h",
+                "prendas_e3_hora": 0, "prendas_e3_hora_str": "0 p/h"
+            },
+            "grafica_hora_a_hora": {
+                "labels": default_labels,
+                "entrada_1": [0] * n_lbl,
+                "entrada_2": [0] * n_lbl,
+                "entrada_3": [0] * n_lbl,
+                "prendas_totales": [0] * n_lbl,
+                "valle_e1": [0.0] * n_lbl,
+                "valle_e2": [0.0] * n_lbl,
+                "valle_e3": [0.0] * n_lbl,
+                "descanso_e1": [0.0] * n_lbl,
+                "descanso_e2": [0.0] * n_lbl,
+                "descanso_e3": [0.0] * n_lbl,
+                "tiempo_descanso": [0.0] * n_lbl,
+                "valle_total": [0.0] * n_lbl
+            }
+        }
+
+    fecha_raw = turno_act.get("fecha") or get_local_now().strftime("%Y-%m-%d")
+    if "/" in str(fecha_raw):
+        try:
+            d_p = str(fecha_raw).split("/")
+            fecha_iso = f"{d_p[2]}-{d_p[1].zfill(2)}-{d_p[0].zfill(2)}"
+        except Exception:
+            fecha_iso = get_local_now().strftime("%Y-%m-%d")
+    else:
+        fecha_iso = str(fecha_raw)
+
+    h_ini_str = str(turno_act.get("hora_inicio", "06:00"))[:5]
+    h_fin_str = str(turno_act.get("hora_fin", "14:00"))[:5]
+    try:
+        start_h = int(h_ini_str.split(":")[0])
+        end_h = int(h_fin_str.split(":")[0])
+        if end_h <= start_h:
+            end_h += 24
+    except Exception:
+        start_h, end_h = 6, 14
+
+    labels = []
+    slot_ranges = []
+    try:
+        dt_base = datetime.strptime(fecha_iso, "%Y-%m-%d")
+    except Exception:
+        dt_base = get_local_now().replace(tzinfo=None)
+
+    for h in range(start_h, end_h):
+        h1 = h % 24
+        h2 = (h + 1) % 24
+        labels.append(f"{h1:02d}:00 - {h2:02d}:00")
+
+        day_offset_start = h // 24
+        day_offset_end = (h + 1) // 24
+        dt_s = dt_base + timedelta(days=day_offset_start)
+        dt_e = dt_base + timedelta(days=day_offset_end) if h2 == 0 else dt_base + timedelta(days=day_offset_start)
+
+        slot_start_iso = f"{dt_s.strftime('%Y-%m-%d')} {h1:02d}:00:00"
+        slot_end_iso = f"{dt_e.strftime('%Y-%m-%d')} {h2:02d}:00:00"
+        slot_ranges.append((slot_start_iso, slot_end_iso))
+
+    shift_start_iso = slot_ranges[0][0] if slot_ranges else f"{fecha_iso} 06:00:00"
+    shift_end_iso = slot_ranges[-1][1] if slot_ranges else f"{fecha_iso} 14:00:00"
+
+    # Consultar SQLite tunel_vt_produccion para todo el turno
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Obtener el registro base inmediatamente anterior al inicio del turno para no arrastrar acumulados del turno previo
+    base_row = cursor.execute("""
+        SELECT entrada_1, entrada_2, entrada_3, count_total,
+               tiempo_valle_e1_min, tiempo_valle_e2_min, tiempo_valle_e3_min, tiempo_valle_total_min
+        FROM tunel_vt_produccion
+        WHERE timestamp_iso < ?
+        ORDER BY timestamp_iso DESC
+        LIMIT 1
+    """, (shift_start_iso,)).fetchone()
+
+    db_rows = cursor.execute("""
+        SELECT 
+            timestamp, timestamp_iso, entrada_1, entrada_2, entrada_3, count_total,
+            tiempo_valle_e1_min, tiempo_valle_e2_min, tiempo_valle_e3_min, tiempo_valle_total_min
+        FROM tunel_vt_produccion
+        WHERE timestamp_iso >= ? AND timestamp_iso < ?
+        ORDER BY timestamp_iso ASC
+    """, (shift_start_iso, shift_end_iso)).fetchall()
+    conn.close()
+
+    deltas = []
+    prev_e1 = int(base_row["entrada_1"] or 0) if base_row else None
+    prev_e2 = int(base_row["entrada_2"] or 0) if base_row else None
+    prev_e3 = int(base_row["entrada_3"] or 0) if base_row else None
+    prev_v1 = float(base_row["tiempo_valle_e1_min"] or 0.0) if base_row else None
+    prev_v2 = float(base_row["tiempo_valle_e2_min"] or 0.0) if base_row else None
+    prev_v3 = float(base_row["tiempo_valle_e3_min"] or 0.0) if base_row else None
+
+    for r in db_rows:
+        ts = r["timestamp_iso"]
+        c1 = int(r["entrada_1"] or 0)
+        c2 = int(r["entrada_2"] or 0)
+        c3 = int(r["entrada_3"] or 0)
+        v1 = float(r["tiempo_valle_e1_min"] or 0.0)
+        v2 = float(r["tiempo_valle_e2_min"] or 0.0)
+        v3 = float(r["tiempo_valle_e3_min"] or 0.0)
+
+        if prev_e1 is None:
+            d1, d2, d3 = 0, 0, 0
+        else:
+            d1 = (c1 - prev_e1) if c1 >= prev_e1 else c1
+            d2 = (c2 - prev_e2) if c2 >= prev_e2 else c2
+            d3 = (c3 - prev_e3) if c3 >= prev_e3 else c3
+
+        if prev_v1 is None:
+            dv1, dv2, dv3 = 0.0, 0.0, 0.0
+        else:
+            dv1 = (v1 - prev_v1) if v1 >= prev_v1 else v1
+            dv2 = (v2 - prev_v2) if v2 >= prev_v2 else v2
+            dv3 = (v3 - prev_v3) if v3 >= prev_v3 else v3
+
+        prev_e1, prev_e2, prev_e3 = c1, c2, c3
+        prev_v1, prev_v2, prev_v3 = v1, v2, v3
+
+        deltas.append({
+            "ts": ts,
+            "d1": max(0, d1), "d2": max(0, d2), "d3": max(0, d3),
+            "dv1": max(0.0, dv1), "dv2": max(0.0, dv2), "dv3": max(0.0, dv3),
+        })
+
+    breaks_list = get_shift_breaks(turno_act)
+    e1_slots = []
+    e2_slots = []
+    e3_slots = []
+    tot_slots = []
+    v1_slots = []
+    v2_slots = []
+    v3_slots = []
+    d1_slots = []
+    d2_slots = []
+    d3_slots = []
+    v_total_slots = []
+
+    for s_start, s_end in slot_ranges:
+        s_items = [it for it in deltas if s_start <= it["ts"] < s_end]
+        s_d1 = sum(it["d1"] for it in s_items)
+        s_d2 = sum(it["d2"] for it in s_items)
+        s_d3 = sum(it["d3"] for it in s_items)
+        s_tot = s_d1 + s_d2 + s_d3
+
+        s_v1 = min(round(sum(it["dv1"] for it in s_items), 1), 60.0)
+        s_v2 = min(round(sum(it["dv2"] for it in s_items), 1), 60.0)
+        s_v3 = min(round(sum(it["dv3"] for it in s_items), 1), 60.0)
+        s_vtot = max(s_v1, s_v2, s_v3)
+
+        b_min = get_break_overlap_for_slot(s_start, s_end, breaks_list)
+        try:
+            s_start_dt = datetime.strptime(s_start.replace('T', ' ')[:19], "%Y-%m-%d %H:%M:%S")
+            is_slot_started = (now_dt >= s_start_dt)
+        except Exception:
+            is_slot_started = True
+
+        d_break = b_min if (is_slot_started and b_min > 0) else 0.0
+
+        v1_neto = max(round(s_v1 - min(s_v1, d_break), 1), 0.0)
+        v2_neto = max(round(s_v2 - min(s_v2, d_break), 1), 0.0)
+        v3_neto = max(round(s_v3 - min(s_v3, d_break), 1), 0.0)
+        v_neto_tot = max(round(s_vtot - min(s_vtot, d_break), 1), 0.0)
+
+        e1_slots.append(s_d1)
+        e2_slots.append(s_d2)
+        e3_slots.append(s_d3)
+        tot_slots.append(s_tot)
+        v1_slots.append(v1_neto)
+        v2_slots.append(v2_neto)
+        v3_slots.append(v3_neto)
+        v_total_slots.append(v_neto_tot)
+        d1_slots.append(d_break)
+        d2_slots.append(d_break)
+        d3_slots.append(d_break)
+
+    latest_e1 = sum(e1_slots)
+    latest_e2 = sum(e2_slots)
+    latest_e3 = sum(e3_slots)
+    p_totales = latest_e1 + latest_e2 + latest_e3
+
+    latest_v1 = min(round(sum(v1_slots), 1), float(len(slot_ranges) * 60))
+    latest_v2 = min(round(sum(v2_slots), 1), float(len(slot_ranges) * 60))
+    latest_v3 = min(round(sum(v3_slots), 1), float(len(slot_ranges) * 60))
+    v_total = round(max(latest_v1, latest_v2, latest_v3), 1)
+    tot_descanso = round(max(sum(d1_slots), sum(d2_slots), sum(d3_slots)), 1)
+
+    if shift_active:
+        dur_min = float(turno_act.get("minutos_transcurridos") or 60)
+        horas_transcurridas = max(dur_min / 60.0, 0.25)
+        in_valle = bool(live_cache.get("en_valle", False))
+        live_valle = float(live_cache.get("tiempo_valle_total_min", 0.0) or 0.0)
+        if live_valle > v_total:
+            v_total = round(live_valle, 1)
+    else:
+        # Turno completado en el pasado o consulta histórica
+        horas_transcurridas = max(float(len(slot_ranges)), 1.0)
+        in_valle = False
+
+    w_totales = round(p_totales * peso_u, 1)
+    prendas_h = int(round(p_totales / horas_transcurridas))
+    kg_h = round(w_totales / horas_transcurridas, 1)
+
+    prendas_totales_str = f"{p_totales:,}".replace(",", ".") + " prendas"
+    kgs_totales_str = f"{w_totales:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg"
+    tiempo_valle_str = f"{v_total:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min"
+    prendas_hora_str = f"{prendas_h:,}".replace(",", ".") + " prendas/h"
+    kg_hora_str = f"{kg_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+
+    return {
+        "maquina": "TUNEL_VT",
+        "is_turno_activo": shift_active,
+        "en_valle": in_valle,
+        "fuente_datos": "MQTT_DIRECTO",
+        "prendas_totales": p_totales,
+        "prendas_totales_str": prendas_totales_str,
+        "kgs_totales": w_totales,
+        "kgs_totales_str": kgs_totales_str,
+        "tiempo_valle_min": v_total,
+        "tiempo_valle_str": tiempo_valle_str,
+        "tiempo_valle_total_str": tiempo_valle_str,
+        "tiempo_descanso_min": tot_descanso,
+        "tiempo_descanso_str": f"{tot_descanso:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
+        "prendas_hora": prendas_h,
+        "prendas_hora_str": prendas_hora_str,
+        "kg_hora": kg_h,
+        "kg_hora_str": kg_hora_str,
+        "peso_unitario": peso_u,
+        "peso_unitario_str": f"{peso_u:,.3f} kg/u".replace(".", ","),
+        "desglose_entradas": {
+            "entrada_1": latest_e1,
+            "entrada_1_str": f"{latest_e1:,}".replace(",", ".") + " prendas",
+            "entrada_2": latest_e2,
+            "entrada_2_str": f"{latest_e2:,}".replace(",", ".") + " prendas",
+            "entrada_3": latest_e3,
+            "entrada_3_str": f"{latest_e3:,}".replace(",", ".") + " prendas",
+            "kg_e1": round(latest_e1 * peso_u, 1),
+            "kg_e1_str": f"{round(latest_e1 * peso_u, 1):,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "kg_e2": round(latest_e2 * peso_u, 1),
+            "kg_e2_str": f"{round(latest_e2 * peso_u, 1):,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "kg_e3": round(latest_e3 * peso_u, 1),
+            "kg_e3_str": f"{round(latest_e3 * peso_u, 1):,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "tiempo_valle_e1": latest_v1,
+            "tiempo_valle_e1_str": f"{latest_v1:.1f} min",
+            "tiempo_valle_e2": latest_v2,
+            "tiempo_valle_e2_str": f"{latest_v2:.1f} min",
+            "tiempo_valle_e3": latest_v3,
+            "tiempo_valle_e3_str": f"{latest_v3:.1f} min",
+            "prendas_e1_hora": int(round(latest_e1 / horas_transcurridas)),
+            "prendas_e1_hora_str": f"{int(round(latest_e1 / horas_transcurridas)):,} p/h".replace(",", "."),
+            "prendas_e2_hora": int(round(latest_e2 / horas_transcurridas)),
+            "prendas_e2_hora_str": f"{int(round(latest_e2 / horas_transcurridas)):,} p/h".replace(",", "."),
+            "prendas_e3_hora": int(round(latest_e3 / horas_transcurridas)),
+            "prendas_e3_hora_str": f"{int(round(latest_e3 / horas_transcurridas)):,} p/h".replace(",", ".")
+        },
+        "grafica_hora_a_hora": {
+            "labels": labels,
+            "entrada_1": e1_slots,
+            "entrada_2": e2_slots,
+            "entrada_3": e3_slots,
+            "prendas_totales": tot_slots,
+            "valle_e1": v1_slots,
+            "valle_e2": v2_slots,
+            "valle_e3": v3_slots,
+            "descanso_e1": d1_slots,
+            "descanso_e2": d2_slots,
+            "descanso_e3": d3_slots,
+            "tiempo_descanso": d1_slots,
+            "valle_total": v_total_slots
+        }
+    }
+
+
+def build_tunel_vt_shift_json(fecha: str = None, shift_data: dict = None, turno_numero: int = None) -> dict:
+    """
+    Construye el paquete JSON completo de un turno para el Túnel VT,
+    guardando la información hora a hora por cada una de las 3 entradas,
+    tiempos valles e indicadores del dashboard.
+    """
+    turnos_cache = get_cached_turnos()
+    shifts_list = turnos_cache.get("shifts", [])
+
+    if not shift_data:
+        turno_act = turnos_cache.get("turno_actual", {})
+        if is_shift_active(turno_act):
+            shift_data = turno_act
+        elif shifts_list:
+            shift_data = shifts_list[0]
+        else:
+            shift_data = {
+                "nombre": "Turno 1",
+                "hora_inicio": "06:00",
+                "hora_fin": "14:00",
+                "fecha": fecha or datetime.now().strftime("%Y-%m-%d")
+            }
+
+    if turno_numero:
+        turno_identificador = f"Turno {turno_numero}"
+    else:
+        turno_identificador, _ = get_turno_identificador(shift_data, shifts_list)
+
+    fecha_turno = fecha or shift_data.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    hora_inicio = str(shift_data.get("hora_inicio") or shift_data.get("start") or "06:00")[:5]
+    hora_fin = str(shift_data.get("hora_fin") or shift_data.get("end") or "14:00")[:5]
+    rango_horario = f"{hora_inicio} - {hora_fin}"
+
+    try:
+        fecha_formateada = datetime.strptime(fecha_turno, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha_formateada = fecha_turno
+
+    shift_key = f"TUNEL_VT_{fecha_turno}_{turno_identificador.replace(' ', '_')}"
+
+    prod_live = get_tunel_vt_production(shift_data)
+    g = prod_live.get("grafica_hora_a_hora", {})
+
+    return {
+        "shift_key": shift_key,
+        "maquina": "TUNEL_VT",
+        "fecha": fecha_turno,
+        "turno_identificador": turno_identificador,
+        "hora_inicio": hora_inicio,
+        "hora_fin": hora_fin,
+        "rango_horario": rango_horario,
+        "meta_info": {
+            "planta": "ELIS NÁJERA 4.0",
+            "maquina_id": "TUNEL_VT",
+            "maquina_nombre": "Túnel VT",
+            "fecha": fecha_turno,
+            "fecha_formateada": fecha_formateada,
+            "turno_identificador": turno_identificador,
+            "nombre_turno": shift_data.get("nombre") or turno_identificador,
+            "hora_inicio": hora_inicio,
+            "hora_fin": hora_fin,
+            "rango_horario": rango_horario,
+            "timestamp_actualizacion": get_local_now_str()
+        },
+        "indicadores_dashboard": prod_live,
+        "desglose_hora_a_hora": g
+    }
+
+
+def save_tunel_vt_shift_json(shift_package: dict) -> bool:
+    """Almacena o actualiza un paquete JSON de turno para Túnel VT en SQLite."""
+    shift_key = shift_package["shift_key"]
+    fecha = shift_package["fecha"]
+    turno_identificador = shift_package["turno_identificador"]
+    meta = shift_package.get("meta_info", {})
+    nombre_turno = meta.get("nombre_turno", turno_identificador)
+    hora_inicio = shift_package["hora_inicio"]
+    hora_fin = shift_package["hora_fin"]
+    rango_horario = shift_package.get("rango_horario", f"{hora_inicio} - {hora_fin}")
+
+    ind = shift_package.get("indicadores_dashboard", {})
+    prendas_totales = int(ind.get("prendas_totales", 0))
+    desg = ind.get("desglose_entradas", {})
+    e1 = int(desg.get("entrada_1", 0))
+    e2 = int(desg.get("entrada_2", 0))
+    e3 = int(desg.get("entrada_3", 0))
+    ve1 = float(desg.get("tiempo_valle_e1", 0.0))
+    ve2 = float(desg.get("tiempo_valle_e2", 0.0))
+    ve3 = float(desg.get("tiempo_valle_e3", 0.0))
+    ve_tot = float(ind.get("tiempo_valle_min", 0.0))
+    kgs_totales = float(ind.get("kgs_totales", 0.0))
+    peso_unitario = float(ind.get("peso_unitario", 0.260))
+    prendas_hora = int(ind.get("prendas_hora", 0))
+    kg_hora = float(ind.get("kg_hora", 0.0))
+
+    data_json = json.dumps(shift_package, ensure_ascii=False)
+    now_local = get_local_now_str()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO tunel_vt_turnos_persistencia (
+            shift_key, fecha, turno_identificador, nombre_turno,
+            hora_inicio, hora_fin, rango_horario,
+            prendas_totales, entrada_1, entrada_2, entrada_3,
+            tiempo_valle_e1_min, tiempo_valle_e2_min, tiempo_valle_e3_min, tiempo_valle_total_min,
+            kgs_totales, peso_unitario, prendas_hora, kg_hora,
+            data_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(shift_key) DO UPDATE SET
+            fecha = excluded.fecha,
+            turno_identificador = excluded.turno_identificador,
+            nombre_turno = excluded.nombre_turno,
+            hora_inicio = excluded.hora_inicio,
+            hora_fin = excluded.hora_fin,
+            rango_horario = excluded.rango_horario,
+            prendas_totales = excluded.prendas_totales,
+            entrada_1 = excluded.entrada_1,
+            entrada_2 = excluded.entrada_2,
+            entrada_3 = excluded.entrada_3,
+            tiempo_valle_e1_min = excluded.tiempo_valle_e1_min,
+            tiempo_valle_e2_min = excluded.tiempo_valle_e2_min,
+            tiempo_valle_e3_min = excluded.tiempo_valle_e3_min,
+            tiempo_valle_total_min = excluded.tiempo_valle_total_min,
+            kgs_totales = excluded.kgs_totales,
+            peso_unitario = excluded.peso_unitario,
+            prendas_hora = excluded.prendas_hora,
+            kg_hora = excluded.kg_hora,
+            data_json = excluded.data_json,
+            updated_at = excluded.updated_at
+    """, (
+        shift_key, fecha, turno_identificador, nombre_turno,
+        hora_inicio, hora_fin, rango_horario,
+        prendas_totales, e1, e2, e3,
+        ve1, ve2, ve3, ve_tot,
+        kgs_totales, peso_unitario, prendas_hora, kg_hora,
+        data_json, now_local
+    ))
+    conn.commit()
+    conn.close()
+    return True
 
 
 def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
@@ -951,9 +1945,19 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
 
     # Franjas horarias estándar de turno (para cuando no hay turno activo o fallback)
     default_labels = ["06:00 - 07:00", "07:00 - 08:00", "08:00 - 09:00", "09:00 - 10:00", "10:00 - 11:00", "11:00 - 12:00", "12:00 - 13:00", "13:00 - 14:00"]
+    n_lbl = len(default_labels)
 
-    if not shift_active:
-        n_lbl = len(default_labels)
+    nombre_act = str(turno_act.get("nombre") or "").upper()
+    is_fuera = any(x in nombre_act for x in ["FUERA", "SIN TURNO", "INACTIVO"])
+
+    if not turno_act or is_fuera:
+        conn_p = get_db_connection()
+        p_row = conn_p.execute("SELECT * FROM calandras_peso_unitario WHERE maquina = ?", (maquina_id,)).fetchone()
+        conn_p.close()
+        p_def_peq = float(p_row["peso_pequenas"]) if p_row and p_row["peso_pequenas"] is not None else 0.470
+        p_def_gra = float(p_row["peso_grandes"]) if p_row and p_row["peso_grandes"] is not None else 0.780
+        p_def_uni = float(p_row["peso_unitario"]) if p_row and p_row["peso_unitario"] is not None else 1.180
+
         return {
             "maquina": maquina_id,
             "is_turno_activo": False,
@@ -964,6 +1968,8 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             "kgs_totales_str": "0,0 kg",
             "tiempo_valle_min": 0.0,
             "tiempo_valle_str": "0,0 min",
+            "tiempo_descanso_min": 0.0,
+            "tiempo_descanso_str": "0,0 min",
             "prendas_hora": 0,
             "prendas_hora_str": "0 prendas/h",
             "kg_hora": 0.0,
@@ -977,6 +1983,10 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
                 "kg_grandes_str": "0,0 kg",
                 "kg_pequenas": 0.0,
                 "kg_pequenas_str": "0,0 kg",
+                "peso_unitario_grandes": p_def_gra,
+                "peso_unitario_grandes_str": f"{int(round(p_def_gra * 1000))} gr ({p_def_gra:.3f} kg)",
+                "peso_unitario_pequenas": p_def_peq,
+                "peso_unitario_pequenas_str": f"{int(round(p_def_peq * 1000))} gr ({p_def_peq:.3f} kg)",
                 "tiempo_valle_grandes": 0.0,
                 "tiempo_valle_grandes_str": "0.0 min",
                 "tiempo_valle_pequenas": 0.0,
@@ -986,10 +1996,20 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
                 "prendas_pequenas_hora": 0,
                 "prendas_pequenas_hora_str": "0 p/h"
             } if maquina_id == "CALANDRA_2" else None,
+            "peso_pequenas": p_def_peq if maquina_id == "CALANDRA_2" else None,
+            "peso_pequenas_gr": int(round(p_def_peq * 1000)) if maquina_id == "CALANDRA_2" else None,
+            "peso_grandes": p_def_gra if maquina_id == "CALANDRA_2" else None,
+            "peso_grandes_gr": int(round(p_def_gra * 1000)) if maquina_id == "CALANDRA_2" else None,
+            "peso_unitario_info": f"Gdes: {int(round(p_def_gra * 1000))}g | Peq: {int(round(p_def_peq * 1000))}g" if maquina_id == "CALANDRA_2" else f"{int(round(p_def_uni * 1000))} gr ({p_def_uni:.3f} kg)",
+            "peso_unitario": p_def_gra if maquina_id == "CALANDRA_2" else p_def_uni,
+            "peso_unitario_gr": int(round((p_def_gra if maquina_id == "CALANDRA_2" else p_def_uni) * 1000)),
+            "peso_unitario_str": f"{int(round(p_def_uni * 1000))} gr/u" if maquina_id == "CALANDRA_3" else f"P: {int(round(p_def_peq * 1000))}g | G: {int(round(p_def_gra * 1000))}g",
             "grafica_hora_a_hora": {
                 "labels": default_labels,
                 "prendas": [0] * n_lbl,
                 "tiempo_valle": [0.0] * n_lbl,
+                "tiempo_descanso": [0.0] * n_lbl,
+                "tiempo_valle_raw": [0.0] * n_lbl,
                 "grandes": [0] * n_lbl if maquina_id == "CALANDRA_2" else None,
                 "pequenas": [0] * n_lbl if maquina_id == "CALANDRA_2" else None
             }
@@ -1067,8 +2087,11 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             "in_idle": int(r["in_idle"] or 0)
         })
 
+    breaks_list = get_shift_breaks(turno_act)
     prendas = []
     valle = []
+    descanso = []
+    valle_raw = []
     grandes = []
     pequenas = []
     prev_idle = norm_rows[0]["idle_min_total"] if norm_rows else None
@@ -1102,15 +2125,29 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
 
         v_slot_delta = min(round(v_slot_delta, 1), 60.0)
 
+        # Descontar el descanso del tiempo valle
+        b_min = get_break_overlap_for_slot(s_start, s_end, breaks_list)
+        try:
+            s_start_dt = datetime.strptime(s_start.replace('T', ' ')[:19], "%Y-%m-%d %H:%M:%S")
+            is_slot_started = (now_dt >= s_start_dt)
+        except Exception:
+            is_slot_started = True
+
+        d_slot = b_min if (is_slot_started and b_min > 0) else 0.0
+        v_neto = max(round(v_slot_delta - min(v_slot_delta, d_slot), 1), 0.0)
+
         prendas.append(tot_slot)
         grandes.append(g_slot)
         pequenas.append(p_slot)
-        valle.append(v_slot_delta)
+        valle.append(v_neto)
+        descanso.append(d_slot)
+        valle_raw.append(v_slot_delta)
 
     tot_prendas_remotas = sum(prendas)
     tot_grandes_remotas = sum(grandes)
     tot_pequenas_remotas = sum(pequenas)
     tot_valle_remoto = round(sum(valle), 1)
+    tot_descanso_remoto = round(sum(descanso), 1)
 
     conn = get_db_connection()
     peso_row = conn.execute("SELECT * FROM calandras_peso_unitario WHERE maquina = ?", (maquina_id,)).fetchone()
@@ -1166,8 +2203,25 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
         in_idle = bool(live_cache.get("in_idle") or (norm_rows and norm_rows[-1]["in_idle"]))
 
     # Calcular horas transcurridas de turno
-    dur_min = float(turno_act.get("minutos_transcurridos") or 60)
-    horas_transcurridas = max(dur_min / 60.0, 0.25)
+    duracion_horas = max(len(labels), 1)
+    if shift_active:
+        now_dt = get_local_now().replace(tzinfo=None)
+        start_iso, end_iso = get_shift_start_end_iso(fecha_iso, h_ini_str, h_fin_str)
+        try:
+            dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+            dt_end = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
+            if now_dt >= dt_end:
+                horas_transcurridas = max((dt_end - dt_start).total_seconds() / 3600.0, 1.0)
+            elif now_dt >= dt_start:
+                horas_transcurridas = max((now_dt - dt_start).total_seconds() / 3600.0, 0.25)
+            else:
+                horas_transcurridas = max(float(duracion_horas), 1.0)
+        except Exception:
+            horas_transcurridas = max(float(duracion_horas), 1.0)
+        en_valle_res = in_idle
+    else:
+        horas_transcurridas = max(float(duracion_horas), 1.0)
+        en_valle_res = False
 
     prendas_h = int(round(p_totales / horas_transcurridas))
     kg_h = round(w_totales / horas_transcurridas, 1)
@@ -1180,8 +2234,8 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
 
     res_prod = {
         "maquina": maquina_id,
-        "is_turno_activo": True,
-        "en_valle": in_idle,
+        "is_turno_activo": shift_active,
+        "en_valle": en_valle_res,
         "fuente_datos": "MQTT_DIRECTO",
         "prendas_totales": p_totales,
         "prendas_totales_str": prendas_totales_str,
@@ -1189,6 +2243,8 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
         "kgs_totales_str": kgs_totales_str,
         "tiempo_valle_min": v_total,
         "tiempo_valle_str": tiempo_valle_str,
+        "tiempo_descanso_min": tot_descanso_remoto,
+        "tiempo_descanso_str": f"{tot_descanso_remoto:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
         "prendas_hora": prendas_h,
         "prendas_hora_str": prendas_hora_str,
         "kg_hora": kg_h,
@@ -1203,9 +2259,9 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             "kg_pequenas": w_pequenas,
             "kg_pequenas_str": f"{w_pequenas:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
             "peso_unitario_grandes": p_gra_unit,
-            "peso_unitario_grandes_str": f"{p_gra_unit:,.2f} kg/u".replace(".", ","),
+            "peso_unitario_grandes_str": f"{int(round(p_gra_unit * 1000))} gr ({p_gra_unit:.3f} kg)",
             "peso_unitario_pequenas": p_peq_unit,
-            "peso_unitario_pequenas_str": f"{p_peq_unit:,.2f} kg/u".replace(".", ","),
+            "peso_unitario_pequenas_str": f"{int(round(p_peq_unit * 1000))} gr ({p_peq_unit:.3f} kg)",
             "tiempo_valle_grandes": v_grandes,
             "tiempo_valle_grandes_str": f"{v_grandes:.1f} min",
             "tiempo_valle_pequenas": v_pequenas,
@@ -1215,12 +2271,20 @@ def get_calandra_production(maquina_id: str, turno_act: dict = None) -> dict:
             "prendas_pequenas_hora": int(round(p_pequenas / horas_transcurridas)),
             "prendas_pequenas_hora_str": f"{int(round(p_pequenas / horas_transcurridas)):,} p/h".replace(",", ".")
         } if maquina_id == "CALANDRA_2" else None,
-        "peso_unitario_info": f"Gdes: {p_gra_unit:,.2f} kg/u | Peq: {p_peq_unit:,.2f} kg/u".replace(".", ",") if maquina_id == "CALANDRA_2" else f"{p_unit:,.2f} kg/u".replace(".", ","),
+        "peso_pequenas": p_peq_unit if maquina_id == "CALANDRA_2" else None,
+        "peso_pequenas_gr": int(round(p_peq_unit * 1000)) if maquina_id == "CALANDRA_2" else None,
+        "peso_grandes": p_gra_unit if maquina_id == "CALANDRA_2" else None,
+        "peso_grandes_gr": int(round(p_gra_unit * 1000)) if maquina_id == "CALANDRA_2" else None,
+        "peso_unitario_info": f"Gdes: {int(round(p_gra_unit * 1000))}g | Peq: {int(round(p_peq_unit * 1000))}g" if maquina_id == "CALANDRA_2" else f"{int(round(p_unit * 1000))} gr ({p_unit:.3f} kg)",
         "peso_unitario": p_gra_unit if maquina_id == "CALANDRA_2" else p_unit,
+        "peso_unitario_gr": int(round((p_gra_unit if maquina_id == "CALANDRA_2" else p_unit) * 1000)),
+        "peso_unitario_str": f"{int(round(p_unit * 1000))} gr/u" if maquina_id == "CALANDRA_3" else f"P: {int(round(p_peq_unit * 1000))}g | G: {int(round(p_gra_unit * 1000))}g",
         "grafica_hora_a_hora": {
             "labels": labels,
             "prendas": prendas,
             "tiempo_valle": valle,
+            "tiempo_descanso": descanso,
+            "tiempo_valle_raw": valle_raw,
             "grandes": grandes if maquina_id == "CALANDRA_2" else None,
             "pequenas": pequenas if maquina_id == "CALANDRA_2" else None
         }
@@ -1661,9 +2725,9 @@ def get_tunel_lavado_dashboard_filtrado(
         q_end_str = q_end.strftime("%Y-%m-%d %H:%M:%S")
 
         if q_end >= dt_end:
-            q = "SELECT COUNT(*) as num_cargas, COALESCE(SUM(peso_kg), 0) as kg_hora FROM tunel_cargas WHERE timestamp_iso >= ? AND timestamp_iso <= ?"
+            q = "SELECT COUNT(*) as num_cargas, COALESCE(SUM(peso_kg), 0) as kg_hora FROM tunel_cargas WHERE timestamp_iso >= ? AND timestamp_iso <= ? AND load_id IS NOT NULL AND peso_kg > 0"
         else:
-            q = "SELECT COUNT(*) as num_cargas, COALESCE(SUM(peso_kg), 0) as kg_hora FROM tunel_cargas WHERE timestamp_iso >= ? AND timestamp_iso < ?"
+            q = "SELECT COUNT(*) as num_cargas, COALESCE(SUM(peso_kg), 0) as kg_hora FROM tunel_cargas WHERE timestamp_iso >= ? AND timestamp_iso < ? AND load_id IS NOT NULL AND peso_kg > 0"
 
         row_h = conn.execute(q, (q_start_str, q_end_str)).fetchone()
         kg_val = round(row_h["kg_hora"], 1) if row_h else 0.0
@@ -2144,6 +3208,7 @@ def get_shifts_by_date(fecha: str, user: dict = Depends(check_produccion_permiss
           AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
           AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
           AND UPPER(shift_key) NOT LIKE '%FUERA%'
+          AND (total_kg > 0 OR total_cargas > 0)
         ORDER BY hora_inicio ASC, id ASC
     """, (fecha,)).fetchall()
     conn.close()
@@ -2248,12 +3313,7 @@ def sync_all_historical_shifts():
     conn.close()
 
     fechas = [r["f"] for r in rows if r["f"]]
-    turnos_plantilla = [
-        {"nombre": "Turno 1", "hora_inicio": "06:00", "hora_fin": "14:00"},
-        {"nombre": "Turno 2", "hora_inicio": "14:00", "hora_fin": "21:00"},
-        {"nombre": "Turno 3", "hora_inicio": "21:00", "hora_fin": "02:00"},
-        {"nombre": "Turno 4", "hora_inicio": "02:00", "hora_fin": "06:00"}
-    ]
+    turnos_plantilla = get_jornada_shifts_template()
 
     total_synced = 0
     for fecha in fechas:
@@ -2450,6 +3510,7 @@ def get_totales_periodo(
     hora_inicio: str = "06:00",
     fecha_fin: str = None,
     hora_fin: str = "22:00",
+    maquina: str = "TUNEL_LAVADO",
     current_user: dict = Depends(check_produccion_permission)
 ):
     """
@@ -2457,6 +3518,14 @@ def get_totales_periodo(
     No se toman en cuenta baches de tiempo intermedios (ej: fines de semana o noches sin producción).
     Los turnos incluidos se asumen contiguos para el cálculo de horas efectivas y kg/hora.
     """
+    m_up = (maquina or "TUNEL_LAVADO").upper()
+    if m_up in ["CALANDRA_2", "CALANDRA2", "CAL_2"]:
+        return get_calandra_2_totales_periodo(fecha_inicio, hora_inicio, fecha_fin, hora_fin)
+    elif m_up in ["CALANDRA_3", "CALANDRA3", "CAL_3"]:
+        return get_calandra_3_totales_periodo(fecha_inicio, hora_inicio, fecha_fin, hora_fin)
+    elif m_up in ["TUNEL_VT", "TUNELVT", "VT"]:
+        return get_tunel_vt_totales_periodo(fecha_inicio, hora_inicio, fecha_fin, hora_fin)
+
     if not fecha_fin:
         fecha_fin = fecha_inicio
 
@@ -2644,6 +3713,652 @@ def get_totales_periodo(
     }
 
 
+def get_calandra_2_totales_periodo(
+    fecha_inicio: str,
+    hora_inicio: str = "06:00",
+    fecha_fin: str = None,
+    hora_fin: str = "22:00"
+) -> dict:
+    """Calcula los totales consolidados de un período concatenando los turnos de Calandra 2."""
+    if not fecha_fin:
+        fecha_fin = fecha_inicio
+
+    try:
+        dt_start = datetime.strptime(f"{fecha_inicio} {hora_inicio}:00", "%Y-%m-%d %H:%M:%S")
+        dt_end = datetime.strptime(f"{fecha_fin} {hora_fin}:00", "%Y-%m-%d %H:%M:%S")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Formato de fecha u hora inválido: {e}"
+        )
+
+    if dt_end <= dt_start:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha y hora de fin debe ser posterior a la fecha y hora de inicio."
+        )
+
+    window_start_str = dt_start.strftime("%Y-%m-%d %H:%M:%S")
+    window_end_str = dt_end.strftime("%Y-%m-%d %H:%M:%S")
+
+    q_start_date = (dt_start - timedelta(days=1)).strftime("%Y-%m-%d")
+    q_end_date = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Sincronizar turno actual en curso si cae en la ventana
+    try:
+        cur_j = get_current_jornada_date()
+        if cur_j >= q_start_date and cur_j <= q_end_date:
+            turnos_cache = get_cached_turnos()
+            turno_act = turnos_cache.get("turno_actual", {})
+            if is_shift_active(turno_act):
+                pkg = build_calandra_shift_json("CALANDRA_2", cur_j, turno_act)
+                save_calandra_shift_json(pkg)
+    except Exception:
+        pass
+
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT shift_key, fecha, turno_identificador, nombre_turno, hora_inicio, hora_fin,
+               prendas_totales, prendas_grandes, prendas_pequenas,
+               kgs_totales, kg_grandes, kg_pequenas,
+               tiempo_valle_min, prendas_hora, kg_hora, data_json, updated_at
+        FROM calandra_2_turnos_persistencia
+        WHERE fecha >= ? AND fecha <= ?
+          AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
+        ORDER BY fecha ASC, hora_inicio ASC, id ASC
+    """, (q_start_date, q_end_date)).fetchall()
+    conn.close()
+
+    turnos_concatenados = []
+    total_prendas_acum = 0
+    total_grandes_acum = 0
+    total_pequenas_acum = 0
+    total_kg_acum = 0.0
+    total_kg_grandes_acum = 0.0
+    total_kg_pequenas_acum = 0.0
+    total_valle_acum = 0.0
+    total_segundos_efectivos = 0.0
+
+    for r in rows:
+        n_up = (r["nombre_turno"] or "").upper()
+        k_up = (r["shift_key"] or "").upper()
+        if any(x in n_up or x in k_up for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            continue
+
+        shift_start_iso, shift_end_iso = get_shift_start_end_iso(r["fecha"], r["hora_inicio"], r["hora_fin"])
+        
+        if shift_end_iso > window_start_str and shift_start_iso < window_end_str:
+            p_tot = int(r["prendas_totales"] or 0)
+            p_gra = int(r["prendas_grandes"] or 0)
+            p_peq = int(r["prendas_pequenas"] or 0)
+            if p_tot > 0 and (p_gra + p_peq == 0):
+                p_peq = p_tot
+
+            k_tot = float(r["kgs_totales"] or 0.0)
+            k_gra = float(r["kg_grandes"] or 0.0)
+            k_peq = float(r["kg_pequenas"] or 0.0)
+            v_min = float(r["tiempo_valle_min"] or 0.0)
+
+            try:
+                dt_s = datetime.strptime(shift_start_iso, "%Y-%m-%d %H:%M:%S")
+                dt_e = datetime.strptime(shift_end_iso, "%Y-%m-%d %H:%M:%S")
+                dur_seg = max((dt_e - dt_s).total_seconds(), 60.0)
+            except Exception:
+                dur_seg = 8 * 3600.0
+
+            dur_horas = dur_seg / 3600.0
+
+            p_h = r["prendas_hora"] or (int(round(p_tot / dur_horas)) if dur_horas > 0 else 0)
+            k_h = r["kg_hora"] or (round(k_tot / dur_horas, 1) if dur_horas > 0 else 0.0)
+
+            total_prendas_acum += p_tot
+            total_grandes_acum += p_gra
+            total_pequenas_acum += p_peq
+            total_kg_acum += k_tot
+            total_kg_grandes_acum += k_gra
+            total_kg_pequenas_acum += k_peq
+            total_valle_acum += v_min
+            total_segundos_efectivos += dur_seg
+
+            turnos_concatenados.append({
+                "shift_key": r["shift_key"],
+                "fecha": r["fecha"],
+                "fecha_formateada": datetime.strptime(r["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y") if "-" in r["fecha"] else r["fecha"],
+                "turno_identificador": r["turno_identificador"],
+                "nombre_turno": r["nombre_turno"],
+                "hora_inicio": r["hora_inicio"],
+                "hora_fin": r["hora_fin"],
+                "rango_horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+                "duracion_horas": round(dur_horas, 1),
+                "prendas_totales": p_tot,
+                "prendas_totales_str": f"{p_tot:,}".replace(",", ".") + " prendas",
+                "prendas_grandes": p_gra,
+                "prendas_grandes_str": f"{p_gra:,}".replace(",", ".") + " grandes",
+                "prendas_pequenas": p_peq,
+                "prendas_pequenas_str": f"{p_peq:,}".replace(",", ".") + " pequeñas",
+                "total_kg": round(k_tot, 1),
+                "total_kg_str": f"{k_tot:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "kg_grandes": round(k_gra, 1),
+                "kg_grandes_str": f"{k_gra:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "kg_pequenas": round(k_peq, 1),
+                "kg_pequenas_str": f"{k_peq:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "tiempo_valle_min": round(v_min, 1),
+                "tiempo_valle_str": f"{v_min:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
+                "prendas_hora": p_h,
+                "prendas_hora_str": f"{p_h:,}".replace(",", ".") + " p/h",
+                "kg_hora": k_h,
+                "kg_hora_str": f"{k_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+            })
+
+    total_horas_efectivas = total_segundos_efectivos / 3600.0
+    horas_int = int(total_horas_efectivas)
+    minutos_rem = int(round((total_horas_efectivas - horas_int) * 60))
+
+    kg_hora_periodo = round(total_kg_acum / total_horas_efectivas, 1) if total_horas_efectivas > 0 else 0.0
+    prendas_hora_periodo = int(round(total_prendas_acum / total_horas_efectivas)) if total_horas_efectivas > 0 else 0
+
+    n_turnos = len(turnos_concatenados)
+    pct_grandes = round((total_grandes_acum / total_prendas_acum) * 100, 1) if total_prendas_acum > 0 else 0.0
+    pct_pequenas = round((total_pequenas_acum / total_prendas_acum) * 100, 1) if total_prendas_acum > 0 else 0.0
+    prom_prendas_turno = int(round(total_prendas_acum / n_turnos)) if n_turnos > 0 else 0
+    prom_kg_turno = round(total_kg_acum / n_turnos, 1) if n_turnos > 0 else 0.0
+    prom_valle_turno = round(total_valle_acum / n_turnos, 1) if n_turnos > 0 else 0.0
+
+    return {
+        "status": "success",
+        "maquina": "CALANDRA_2",
+        "maquina_nombre": "Calandra 2",
+        "icono": "fa-scroll",
+        "ventana_solicitada": {
+            "fecha_inicio": fecha_inicio,
+            "hora_inicio": hora_inicio,
+            "fecha_fin": fecha_fin,
+            "hora_fin": hora_fin,
+            "inicio_iso": window_start_str,
+            "fin_iso": window_end_str,
+            "inicio_formateado": f"{datetime.strptime(fecha_inicio, '%Y-%m-%d').strftime('%d/%m/%Y')} {hora_inicio}",
+            "fin_formateado": f"{datetime.strptime(fecha_fin, '%Y-%m-%d').strftime('%d/%m/%Y')} {hora_fin}"
+        },
+        "totales": {
+            "total_turnos": n_turnos,
+            "total_prendas": total_prendas_acum,
+            "total_prendas_str": f"{total_prendas_acum:,}".replace(",", ".") + " prendas",
+            "total_grandes": total_grandes_acum,
+            "total_grandes_str": f"{total_grandes_acum:,}".replace(",", ".") + " grandes",
+            "total_pequenas": total_pequenas_acum,
+            "total_pequenas_str": f"{total_pequenas_acum:,}".replace(",", ".") + " pequeñas",
+            "pct_grandes": pct_grandes,
+            "pct_pequenas": pct_pequenas,
+            "total_kg": round(total_kg_acum, 1),
+            "total_kg_str": f"{total_kg_acum:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "total_kg_grandes": round(total_kg_grandes_acum, 1),
+            "total_kg_grandes_str": f"{total_kg_grandes_acum:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "total_kg_pequenas": round(total_kg_pequenas_acum, 1),
+            "total_kg_pequenas_str": f"{total_kg_pequenas_acum:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "total_tiempo_valle_min": round(total_valle_acum, 1),
+            "total_tiempo_valle_str": f"{total_valle_acum:,.1f} min".replace(",", "@").replace(".", ",").replace("@", "."),
+            "horas_efectivas": round(total_horas_efectivas, 1),
+            "horas_efectivas_str": f"{horas_int}h {minutos_rem}m ({round(total_horas_efectivas, 1)}h)",
+            "prendas_hora": prendas_hora_periodo,
+            "prendas_hora_str": f"{prendas_hora_periodo:,} p/h".replace(",", "."),
+            "kg_hora": kg_hora_periodo,
+            "kg_hora_str": f"{kg_hora_periodo:,.1f} kg/h".replace(",", "@").replace(".", ",").replace("@", "."),
+            "promedio_prendas_turno": prom_prendas_turno,
+            "promedio_prendas_turno_str": f"{prom_prendas_turno:,} p/turno".replace(",", "."),
+            "promedio_kg_turno": prom_kg_turno,
+            "promedio_kg_turno_str": f"{prom_kg_turno:,.1f} kg/turno".replace(",", "@").replace(".", ",").replace("@", "."),
+            "promedio_valle_turno": prom_valle_turno,
+            "promedio_valle_turno_str": f"{prom_valle_turno:,.1f} min/turno".replace(",", "@").replace(".", ",").replace("@", ".")
+        },
+        "turnos_concatenados": turnos_concatenados
+    }
+
+
+def get_calandra_3_totales_periodo(
+    fecha_inicio: str,
+    hora_inicio: str = "06:00",
+    fecha_fin: str = None,
+    hora_fin: str = "22:00"
+) -> dict:
+    """Calcula los totales consolidados de un período concatenando los turnos de Calandra 3."""
+    if not fecha_fin:
+        fecha_fin = fecha_inicio
+
+    try:
+        dt_start = datetime.strptime(f"{fecha_inicio} {hora_inicio}:00", "%Y-%m-%d %H:%M:%S")
+        dt_end = datetime.strptime(f"{fecha_fin} {hora_fin}:00", "%Y-%m-%d %H:%M:%S")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Formato de fecha u hora inválido: {e}"
+        )
+
+    if dt_end <= dt_start:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha y hora de fin debe ser posterior a la fecha y hora de inicio."
+        )
+
+    window_start_str = dt_start.strftime("%Y-%m-%d %H:%M:%S")
+    window_end_str = dt_end.strftime("%Y-%m-%d %H:%M:%S")
+
+    q_start_date = (dt_start - timedelta(days=1)).strftime("%Y-%m-%d")
+    q_end_date = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Sincronizar turno actual en curso si cae en la ventana
+    try:
+        cur_j = get_current_jornada_date()
+        if cur_j >= q_start_date and cur_j <= q_end_date:
+            turnos_cache = get_cached_turnos()
+            turno_act = turnos_cache.get("turno_actual", {})
+            if is_shift_active(turno_act):
+                pkg = build_calandra_shift_json("CALANDRA_3", cur_j, turno_act)
+                save_calandra_shift_json(pkg)
+    except Exception:
+        pass
+
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT shift_key, fecha, turno_identificador, nombre_turno, hora_inicio, hora_fin,
+               prendas_totales, kgs_totales, tiempo_valle_min, peso_unitario,
+               prendas_hora, kg_hora, data_json, updated_at
+        FROM calandra_3_turnos_persistencia
+        WHERE fecha >= ? AND fecha <= ?
+          AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
+        ORDER BY fecha ASC, hora_inicio ASC, id ASC
+    """, (q_start_date, q_end_date)).fetchall()
+    conn.close()
+
+    turnos_concatenados = []
+    total_prendas_acum = 0
+    total_kg_acum = 0.0
+    total_valle_acum = 0.0
+    total_segundos_efectivos = 0.0
+    last_peso_unitario = 1.180
+
+    for r in rows:
+        n_up = (r["nombre_turno"] or "").upper()
+        k_up = (r["shift_key"] or "").upper()
+        if any(x in n_up or x in k_up for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            continue
+
+        shift_start_iso, shift_end_iso = get_shift_start_end_iso(r["fecha"], r["hora_inicio"], r["hora_fin"])
+        
+        if shift_end_iso > window_start_str and shift_start_iso < window_end_str:
+            p_tot = int(r["prendas_totales"] or 0)
+            k_tot = float(r["kgs_totales"] or 0.0)
+            v_min = float(r["tiempo_valle_min"] or 0.0)
+            p_uni = float(r["peso_unitario"] or 1.180)
+            if p_uni > 0:
+                last_peso_unitario = p_uni
+
+            try:
+                dt_s = datetime.strptime(shift_start_iso, "%Y-%m-%d %H:%M:%S")
+                dt_e = datetime.strptime(shift_end_iso, "%Y-%m-%d %H:%M:%S")
+                dur_seg = max((dt_e - dt_s).total_seconds(), 60.0)
+            except Exception:
+                dur_seg = 8 * 3600.0
+
+            dur_horas = dur_seg / 3600.0
+
+            p_h = r["prendas_hora"] or (int(round(p_tot / dur_horas)) if dur_horas > 0 else 0)
+            k_h = r["kg_hora"] or (round(k_tot / dur_horas, 1) if dur_horas > 0 else 0.0)
+
+            total_prendas_acum += p_tot
+            total_kg_acum += k_tot
+            total_valle_acum += v_min
+            total_segundos_efectivos += dur_seg
+
+            turnos_concatenados.append({
+                "shift_key": r["shift_key"],
+                "fecha": r["fecha"],
+                "fecha_formateada": datetime.strptime(r["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y") if "-" in r["fecha"] else r["fecha"],
+                "turno_identificador": r["turno_identificador"],
+                "nombre_turno": r["nombre_turno"],
+                "hora_inicio": r["hora_inicio"],
+                "hora_fin": r["hora_fin"],
+                "rango_horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+                "duracion_horas": round(dur_horas, 1),
+                "prendas_totales": p_tot,
+                "prendas_totales_str": f"{p_tot:,}".replace(",", ".") + " prendas",
+                "total_kg": round(k_tot, 1),
+                "total_kg_str": f"{k_tot:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "peso_unitario": p_uni,
+                "peso_unitario_str": f"{int(round(p_uni * 1000))} gr ({p_uni:.3f} kg)",
+                "tiempo_valle_min": round(v_min, 1),
+                "tiempo_valle_str": f"{v_min:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
+                "prendas_hora": p_h,
+                "prendas_hora_str": f"{p_h:,}".replace(",", ".") + " p/h",
+                "kg_hora": k_h,
+                "kg_hora_str": f"{k_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+            })
+
+    total_horas_efectivas = total_segundos_efectivos / 3600.0
+    horas_int = int(total_horas_efectivas)
+    minutos_rem = int(round((total_horas_efectivas - horas_int) * 60))
+
+    kg_hora_periodo = round(total_kg_acum / total_horas_efectivas, 1) if total_horas_efectivas > 0 else 0.0
+    prendas_hora_periodo = int(round(total_prendas_acum / total_horas_efectivas)) if total_horas_efectivas > 0 else 0
+
+    n_turnos = len(turnos_concatenados)
+    prom_prendas_turno = int(round(total_prendas_acum / n_turnos)) if n_turnos > 0 else 0
+    prom_kg_turno = round(total_kg_acum / n_turnos, 1) if n_turnos > 0 else 0.0
+    prom_valle_turno = round(total_valle_acum / n_turnos, 1) if n_turnos > 0 else 0.0
+
+    return {
+        "status": "success",
+        "maquina": "CALANDRA_3",
+        "maquina_nombre": "Calandra 3",
+        "icono": "fa-eye",
+        "ventana_solicitada": {
+            "fecha_inicio": fecha_inicio,
+            "hora_inicio": hora_inicio,
+            "fecha_fin": fecha_fin,
+            "hora_fin": hora_fin,
+            "inicio_iso": window_start_str,
+            "fin_iso": window_end_str,
+            "inicio_formateado": f"{datetime.strptime(fecha_inicio, '%Y-%m-%d').strftime('%d/%m/%Y')} {hora_inicio}",
+            "fin_formateado": f"{datetime.strptime(fecha_fin, '%Y-%m-%d').strftime('%d/%m/%Y')} {hora_fin}"
+        },
+        "totales": {
+            "total_turnos": n_turnos,
+            "total_prendas": total_prendas_acum,
+            "total_prendas_str": f"{total_prendas_acum:,}".replace(",", ".") + " prendas",
+            "total_kg": round(total_kg_acum, 1),
+            "total_kg_str": f"{total_kg_acum:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "peso_unitario": last_peso_unitario,
+            "peso_unitario_str": f"{int(round(last_peso_unitario * 1000))} gr/u ({last_peso_unitario:.3f} kg)",
+            "total_tiempo_valle_min": round(total_valle_acum, 1),
+            "total_tiempo_valle_str": f"{total_valle_acum:,.1f} min".replace(",", "@").replace(".", ",").replace("@", "."),
+            "horas_efectivas": round(total_horas_efectivas, 1),
+            "horas_efectivas_str": f"{horas_int}h {minutos_rem}m ({round(total_horas_efectivas, 1)}h)",
+            "prendas_hora": prendas_hora_periodo,
+            "prendas_hora_str": f"{prendas_hora_periodo:,} p/h".replace(",", "."),
+            "kg_hora": kg_hora_periodo,
+            "kg_hora_str": f"{kg_hora_periodo:,.1f} kg/h".replace(",", "@").replace(".", ",").replace("@", "."),
+            "promedio_prendas_turno": prom_prendas_turno,
+            "promedio_prendas_turno_str": f"{prom_prendas_turno:,} p/turno".replace(",", "."),
+            "promedio_kg_turno": prom_kg_turno,
+            "promedio_kg_turno_str": f"{prom_kg_turno:,.1f} kg/turno".replace(",", "@").replace(".", ",").replace("@", "."),
+            "promedio_valle_turno": prom_valle_turno,
+            "promedio_valle_turno_str": f"{prom_valle_turno:,.1f} min/turno".replace(",", "@").replace(".", ",").replace("@", ".")
+        },
+        "turnos_concatenados": turnos_concatenados
+    }
+
+
+def get_tunel_vt_totales_periodo(
+    fecha_inicio: str,
+    hora_inicio: str = "06:00",
+    fecha_fin: str = None,
+    hora_fin: str = "22:00"
+) -> dict:
+    """Calcula los totales consolidados de un período concatenando los turnos de Túnel VT."""
+    if not fecha_fin:
+        fecha_fin = fecha_inicio
+
+    try:
+        dt_start = datetime.strptime(f"{fecha_inicio} {hora_inicio}:00", "%Y-%m-%d %H:%M:%S")
+        dt_end = datetime.strptime(f"{fecha_fin} {hora_fin}:00", "%Y-%m-%d %H:%M:%S")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Formato de fecha u hora inválido: {e}"
+        )
+
+    if dt_end <= dt_start:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha y hora de fin debe ser posterior a la fecha y hora de inicio."
+        )
+
+    window_start_str = dt_start.strftime("%Y-%m-%d %H:%M:%S")
+    window_end_str = dt_end.strftime("%Y-%m-%d %H:%M:%S")
+
+    q_start_date = (dt_start - timedelta(days=1)).strftime("%Y-%m-%d")
+    q_end_date = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Sincronizar turno actual en curso si cae en la ventana
+    try:
+        cur_j = get_current_jornada_date()
+        if cur_j >= q_start_date and cur_j <= q_end_date:
+            turnos_cache = get_cached_turnos()
+            turno_act = turnos_cache.get("turno_actual", {})
+            if is_shift_active(turno_act):
+                pkg = build_tunel_vt_shift_json(cur_j, turno_act)
+                save_tunel_vt_shift_json(pkg)
+    except Exception:
+        pass
+
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT shift_key, fecha, turno_identificador, nombre_turno, hora_inicio, hora_fin,
+               prendas_totales, entrada_1, entrada_2, entrada_3,
+               tiempo_valle_e1_min, tiempo_valle_e2_min, tiempo_valle_e3_min, tiempo_valle_total_min,
+               kgs_totales, peso_unitario, prendas_hora, kg_hora, data_json, updated_at
+        FROM tunel_vt_turnos_persistencia
+        WHERE fecha >= ? AND fecha <= ?
+          AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
+        ORDER BY fecha ASC, hora_inicio ASC, id ASC
+    """, (q_start_date, q_end_date)).fetchall()
+    conn.close()
+
+    turnos_concatenados = []
+    total_prendas_acum = 0
+    total_e1_acum = 0
+    total_e2_acum = 0
+    total_e3_acum = 0
+    total_kg_acum = 0.0
+    total_valle_acum = 0.0
+    total_valle_e1_acum = 0.0
+    total_valle_e2_acum = 0.0
+    total_valle_e3_acum = 0.0
+    total_segundos_efectivos = 0.0
+    last_peso_unitario = 0.260
+
+    for r in rows:
+        n_up = (r["nombre_turno"] or "").upper()
+        k_up = (r["shift_key"] or "").upper()
+        if any(x in n_up or x in k_up for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            continue
+
+        shift_start_iso, shift_end_iso = get_shift_start_end_iso(r["fecha"], r["hora_inicio"], r["hora_fin"])
+        
+        if shift_end_iso > window_start_str and shift_start_iso < window_end_str:
+            p_tot = int(r["prendas_totales"] or 0)
+            e1 = int(r["entrada_1"] or 0)
+            e2 = int(r["entrada_2"] or 0)
+            e3 = int(r["entrada_3"] or 0)
+            if p_tot > 0 and (e1 + e2 + e3 == 0):
+                e1 = p_tot
+
+            k_tot = float(r["kgs_totales"] or 0.0)
+            p_uni = float(r["peso_unitario"] or 0.260)
+            if p_uni > 0:
+                last_peso_unitario = p_uni
+
+            kg_e1 = round(e1 * p_uni, 1)
+            kg_e2 = round(e2 * p_uni, 1)
+            kg_e3 = round(e3 * p_uni, 1)
+
+            v_tot = float(r["tiempo_valle_total_min"] or 0.0)
+            v_e1 = float(r["tiempo_valle_e1_min"] or 0.0)
+            v_e2 = float(r["tiempo_valle_e2_min"] or 0.0)
+            v_e3 = float(r["tiempo_valle_e3_min"] or 0.0)
+
+            try:
+                dt_s = datetime.strptime(shift_start_iso, "%Y-%m-%d %H:%M:%S")
+                dt_e = datetime.strptime(shift_end_iso, "%Y-%m-%d %H:%M:%S")
+                dur_seg = max((dt_e - dt_s).total_seconds(), 60.0)
+            except Exception:
+                dur_seg = 8 * 3600.0
+
+            dur_horas = dur_seg / 3600.0
+
+            p_h = r["prendas_hora"] or (int(round(p_tot / dur_horas)) if dur_horas > 0 else 0)
+            k_h = r["kg_hora"] or (round(k_tot / dur_horas, 1) if dur_horas > 0 else 0.0)
+
+            total_prendas_acum += p_tot
+            total_e1_acum += e1
+            total_e2_acum += e2
+            total_e3_acum += e3
+            total_kg_acum += k_tot
+            total_valle_acum += v_tot
+            total_valle_e1_acum += v_e1
+            total_valle_e2_acum += v_e2
+            total_valle_e3_acum += v_e3
+            total_segundos_efectivos += dur_seg
+
+            turnos_concatenados.append({
+                "shift_key": r["shift_key"],
+                "fecha": r["fecha"],
+                "fecha_formateada": datetime.strptime(r["fecha"], "%Y-%m-%d").strftime("%d/%m/%Y") if "-" in r["fecha"] else r["fecha"],
+                "turno_identificador": r["turno_identificador"],
+                "nombre_turno": r["nombre_turno"],
+                "hora_inicio": r["hora_inicio"],
+                "hora_fin": r["hora_fin"],
+                "rango_horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+                "duracion_horas": round(dur_horas, 1),
+                "prendas_totales": p_tot,
+                "prendas_totales_str": f"{p_tot:,}".replace(",", ".") + " prendas",
+                "entrada_1": e1,
+                "entrada_1_str": f"{e1:,}".replace(",", ".") + " E1",
+                "entrada_2": e2,
+                "entrada_2_str": f"{e2:,}".replace(",", ".") + " E2",
+                "entrada_3": e3,
+                "entrada_3_str": f"{e3:,}".replace(",", ".") + " E3",
+                "total_kg": round(k_tot, 1),
+                "total_kg_str": f"{k_tot:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "kg_e1": kg_e1,
+                "kg_e1_str": f"{kg_e1:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "kg_e2": kg_e2,
+                "kg_e2_str": f"{kg_e2:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "kg_e3": kg_e3,
+                "kg_e3_str": f"{kg_e3:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+                "peso_unitario": p_uni,
+                "peso_unitario_str": f"{int(round(p_uni * 1000))} gr ({p_uni:.3f} kg)",
+                "tiempo_valle_min": round(v_tot, 1),
+                "tiempo_valle_str": f"{v_tot:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
+                "prendas_hora": p_h,
+                "prendas_hora_str": f"{p_h:,}".replace(",", ".") + " p/h",
+                "kg_hora": k_h,
+                "kg_hora_str": f"{k_h:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h"
+            })
+
+    total_horas_efectivas = total_segundos_efectivos / 3600.0
+    horas_int = int(total_horas_efectivas)
+    minutos_rem = int(round((total_horas_efectivas - horas_int) * 60))
+
+    kg_hora_periodo = round(total_kg_acum / total_horas_efectivas, 1) if total_horas_efectivas > 0 else 0.0
+    prendas_hora_periodo = int(round(total_prendas_acum / total_horas_efectivas)) if total_horas_efectivas > 0 else 0
+
+    n_turnos = len(turnos_concatenados)
+    pct_e1 = round((total_e1_acum / total_prendas_acum) * 100, 1) if total_prendas_acum > 0 else 0.0
+    pct_e2 = round((total_e2_acum / total_prendas_acum) * 100, 1) if total_prendas_acum > 0 else 0.0
+    pct_e3 = round((total_e3_acum / total_prendas_acum) * 100, 1) if total_prendas_acum > 0 else 0.0
+    prom_prendas_turno = int(round(total_prendas_acum / n_turnos)) if n_turnos > 0 else 0
+    prom_kg_turno = round(total_kg_acum / n_turnos, 1) if n_turnos > 0 else 0.0
+    prom_valle_turno = round(total_valle_acum / n_turnos, 1) if n_turnos > 0 else 0.0
+
+    return {
+        "status": "success",
+        "maquina": "TUNEL_VT",
+        "maquina_nombre": "Túnel VT",
+        "icono": "fa-wind",
+        "ventana_solicitada": {
+            "fecha_inicio": fecha_inicio,
+            "hora_inicio": hora_inicio,
+            "fecha_fin": fecha_fin,
+            "hora_fin": hora_fin,
+            "inicio_iso": window_start_str,
+            "fin_iso": window_end_str,
+            "inicio_formateado": f"{datetime.strptime(fecha_inicio, '%Y-%m-%d').strftime('%d/%m/%Y')} {hora_inicio}",
+            "fin_formateado": f"{datetime.strptime(fecha_fin, '%Y-%m-%d').strftime('%d/%m/%Y')} {hora_fin}"
+        },
+        "totales": {
+            "total_turnos": n_turnos,
+            "total_prendas": total_prendas_acum,
+            "total_prendas_str": f"{total_prendas_acum:,}".replace(",", ".") + " prendas",
+            "total_e1": total_e1_acum,
+            "total_e1_str": f"{total_e1_acum:,}".replace(",", ".") + " E1",
+            "total_e2": total_e2_acum,
+            "total_e2_str": f"{total_e2_acum:,}".replace(",", ".") + " E2",
+            "total_e3": total_e3_acum,
+            "total_e3_str": f"{total_e3_acum:,}".replace(",", ".") + " E3",
+            "pct_e1": pct_e1,
+            "pct_e2": pct_e2,
+            "pct_e3": pct_e3,
+            "total_kg": round(total_kg_acum, 1),
+            "total_kg_str": f"{total_kg_acum:,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "kg_e1_str": f"{round(total_e1_acum * last_peso_unitario, 1):,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "kg_e2_str": f"{round(total_e2_acum * last_peso_unitario, 1):,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "kg_e3_str": f"{round(total_e3_acum * last_peso_unitario, 1):,.1f} kg".replace(",", "@").replace(".", ",").replace("@", "."),
+            "peso_unitario": last_peso_unitario,
+            "peso_unitario_str": f"{int(round(last_peso_unitario * 1000))} gr/u ({last_peso_unitario:.3f} kg)",
+            "total_tiempo_valle_min": round(total_valle_acum, 1),
+            "total_tiempo_valle_str": f"{total_valle_acum:,.1f} min".replace(",", "@").replace(".", ",").replace("@", "."),
+            "valle_e1_min": round(total_valle_e1_acum, 1),
+            "valle_e2_min": round(total_valle_e2_acum, 1),
+            "valle_e3_min": round(total_valle_e3_acum, 1),
+            "horas_efectivas": round(total_horas_efectivas, 1),
+            "horas_efectivas_str": f"{horas_int}h {minutos_rem}m ({round(total_horas_efectivas, 1)}h)",
+            "prendas_hora": prendas_hora_periodo,
+            "prendas_hora_str": f"{prendas_hora_periodo:,} p/h".replace(",", "."),
+            "kg_hora": kg_hora_periodo,
+            "kg_hora_str": f"{kg_hora_periodo:,.1f} kg/h".replace(",", "@").replace(".", ",").replace("@", "."),
+            "promedio_prendas_turno": prom_prendas_turno,
+            "promedio_prendas_turno_str": f"{prom_prendas_turno:,} p/turno".replace(",", "."),
+            "promedio_kg_turno": prom_kg_turno,
+            "promedio_kg_turno_str": f"{prom_kg_turno:,.1f} kg/turno".replace(",", "@").replace(".", ",").replace("@", "."),
+            "promedio_valle_turno": prom_valle_turno,
+            "promedio_valle_turno_str": f"{prom_valle_turno:,.1f} min/turno".replace(",", "@").replace(".", ",").replace("@", ".")
+        },
+        "turnos_concatenados": turnos_concatenados
+    }
+
+
+@router.get("/calandras/CALANDRA_2/totales-periodo")
+def get_totales_periodo_calandra2_endpoint(
+    fecha_inicio: str,
+    hora_inicio: str = "06:00",
+    fecha_fin: str = None,
+    hora_fin: str = "22:00",
+    user: dict = Depends(check_produccion_permission)
+):
+    """Calcula totales del período para Calandra 2."""
+    return get_calandra_2_totales_periodo(fecha_inicio, hora_inicio, fecha_fin, hora_fin)
+
+
+@router.get("/calandras/CALANDRA_3/totales-periodo")
+def get_totales_periodo_calandra3_endpoint(
+    fecha_inicio: str,
+    hora_inicio: str = "06:00",
+    fecha_fin: str = None,
+    hora_fin: str = "22:00",
+    user: dict = Depends(check_produccion_permission)
+):
+    """Calcula totales del período para Calandra 3."""
+    return get_calandra_3_totales_periodo(fecha_inicio, hora_inicio, fecha_fin, hora_fin)
+
+
+@router.get("/tunel-vt/totales-periodo")
+def get_totales_periodo_tunel_vt_endpoint(
+    fecha_inicio: str,
+    hora_inicio: str = "06:00",
+    fecha_fin: str = None,
+    hora_fin: str = "22:00",
+    user: dict = Depends(check_produccion_permission)
+):
+    """Calcula totales del período para Túnel VT."""
+    return get_tunel_vt_totales_periodo(fecha_inicio, hora_inicio, fecha_fin, hora_fin)
+
+
 @router.get("/calandras/{maquina_id}/peso-unitario")
 def get_peso_unitario_calandra(maquina_id: str):
     """Retorna la configuración de peso unitario para Calandra 2 o Calandra 3."""
@@ -2654,36 +4369,63 @@ def get_peso_unitario_calandra(maquina_id: str):
 
     if not row:
         if m_id == "CALANDRA_2":
-            return {"status": "success", "maquina": m_id, "peso_pequenas": 0.080, "peso_grandes": 0.350, "unidad": "kg"}
+            return {
+                "status": "success",
+                "maquina": m_id,
+                "peso_pequenas": 0.470,
+                "peso_pequenas_gr": 470,
+                "peso_grandes": 0.780,
+                "peso_grandes_gr": 780,
+                "unidad": "kg"
+            }
         else:
-            return {"status": "success", "maquina": m_id, "peso_unitario": 0.400, "unidad": "kg"}
+            return {
+                "status": "success",
+                "maquina": m_id,
+                "peso_unitario": 1.180,
+                "peso_unitario_gr": 1180,
+                "unidad": "kg"
+            }
 
     if m_id == "CALANDRA_2":
+        p_peq = float(row["peso_pequenas"] if row["peso_pequenas"] is not None else 0.470)
+        p_gra = float(row["peso_grandes"] if row["peso_grandes"] is not None else 0.780)
         return {
             "status": "success",
             "maquina": m_id,
-            "peso_pequenas": float(row["peso_pequenas"] or 0.080),
-            "peso_grandes": float(row["peso_grandes"] or 0.350),
+            "peso_pequenas": p_peq,
+            "peso_pequenas_gr": int(round(p_peq * 1000)),
+            "peso_grandes": p_gra,
+            "peso_grandes_gr": int(round(p_gra * 1000)),
             "unidad": "kg"
         }
     else:
+        p_uni = float(row["peso_unitario"] if row["peso_unitario"] is not None else 1.180)
         return {
             "status": "success",
             "maquina": m_id,
-            "peso_unitario": float(row["peso_unitario"] or 0.400),
+            "peso_unitario": p_uni,
+            "peso_unitario_gr": int(round(p_uni * 1000)),
             "unidad": "kg"
         }
 
 @router.post("/calandras/{maquina_id}/peso-unitario")
 def set_peso_unitario_calandra(maquina_id: str, data: dict):
-    """Guarda la configuración de peso unitario para Calandra 2 o Calandra 3."""
+    """Guarda la configuración de peso unitario para Calandra 2 o Calandra 3 y actualiza el turno en curso."""
     m_id = maquina_id.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
 
     if m_id == "CALANDRA_2":
-        p_peq = float(data.get("peso_pequenas", 0.080))
-        p_gra = float(data.get("peso_grandes", 0.350))
+        val_peq = data.get("peso_pequenas") or data.get("weight_pequenas_g") or data.get("pequenas_g") or data.get("pequenas") or 470
+        val_gra = data.get("peso_grandes") or data.get("weight_grandes_g") or data.get("grandes_g") or data.get("grandes") or 780
+        p_peq = float(val_peq)
+        p_gra = float(val_gra)
+        if p_peq > 10:
+            p_peq = round(p_peq / 1000.0, 3)
+        if p_gra > 10:
+            p_gra = round(p_gra / 1000.0, 3)
+
         cursor.execute("""
             INSERT INTO calandras_peso_unitario (maquina, peso_pequenas, peso_grandes, updated_at)
             VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -2693,10 +4435,11 @@ def set_peso_unitario_calandra(maquina_id: str, data: dict):
                 updated_at = CURRENT_TIMESTAMP
         """, (m_id, p_peq, p_gra))
     else:
-        val = data.get("peso_unitario") or data.get("weight_g") or data.get("weight") or data.get("peso") or 0.400
+        val = data.get("peso_unitario") or data.get("weight_g") or data.get("weight") or data.get("peso") or 1180
         p_uni = float(val)
-        if p_uni > 50:
+        if p_uni > 10:
             p_uni = round(p_uni / 1000.0, 3)
+
         cursor.execute("""
             INSERT INTO calandras_peso_unitario (maquina, peso_unitario, updated_at)
             VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -2719,15 +4462,732 @@ def set_peso_unitario_calandra(maquina_id: str, data: dict):
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            with urllib.request.urlopen(req, timeout=2) as resp:
                 pass
         except Exception as ex:
             print(f"Error sincronizando peso C3 con 5002: {ex}")
 
-    return {"status": "success", "message": f"Peso unitario de {m_id} actualizado correctamente"}
+    # Regenerar inmediatamente el paquete JSON del turno activo para guardar los nuevos pesos
+    try:
+        turnos_cache = get_cached_turnos()
+        turno_act = turnos_cache.get("turno_actual", {})
+        if is_shift_active(turno_act):
+            fecha_raw = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+            pkg = build_calandra_shift_json(m_id, fecha=fecha_raw, shift_data=turno_act)
+            save_calandra_shift_json(pkg)
+    except Exception as e:
+        print(f"Error actualizando paquete JSON al cambiar peso {m_id}: {e}")
+
+    if m_id == "CALANDRA_2":
+        return {
+            "status": "success",
+            "message": f"Pesos de Calandra 2 actualizados correctamente",
+            "peso_pequenas": p_peq,
+            "peso_pequenas_gr": int(round(p_peq * 1000)),
+            "peso_grandes": p_gra,
+            "peso_grandes_gr": int(round(p_gra * 1000))
+        }
+    else:
+        return {
+            "status": "success",
+            "message": f"Peso unitario de Calandra 3 actualizado correctamente",
+            "peso_unitario": p_uni,
+            "peso_unitario_gr": int(round(p_uni * 1000))
+        }
 
 
+# ==========================================
+# ENDPOINTS TÚNEL VT (SECADO Y OREADO CONTINUO)
+# ==========================================
+
+@router.get("/tunel-vt/dashboard")
+def get_tunel_vt_dashboard(user: dict = Depends(check_produccion_permission)):
+    """Retorna los datos completos para el Dashboard Ampliado del Túnel VT."""
+    turnos_cache = get_cached_turnos()
+    turno_act = turnos_cache.get("turno_actual", {})
+    shift_active = is_shift_active(turno_act)
+
+    nombre_turno = turno_act.get("nombre") or "Turno Activo"
+    fecha_raw = turno_act.get("fecha") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        fecha_formateada = datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        fecha_formateada = datetime.now().strftime("%d/%m/%Y")
+
+    horario_base = f"{turno_act.get('hora_inicio', '06:00')} - {turno_act.get('hora_fin', '14:00')}"
+    horario_con_fecha = f"{horario_base} | {fecha_formateada}"
+
+    prod = get_tunel_vt_production(turno_act)
+
+    if shift_active:
+        try:
+            vt_pkg = build_tunel_vt_shift_json(fecha_raw, turno_act)
+            save_tunel_vt_shift_json(vt_pkg)
+        except Exception as e:
+            print(f"Error auto-guardando turno túnel VT: {e}")
+
+    return {
+        "status": "success",
+        "maquina_id": "TUNEL_VT",
+        "nombre": "TÚNEL VT",
+        "tipo": "Secado y Oreado Continuo VT",
+        "icono": "fa-wind",
+        "is_turno_activo": shift_active,
+        "turno_info": {
+            "nombre": nombre_turno if shift_active else "Sin Turno Activo",
+            "horario": horario_con_fecha if shift_active else f"Fuera de Turno | {fecha_formateada}",
+            "fecha": fecha_formateada,
+            "is_active": shift_active
+        },
+        "indicadores": prod,
+        "grafica_hora_a_hora": prod.get("grafica_hora_a_hora", {})
+    }
 
 
+@router.get("/tunel-vt/peso-unitario")
+def get_peso_unitario_tunel_vt():
+    """Retorna la configuración de peso unitario para el Túnel VT."""
+    from app.mqtt_subscriber import get_peso_unitario_tunel_vt_db
+    p_u = get_peso_unitario_tunel_vt_db()
+    return {
+        "status": "success",
+        "maquina": "TUNEL_VT",
+        "peso_unitario": p_u,
+        "peso_unitario_gr": int(round(p_u * 1000)),
+        "unidad": "kg"
+    }
 
+
+@router.post("/tunel-vt/peso-unitario")
+def set_peso_unitario_tunel_vt(data: dict):
+    """Guarda la configuración de peso unitario para el Túnel VT."""
+    from app.mqtt_subscriber import update_peso_unitario_tunel_vt_db
+    val = data.get("peso_unitario") or data.get("weight_g") or data.get("weight") or data.get("peso") or 0.260
+    p_uni = float(val)
+    if p_uni > 50:
+        p_uni = round(p_uni / 1000.0, 3)
+
+    update_peso_unitario_tunel_vt_db(p_uni)
+    return {
+        "status": "success",
+        "message": "Peso unitario de Túnel VT actualizado correctamente",
+        "peso_unitario": p_uni,
+        "peso_unitario_gr": int(round(p_uni * 1000))
+    }
+
+
+@router.post("/tunel-vt/guardar-turno-json")
+def trigger_save_tunel_vt_shift_json(
+    fecha: Optional[str] = None,
+    turno_numero: Optional[int] = None,
+    user: dict = Depends(check_produccion_permission)
+):
+    """Genera y guarda en la base de datos local SQLite el paquete JSON del turno para Túnel VT."""
+    pkg = build_tunel_vt_shift_json(fecha=fecha, turno_numero=turno_numero)
+    ok = save_tunel_vt_shift_json(pkg)
+    return {
+        "status": "success" if ok else "error",
+        "message": f"Turno {pkg['turno_identificador']} guardado exitosamente en SQLite para Túnel VT",
+        "shift_key": pkg["shift_key"],
+        "maquina": "TUNEL_VT",
+        "fecha": pkg["fecha"],
+        "turno_identificador": pkg["turno_identificador"],
+        "hora_inicio": pkg["hora_inicio"],
+        "hora_fin": pkg["hora_fin"],
+        "rango_horario": pkg["rango_horario"],
+        "indicadores_dashboard": pkg["indicadores_dashboard"],
+        "desglose_hora_a_hora": pkg["desglose_hora_a_hora"]
+    }
+
+
+@router.get("/tunel-vt/turnos-historial")
+def get_tunel_vt_turnos_historial(
+    fecha: Optional[str] = None,
+    user: dict = Depends(check_produccion_permission)
+):
+    """Consulta la lista de turnos guardados en SQLite para el Túnel VT."""
+    conn = get_db_connection()
+    if fecha:
+        rows = conn.execute("""
+            SELECT shift_key, fecha, turno_identificador, nombre_turno,
+                   hora_inicio, hora_fin, rango_horario,
+                   prendas_totales, entrada_1, entrada_2, entrada_3,
+                   tiempo_valle_e1_min, tiempo_valle_e2_min, tiempo_valle_e3_min, tiempo_valle_total_min,
+                   kgs_totales, peso_unitario, prendas_hora, kg_hora, updated_at
+            FROM tunel_vt_turnos_persistencia
+            WHERE fecha = ? AND prendas_totales > 0
+            ORDER BY hora_inicio ASC
+        """, (fecha,)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT shift_key, fecha, turno_identificador, nombre_turno,
+                   hora_inicio, hora_fin, rango_horario,
+                   prendas_totales, entrada_1, entrada_2, entrada_3,
+                   tiempo_valle_e1_min, tiempo_valle_e2_min, tiempo_valle_e3_min, tiempo_valle_total_min,
+                   kgs_totales, peso_unitario, prendas_hora, kg_hora, updated_at
+            FROM tunel_vt_turnos_persistencia
+            WHERE prendas_totales > 0
+            ORDER BY fecha DESC, hora_inicio ASC
+        """).fetchall()
+    conn.close()
+
+    results = []
+    for r in rows:
+        results.append({
+            "shift_key": r["shift_key"],
+            "maquina": "TUNEL_VT",
+            "fecha": r["fecha"],
+            "turno_identificador": r["turno_identificador"],
+            "nombre_turno": r["nombre_turno"],
+            "hora_inicio": r["hora_inicio"],
+            "hora_fin": r["hora_fin"],
+            "rango_horario": r["rango_horario"],
+            "prendas_totales": r["prendas_totales"],
+            "prendas_totales_str": f"{r['prendas_totales']:,}".replace(",", ".") + " prendas",
+            "entrada_1": r["entrada_1"],
+            "entrada_2": r["entrada_2"],
+            "entrada_3": r["entrada_3"],
+            "kgs_totales": r["kgs_totales"],
+            "kgs_totales_str": f"{r['kgs_totales']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+            "tiempo_valle_min": r["tiempo_valle_total_min"],
+            "tiempo_valle_str": f"{r['tiempo_valle_total_min']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
+            "prendas_hora": r["prendas_hora"],
+            "prendas_hora_str": f"{r['prendas_hora']:,}".replace(",", ".") + " prendas/h",
+            "kg_hora": r["kg_hora"],
+            "kg_hora_str": f"{r['kg_hora']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg/h",
+            "updated_at": r["updated_at"]
+        })
+
+    return {
+        "status": "success",
+        "maquina": "TUNEL_VT",
+        "total": len(results),
+        "turnos": results
+    }
+
+
+@router.get("/tunel-vt/turnos-historial/{shift_key}")
+def get_tunel_vt_turno_json_detalle(
+    shift_key: str,
+    user: dict = Depends(check_produccion_permission)
+):
+    """Retorna el paquete JSON completo de un turno persistido para Túnel VT."""
+    conn = get_db_connection()
+    row = conn.execute("""
+        SELECT data_json, fecha, turno_identificador, hora_inicio, hora_fin FROM tunel_vt_turnos_persistencia
+        WHERE shift_key = ?
+    """, (shift_key,)).fetchone()
+    conn.close()
+
+    if not row or not row["data_json"]:
+        raise HTTPException(status_code=404, detail="Turno no encontrado en persistencia de Túnel VT")
+
+    # Si el turno consultado es el turno activo en progreso, recalcularlo con la telemetría viva
+    now_dt = get_local_now().replace(tzinfo=None)
+    current_jornada = get_current_jornada_date()
+    fecha_turno = row["fecha"]
+    h_start = row["hora_inicio"]
+    h_end = row["hora_fin"]
+    start_iso, end_iso = get_shift_start_end_iso(fecha_turno, h_start, h_end)
+    try:
+        dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+        dt_end = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
+        if (dt_start <= now_dt < dt_end) and (fecha_turno == current_jornada):
+            turno_num = int(str(row["turno_identificador"]).replace("Turno", "").strip() or 1)
+            turno_dict = {
+                "nombre": row["turno_identificador"],
+                "fecha": fecha_turno,
+                "hora_inicio": h_start,
+                "hora_fin": h_end,
+                "is_active": True
+            }
+            pkg = build_tunel_vt_shift_json(fecha=fecha_turno, shift_data=turno_dict, turno_numero=turno_num)
+            save_tunel_vt_shift_json(pkg)
+            return pkg
+    except Exception as ex:
+        logger.warning(f"Error refrescando turno activo VT en historial: {ex}")
+
+    try:
+        return json.loads(row["data_json"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error parseando JSON: {e}")
+
+
+@router.get("/tunel-vt/turnos-por-fecha/{fecha}")
+def get_tunel_vt_shifts_by_date(
+    fecha: str,
+    user: dict = Depends(check_produccion_permission)
+):
+    """
+    Obtiene la lista de turnos de la jornada especificada para Túnel VT.
+    Reconstruye los indicadores y guarda/actualiza el paquete JSON en tunel_vt_turnos_persistencia.
+    """
+    current_jornada = get_current_jornada_date()
+    is_current_jornada = (fecha == current_jornada)
+    now_dt = get_local_now().replace(tzinfo=None)
+
+    shifts_template = get_jornada_shifts_template()
+    result = []
+    seen_keys = set()
+
+    conn = get_db_connection()
+
+    for idx, s_info in enumerate(shifts_template):
+        nombre = s_info["nombre"]
+        nombre_upper = (nombre or "").upper()
+        if any(x in nombre_upper for x in ["FUERA", "SIN TURNO", "INACTIVO"]):
+            continue
+
+        h_start = s_info["hora_inicio"]
+        h_end = s_info["hora_fin"]
+        turno_id = f"Turno {idx + 1}"
+        shift_key = f"TUNEL_VT_{fecha}_{turno_id.replace(' ', '_')}"
+
+        start_iso, end_iso = get_shift_start_end_iso(fecha, h_start, h_end)
+        try:
+            dt_start = datetime.strptime(start_iso, "%Y-%m-%d %H:%M:%S")
+            dt_end = datetime.strptime(end_iso, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            continue
+
+        is_in_process = (dt_start <= now_dt < dt_end) and is_current_jornada
+
+        # Contar producción en la BD para el intervalo del turno
+        row_prod = conn.execute("""
+            SELECT COUNT(*), COALESCE(SUM(count_total), 0)
+            FROM tunel_vt_produccion
+            WHERE timestamp_iso >= ? AND timestamp_iso < ?
+        """, (start_iso, end_iso)).fetchone()
+
+        num_records = row_prod[0] if row_prod else 0
+        total_prendas_db = row_prod[1] if row_prod else 0
+
+        should_include = (total_prendas_db > 0) or is_in_process
+
+        if should_include:
+            turno_dict = {
+                "nombre": turno_id,
+                "fecha": fecha,
+                "hora_inicio": h_start,
+                "hora_fin": h_end,
+                "is_active": is_in_process
+            }
+            pkg = build_tunel_vt_shift_json(fecha=fecha, shift_data=turno_dict, turno_numero=idx+1)
+            save_tunel_vt_shift_json(pkg)
+
+            ind = pkg.get("indicadores_dashboard", {})
+            p_tot = ind.get("prendas_totales", 0)
+            kg_tot = ind.get("kgs_totales", 0.0)
+            valle_min = ind.get("tiempo_valle_min", 0.0)
+
+            result.append({
+                "shift_key": shift_key,
+                "maquina": "TUNEL_VT",
+                "fecha": fecha,
+                "turno_identificador": turno_id,
+                "nombre_turno": nombre,
+                "horario": f"{h_start} - {h_end}",
+                "prendas_totales": p_tot,
+                "prendas_totales_str": ind.get("prendas_totales_str", f"{p_tot} prendas"),
+                "kgs_totales": kg_tot,
+                "kgs_totales_str": ind.get("kgs_totales_str", f"{kg_tot} kg"),
+                "tiempo_valle_min": valle_min,
+                "tiempo_valle_str": ind.get("tiempo_valle_str", f"{valle_min} min"),
+                "prendas_hora": ind.get("prendas_hora", 0),
+                "kg_hora": ind.get("kg_hora", 0.0),
+                "is_in_progress": is_in_process,
+                "estado": "En proceso" if is_in_process else "Procesado",
+                "updated_at": pkg.get("meta_info", {}).get("timestamp_actualizacion")
+            })
+            seen_keys.add(shift_key)
+
+    # Persistidos en tunel_vt_turnos_persistencia
+    persisted_rows = conn.execute("""
+        SELECT shift_key, fecha, turno_identificador, nombre_turno, hora_inicio, hora_fin,
+               prendas_totales, kgs_totales, tiempo_valle_total_min, prendas_hora, kg_hora, updated_at
+        FROM tunel_vt_turnos_persistencia
+        WHERE fecha = ?
+          AND UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
+          AND prendas_totales > 0
+        ORDER BY hora_inicio ASC, id ASC
+    """, (fecha,)).fetchall()
+    valid_turno_ids = {f"Turno {i+1}" for i in range(len(shifts_template))}
+    for r in persisted_rows:
+        if r["shift_key"] not in seen_keys and r["turno_identificador"] in valid_turno_ids:
+            result.append({
+                "shift_key": r["shift_key"],
+                "maquina": "TUNEL_VT",
+                "fecha": r["fecha"],
+                "turno_identificador": r["turno_identificador"],
+                "nombre_turno": r["nombre_turno"],
+                "horario": f"{r['hora_inicio']} - {r['hora_fin']}",
+                "prendas_totales": r["prendas_totales"],
+                "prendas_totales_str": f"{r['prendas_totales']:,}".replace(",", ".") + " prendas",
+                "kgs_totales": r["kgs_totales"],
+                "kgs_totales_str": f"{r['kgs_totales']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " kg",
+                "tiempo_valle_min": r["tiempo_valle_total_min"],
+                "tiempo_valle_str": f"{r['tiempo_valle_total_min']:,.1f}".replace(",", "@").replace(".", ",").replace("@", ".") + " min",
+                "prendas_hora": r["prendas_hora"],
+                "kg_hora": r["kg_hora"],
+                "is_in_progress": False,
+                "estado": "Procesado",
+                "updated_at": r["updated_at"]
+            })
+
+    return {"status": "success", "maquina": "TUNEL_VT", "fecha": fecha, "turnos": result}
+
+
+@router.get("/tunel-vt/turnos-fechas")
+def get_tunel_vt_turnos_fechas_disponibles(
+    user: dict = Depends(check_produccion_permission)
+):
+    """Retorna la lista de fechas disponibles con registros de producción o turnos de Túnel VT en SQLite."""
+    conn = get_db_connection()
+    rows_prod = conn.execute("SELECT DISTINCT substr(timestamp_iso, 1, 10) as f FROM tunel_vt_produccion WHERE count_total > 0 ORDER BY f DESC").fetchall()
+    rows_turnos = conn.execute("""
+        SELECT DISTINCT fecha as f FROM tunel_vt_turnos_persistencia
+        WHERE UPPER(nombre_turno) NOT LIKE '%FUERA%' 
+          AND UPPER(nombre_turno) NOT LIKE '%SIN TURNO%'
+          AND UPPER(shift_key) NOT LIKE '%FUERA%'
+          AND prendas_totales > 0
+        ORDER BY f DESC
+    """).fetchall()
+    conn.close()
+
+    fechas = sorted(list(set([r["f"] for r in rows_prod if r["f"]] + [r["f"] for r in rows_turnos if r["f"]])), reverse=True)
+    jornada_hoy = get_current_jornada_date()
+    if jornada_hoy not in fechas:
+        fechas.insert(0, jornada_hoy)
+
+    return {
+        "status": "success",
+        "maquina": "TUNEL_VT",
+        "fechas": fechas,
+        "hoy": jornada_hoy
+    }
+
+
+def sync_all_historical_tunel_vt_shifts() -> int:
+    """
+    Recorre todas las fechas con registros en tunel_vt_produccion
+    y genera/actualiza los paquetes JSON para todos los turnos que tuvieron producción.
+    """
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT DISTINCT substr(timestamp_iso, 1, 10) as f
+        FROM tunel_vt_produccion
+        WHERE timestamp_iso IS NOT NULL AND timestamp_iso != ''
+        ORDER BY f ASC
+    """).fetchall()
+    conn.close()
+
+    fechas = [r["f"] for r in rows if r["f"]]
+    turnos_plantilla = get_jornada_shifts_template()
+
+    total_synced = 0
+    for fecha in fechas:
+        for idx, t_info in enumerate(turnos_plantilla):
+            h_start = t_info["hora_inicio"]
+            h_end = t_info["hora_fin"]
+
+            start_iso, end_iso = get_shift_start_end_iso(fecha, h_start, h_end)
+
+            conn_check = get_db_connection()
+            count_prod = conn_check.execute("""
+                SELECT COUNT(*), COALESCE(SUM(count_total), 0)
+                FROM tunel_vt_produccion
+                WHERE timestamp_iso >= ? AND timestamp_iso < ?
+            """, (start_iso, end_iso)).fetchone()
+            conn_check.close()
+
+            num_rec = count_prod[0] if count_prod else 0
+            tot_p = count_prod[1] if count_prod else 0
+
+            if tot_p > 0:
+                t_dict = {
+                    "nombre": f"Turno {idx + 1}",
+                    "fecha": fecha,
+                    "hora_inicio": h_start,
+                    "hora_fin": h_end,
+                    "is_active": False
+                }
+                pkg = build_tunel_vt_shift_json(fecha=fecha, shift_data=t_dict, turno_numero=idx+1)
+                save_tunel_vt_shift_json(pkg)
+                total_synced += 1
+
+    return total_synced
+
+
+@router.post("/turnos/sync-all-machines")
+def sync_all_machines_shifts_endpoint(admin: dict = Depends(check_produccion_permission)):
+    """Sincroniza y persiste todos los turnos históricos para Túnel de Lavado, Calandra 2, Calandra 3 y Túnel VT."""
+    n_lavado = sync_all_historical_shifts()
+    n_c2 = sync_all_historical_calandra_shifts("CALANDRA_2")
+    n_c3 = sync_all_historical_calandra_shifts("CALANDRA_3")
+    n_vt = sync_all_historical_tunel_vt_shifts()
+    return {
+        "status": "success",
+        "synced": {
+            "tunel_lavado": n_lavado,
+            "calandra_2": n_c2,
+            "calandra_3": n_c3,
+            "tunel_vt": n_vt
+        }
+    }
+
+
+def get_tabla_horaria_data(machine_id: str = "calandra_3", shift_index: Optional[int] = None) -> dict:
+    """
+    Construye la matriz semanal hora a hora (cells, hour_slots, totals_by_day, grand_total)
+    directamente desde las tablas de persistencia en SQLite (calandra_2_turnos_persistencia y calandra_3_turnos_persistencia).
+    Soporta navegación por turnos y actualización en tiempo real.
+    """
+    m_id_raw = (machine_id or "calandra_3").lower()
+    if "2" in m_id_raw:
+        db_maquina = "CALANDRA_2"
+        table_name = "calandra_2_turnos_persistencia"
+        machine_name = "Calandra 2"
+        clean_machine_id = "calandra_2"
+        is_c2 = True
+    else:
+        db_maquina = "CALANDRA_3"
+        table_name = "calandra_3_turnos_persistencia"
+        machine_name = "Calandra 3"
+        clean_machine_id = "calandra_3"
+        is_c2 = False
+
+    turnos_cache = get_cached_turnos()
+    shifts_list = turnos_cache.get("shifts") or [
+        {"nombre": "Turno 1", "hora_inicio": "06:00", "hora_fin": "14:00"},
+        {"nombre": "Turno 2", "hora_inicio": "14:00", "hora_fin": "21:00"},
+        {"nombre": "Turno 3", "hora_inicio": "21:00", "hora_fin": "02:10"}
+    ]
+
+    all_shifts = []
+    for idx, s in enumerate(shifts_list):
+        all_shifts.append({
+            "index": idx,
+            "name": s.get("nombre") or s.get("name") or f"Turno {idx+1}",
+            "start": str(s.get("hora_inicio") or s.get("start") or "06:00")[:5],
+            "end": str(s.get("hora_fin") or s.get("end") or "14:00")[:5],
+            "is_executing": False
+        })
+
+    turno_act = turnos_cache.get("turno_actual", {})
+    shift_active = is_shift_active(turno_act)
+    current_executing_index = 0
+    executing_found = False
+
+    if shift_active:
+        t_id, t_num = get_turno_identificador(turno_act, shifts_list)
+        if t_num is not None and t_num > 0:
+            current_executing_index = max(0, t_num - 1)
+            executing_found = True
+
+    if not executing_found:
+        now_dt = get_local_now().replace(tzinfo=None)
+        now_str = now_dt.strftime("%H:%M")
+        for s_idx, s_info in enumerate(all_shifts):
+            s_start = s_info["start"]
+            s_end = s_info["end"]
+            if s_start <= s_end:
+                if s_start <= now_str < s_end:
+                    current_executing_index = s_idx
+                    executing_found = True
+                    break
+            else:
+                if now_str >= s_start or now_str < s_end:
+                    current_executing_index = s_idx
+                    executing_found = True
+                    break
+
+    if current_executing_index < len(all_shifts):
+        all_shifts[current_executing_index]["is_executing"] = True
+
+    selected_shift_idx = shift_index if shift_index is not None else current_executing_index
+    if selected_shift_idx < 0 or selected_shift_idx >= len(all_shifts):
+        selected_shift_idx = 0
+
+    sel_shift = all_shifts[selected_shift_idx]
+    shift_name = sel_shift["name"]
+    turno_identificador = f"Turno {selected_shift_idx + 1}"
+    h_start_str = sel_shift["start"]
+    h_end_str = sel_shift["end"]
+
+    curr_jornada = get_current_jornada_date()
+    try:
+        curr_dt = datetime.strptime(curr_jornada, "%Y-%m-%d")
+    except Exception:
+        curr_dt = datetime.now()
+    
+    monday_dt = curr_dt - timedelta(days=curr_dt.weekday())
+
+    day_names = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO", "DOMINGO"]
+    days = []
+    for d in range(7):
+        d_dt = monday_dt + timedelta(days=d)
+        d_str = d_dt.strftime("%Y-%m-%d")
+        days.append({
+            "index": d,
+            "name": day_names[d],
+            "date": d_str,
+            "date_formatted": d_dt.strftime("%d/%m")
+        })
+
+    week_start = days[0]["date"]
+    week_end = days[6]["date"]
+
+    try:
+        hs = int(h_start_str.split(":")[0])
+        he = int(h_end_str.split(":")[0])
+        if he <= hs:
+            num_hours = (24 - hs) + he
+        else:
+            num_hours = he - hs
+    except Exception:
+        hs, he, num_hours = 6, 14, 8
+
+    hour_slots = []
+    for s_idx in range(num_hours):
+        h1 = (hs + s_idx) % 24
+        h2 = (h1 + 1) % 24
+        s_start = f"{h1:02d}:00"
+        s_end = f"{h2:02d}:00"
+        hour_slots.append({
+            "index": s_idx,
+            "label": f"{s_start} - {s_end}",
+            "h_start": h1,
+            "h_end": h2,
+            "startStr": s_start,
+            "endStr": s_end
+        })
+
+    # Si el turno seleccionado es el turno activo actual de la jornada de hoy, auto-guardar avance
+    if selected_shift_idx == current_executing_index:
+        try:
+            pkg = build_calandra_shift_json(db_maquina, fecha=curr_jornada, shift_data=turno_act, turno_numero=selected_shift_idx + 1)
+            save_calandra_shift_json(pkg)
+        except Exception as ex:
+            print(f"Error actualizando turno activo para tabla-horaria: {ex}")
+
+    cells = {}
+    conn = get_db_connection()
+
+    for d_info in days:
+        d_idx = d_info["index"]
+        d_date = d_info["date"]
+
+        row = conn.execute(f"""
+            SELECT data_json FROM {table_name}
+            WHERE fecha = ? AND (turno_identificador = ? OR turno_identificador = ? OR nombre_turno = ?)
+            LIMIT 1
+        """, (d_date, turno_identificador, shift_name, shift_name)).fetchone()
+
+        desglose = None
+        if row and row["data_json"]:
+            try:
+                pkg_data = json.loads(row["data_json"])
+                desglose = pkg_data.get("desglose_hora_a_hora")
+            except Exception:
+                desglose = None
+
+        if desglose:
+            d_prendas = desglose.get("prendas") or []
+            d_valle = desglose.get("tiempo_valle_min") or []
+            d_grandes = desglose.get("grandes") or []
+            d_pequenas = desglose.get("pequenas") or []
+
+            for s_idx in range(num_hours):
+                cell_key = f"{d_idx}_{s_idx}"
+                sm = int(d_pequenas[s_idx]) if (is_c2 and d_pequenas and s_idx < len(d_pequenas)) else (int(d_prendas[s_idx]) if s_idx < len(d_prendas) else 0)
+                lg = int(d_grandes[s_idx]) if (is_c2 and d_grandes and s_idx < len(d_grandes)) else 0
+                tot = sm + lg if is_c2 else (int(d_prendas[s_idx]) if s_idx < len(d_prendas) else 0)
+                idle = float(d_valle[s_idx]) if s_idx < len(d_valle) else 0.0
+
+                cells[cell_key] = {
+                    "small": max(0, sm),
+                    "large": max(0, lg),
+                    "total": max(0, tot),
+                    "idle_min": round(max(0.0, idle), 1)
+                }
+        else:
+            for s_idx in range(num_hours):
+                cells[f"{d_idx}_{s_idx}"] = {
+                    "small": 0,
+                    "large": 0,
+                    "total": 0,
+                    "idle_min": 0.0
+                }
+
+    conn.close()
+
+    totals_by_day = []
+    grand_p = 0
+    grand_v = 0.0
+
+    for d_idx in range(7):
+        d_small = 0
+        d_large = 0
+        d_idle = 0.0
+        for s_idx in range(num_hours):
+            c = cells.get(f"{d_idx}_{s_idx}", {})
+            d_small += int(c.get("small", 0))
+            d_large += int(c.get("large", 0))
+            d_idle += float(c.get("idle_min", 0.0))
+
+        d_idle = round(d_idle, 1)
+        d_tot = d_small + d_large
+        grand_p += d_tot
+        grand_v += d_idle
+
+        totals_by_day.append({
+            "day": d_idx,
+            "small": d_small,
+            "large": d_large,
+            "total_prendas": d_tot,
+            "idle_min": d_idle,
+            "total_idle_min": d_idle
+        })
+
+    curr_slot_idx = None
+    if selected_shift_idx == current_executing_index:
+        now_h = get_local_now().hour
+        for slot in hour_slots:
+            if slot["h_start"] == now_h:
+                curr_slot_idx = slot["index"]
+                break
+
+    return {
+        "success": True,
+        "machine_id": clean_machine_id,
+        "machine_name": machine_name,
+        "shift_index": selected_shift_idx,
+        "shift_name": shift_name,
+        "shift_start": h_start_str,
+        "shift_end": h_end_str,
+        "current_executing_shift_index": curr_slot_idx if curr_slot_idx is not None else 0,
+        "current_planta_date": curr_jornada,
+        "current_planta_hour": get_local_now().hour,
+        "week_start": week_start,
+        "week_end": week_end,
+        "all_shifts": all_shifts,
+        "days": days,
+        "hour_slots": hour_slots,
+        "cells": cells,
+        "totals_by_day": totals_by_day,
+        "grand_total": {
+            "small": sum(t["small"] for t in totals_by_day),
+            "large": sum(t["large"] for t in totals_by_day),
+            "total_prendas": grand_p,
+            "idle_min": round(grand_v, 1),
+            "total_idle_min": round(grand_v, 1)
+        }
+    }
+
+
+@router.get("/tabla-horaria")
+def get_tabla_horaria_api(machine_id: str = "calandra_3", shift_index: Optional[int] = None):
+    return get_tabla_horaria_data(machine_id=machine_id, shift_index=shift_index)
 
