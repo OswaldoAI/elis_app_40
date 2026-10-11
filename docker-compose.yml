@@ -5,13 +5,17 @@ services:
     container_name: elis_industry4_app
     build: .
     restart: always
+    pid: "host"
     ports:
       - "8084:8000"
     volumes:
       - elis_data:/app/data
+      - ./app:/app/app
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - SECRET_KEY=elis_najera_40_secret_key_super_secure_2026
       - DB_PATH=/app/data/elis_40.db
 
 volumes:
   elis_data:
+    external: true
